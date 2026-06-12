@@ -177,4 +177,14 @@ export default defineSchema({
     email: v.string(),
     source: v.string(), // which page captured it
   }).index("by_email", ["email"]),
+
+  feedback: defineTable({
+    orgId: v.id("organisations"),
+    userId: v.string(), // Clerk subject
+    userName: v.optional(v.string()),
+    orgName: v.string(),
+    message: v.string(),
+    page: v.string(), // app path the feedback was sent from
+    emailStatus: v.optional(v.string()), // "sent" or the error
+  }).index("by_org", ["orgId"]),
 });

@@ -15,6 +15,7 @@ import type * as callSheets from "../callSheets.js";
 import type * as clients from "../clients.js";
 import type * as dashboard from "../dashboard.js";
 import type * as distribution from "../distribution.js";
+import type * as feedback from "../feedback.js";
 import type * as lib_agentProposals from "../lib/agentProposals.js";
 import type * as lib_ai from "../lib/ai.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   clients: typeof clients;
   dashboard: typeof dashboard;
   distribution: typeof distribution;
+  feedback: typeof feedback;
   "lib/agentProposals": typeof lib_agentProposals;
   "lib/ai": typeof lib_ai;
   "lib/auth": typeof lib_auth;

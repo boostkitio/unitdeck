@@ -6,6 +6,7 @@ import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 import { BRAND } from "@/lib/brand";
 import { OrgGate } from "./org-bootstrap";
+import { FeedbackButton } from "@/components/feedback-button";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -55,8 +56,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
         </nav>
-        <div className="mt-auto px-2">
-          <UserButton />
+        <div className="mt-auto space-y-3">
+          <FeedbackButton />
+          <div className="px-2">
+            <UserButton />
+          </div>
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">

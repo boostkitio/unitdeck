@@ -1,13 +1,13 @@
-# Unit (codename)
+# UnitDeck
 
-Production OS for video companies: plan shoots, send call sheets, track confirmations and run production days from one place. The product name is provisional; `src/lib/brand.ts` is the single rename point.
+Production OS for video companies: plan shoots, send call sheets, track confirmations and run production days from one place. Live at https://unitdeck.app. `src/lib/brand.ts` is the single rename point.
 
 ## Stack
 
 - Next.js (App Router, TypeScript, Tailwind v4, shadcn/ui on Base UI)
 - Convex (database, realtime, functions): project `unit` on team `boostkit_`
 - Clerk (auth, organisations as tenancy boundary)
-- Vercel (hosting): project `unit` on team `boostkit`, production at https://unit-boostkit.vercel.app, auto-deploys from `main`
+- Vercel (hosting): project `unit` on team `boostkit`, production at https://unitdeck.app (alias unit-boostkit.vercel.app), auto-deploys from `main`
 
 ## Local development
 

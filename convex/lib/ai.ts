@@ -21,7 +21,7 @@ export function openRouterHeaders(): Record<string, string> {
     Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
     // OpenRouter attribution headers (optional but recommended)
-    "HTTP-Referer": "https://unit.film",
-    "X-Title": "Unit",
+    "HTTP-Referer": "https://unitdeck.app",
+    "X-Title": "UnitDeck",
   };
 }
