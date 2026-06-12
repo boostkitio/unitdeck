@@ -144,7 +144,12 @@ function ProjectEditor({
             }
           >
             <SelectTrigger className="w-56">
-              <SelectValue placeholder="No client" />
+              {/* Explicit label: Base UI shows the raw value when items mount late */}
+              <SelectValue>
+                {project.clientId
+                  ? (clients.find((c) => c._id === project.clientId)?.name ?? "…")
+                  : "No client"}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">No client</SelectItem>
