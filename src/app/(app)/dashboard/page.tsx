@@ -14,6 +14,7 @@ export default function DashboardPage() {
   const projects = useQuery(api.projects.list, organization ? {} : "skip");
   const people = useQuery(api.people.list, organization ? {} : "skip");
   const clients = useQuery(api.clients.list, organization ? {} : "skip");
+  const attention = useQuery(api.dashboard.attention, organization ? {} : "skip");
 
   if (!organization) {
     return (
@@ -41,22 +42,41 @@ export default function DashboardPage() {
         <CardHeader>
           <CardTitle className="text-base">Needs attention</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-neutral-500">
-          {active === undefined ? (
+        <CardContent className="text-sm">
+          {attention === undefined || active === undefined ? (
             <Skeleton className="h-5 w-64" />
           ) : active.length === 0 ? (
-            <p>
+            <p className="text-neutral-500">
               No active projects yet.{" "}
               <Link className="underline underline-offset-2" href="/projects">
                 Create your first project
               </Link>{" "}
               to get going.
             </p>
-          ) : (
-            <p>
-              The attention feed lands with call sheets in phase 3: unconfirmed crew, missing
-              risk assessments, unsent call sheets and weather flags will appear here.
+          ) : attention.length === 0 ? (
+            <p className="text-neutral-500">
+              Nothing needs attention. Upcoming shoot days with unsent call sheets, unconfirmed
+              crew or weather risk will appear here.
             </p>
+          ) : (
+            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              {attention.map((item, i) => (
+                <li key={i} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{item.label}</p>
+                    <p className="text-xs text-neutral-500">
+                      {item.projectName} · {item.date}
+                    </p>
+                  </div>
+                  <Link
+                    className="shrink-0 text-xs underline underline-offset-2"
+                    href={`/projects/${item.projectId}/shoot-days/${item.shootDayId}/call-sheet`}
+                  >
+                    Open call sheet
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>
