@@ -8,11 +8,15 @@
  * @module
  */
 
+import type * as callSheets from "../callSheets.js";
 import type * as clients from "../clients.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_callSheetData from "../lib/callSheetData.js";
+import type * as locations from "../locations.js";
 import type * as organisations from "../organisations.js";
 import type * as people from "../people.js";
 import type * as projects from "../projects.js";
+import type * as shootDays from "../shootDays.js";
 
 import type {
   ApiFromModules,
@@ -21,11 +25,15 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  callSheets: typeof callSheets;
   clients: typeof clients;
   "lib/auth": typeof lib_auth;
+  "lib/callSheetData": typeof lib_callSheetData;
+  locations: typeof locations;
   organisations: typeof organisations;
   people: typeof people;
   projects: typeof projects;
+  shootDays: typeof shootDays;
 }>;
 
 /**
