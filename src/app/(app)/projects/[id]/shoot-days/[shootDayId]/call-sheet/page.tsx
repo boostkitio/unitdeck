@@ -1,0 +1,256 @@
+"use client";
+
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { useOrganization } from "@clerk/nextjs";
+import { toast } from "sonner";
+import { api } from "../../../../../../../../convex/_generated/api";
+import { Doc, Id } from "../../../../../../../../convex/_generated/dataModel";
+import type { CallSheetData } from "../../../../../../../../convex/lib/callSheetData";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CallSheetDocument } from "@/components/call-sheet/call-sheet-document";
+import { ComposerForm } from "@/components/call-sheet/composer-form";
+
+export default function CallSheetPage({
+  params,
+}: {
+  params: Promise<{ id: string; shootDayId: string }>;
+}) {
+  const { id, shootDayId } = use(params);
+  const projectId = id as Id<"projects">;
+  const dayId = shootDayId as Id<"shootDays">;
+  const { organization } = useOrganization();
+  const ensure = useMutation(api.callSheets.ensure);
+  const draft = useQuery(api.callSheets.getCurrent, organization ? { shootDayId: dayId } : "skip");
+
+  // First visit: create version 1 from shoot day defaults
+  useEffect(() => {
+    if (organization && draft === null) {
+      void ensure({ shootDayId: dayId });
+    }
+  }, [organization, draft, ensure, dayId]);
+
+  if (!organization || draft === undefined || draft === null) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-9 w-72" />
+        <Skeleton className="h-96 w-full" />
+      </div>
+    );
+  }
+
+  // Keyed by draft id: snapshot/restore create a new draft row and remount
+  return <Composer key={draft._id} draft={draft} projectId={projectId} dayId={dayId} />;
+}
+
+type SaveState = "saved" | "saving" | "error";
+
+function Composer({
+  draft,
+  projectId,
+  dayId,
+}: {
+  draft: Doc<"callSheets">;
+  projectId: Id<"projects">;
+  dayId: Id<"shootDays">;
+}) {
+  const saveDraft = useMutation(api.callSheets.saveDraft);
+  const snapshot = useMutation(api.callSheets.snapshotVersion);
+  const refreshWeather = useAction(api.shootDays.refreshWeather);
+  const day = useQuery(api.shootDays.get, { id: dayId });
+
+  const [data, setData] = useState<CallSheetData>(draft.data);
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onChange = useCallback(
+    (next: CallSheetData) => {
+      setData(next);
+      setSaveState("saving");
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(async () => {
+        try {
+          await saveDraft({ id: draft._id, data: next });
+          setSaveState("saved");
+        } catch {
+          setSaveState("error");
+        }
+      }, 800);
+    },
+    [draft._id, saveDraft]
+  );
+
+  // Never lose work: flush a pending save before the tab closes
+  useEffect(() => {
+    const handler = () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+        void saveDraft({ id: draft._id, data });
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [data, draft._id, saveDraft]);
+
+  async function exportPdf() {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/call-sheets/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callSheetId: draft._id }),
+      });
+      if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${data.title.replace(/[^\w\- ]/g, "")} call sheet ${data.date} v${draft.version}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("PDF exported.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "PDF export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <div className="-mx-8 -my-8 flex h-screen flex-col">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between border-b border-neutral-200 bg-white px-6 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/projects/${projectId}`}
+            className="text-sm text-neutral-500 hover:underline"
+          >
+            ← Back to project
+          </Link>
+          <h1 className="text-sm font-semibold">Call sheet · v{draft.version}</h1>
+          <span
+            className={
+              saveState === "error"
+                ? "text-xs font-medium text-red-600"
+                : "text-xs text-neutral-400"
+            }
+          >
+            {saveState === "saved"
+              ? "Saved"
+              : saveState === "saving"
+                ? "Saving…"
+                : "Save failed — retrying on next edit"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              const result = await refreshWeather({ id: dayId });
+              if (result.ok) {
+                // Weather lands on the shoot day; copy it into this document
+                if (day?.weather) {
+                  onChange({
+                    ...data,
+                    weatherSummary: `${day.weather.summary}, ${Math.round(day.weather.tempMinC)}–${Math.round(day.weather.tempMaxC)}°C`,
+                    sunrise: day.sun?.sunrise,
+                    sunset: day.sun?.sunset,
+                  });
+                }
+                toast.success("Weather updated.");
+              } else {
+                toast.info(result.reason);
+              }
+            }}
+          >
+            Refresh weather
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)}>
+            History
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={async () => {
+              await snapshot({ shootDayId: dayId });
+              toast.success(`Version ${draft.version} saved to history.`);
+            }}
+          >
+            Save version
+          </Button>
+          <Button size="sm" disabled={exporting} onClick={exportPdf}>
+            {exporting ? "Exporting…" : "Export PDF"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Editor + live preview */}
+      <div className="flex min-h-0 flex-1">
+        <div className="w-[420px] shrink-0 overflow-y-auto border-r border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900">
+          <ComposerForm data={data} onChange={onChange} />
+        </div>
+        <div className="flex-1 overflow-y-auto bg-neutral-200 p-8 dark:bg-neutral-950">
+          <div className="origin-top scale-[0.85] shadow-xl">
+            <CallSheetDocument data={data} versionLabel={`v${draft.version} draft`} />
+          </div>
+        </div>
+      </div>
+
+      {historyOpen && <HistoryDialog dayId={dayId} onClose={() => setHistoryOpen(false)} />}
+    </div>
+  );
+}
+
+function HistoryDialog({ dayId, onClose }: { dayId: Id<"shootDays">; onClose: () => void }) {
+  const versions = useQuery(api.callSheets.listVersions, { shootDayId: dayId });
+  const restore = useMutation(api.callSheets.restoreVersion);
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Version history</DialogTitle>
+        </DialogHeader>
+        <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+          {(versions ?? []).map((s) => (
+            <li key={s._id} className="flex items-center justify-between py-2.5">
+              <div>
+                <p className="text-sm font-medium">
+                  v{s.version}
+                  {s.status === "draft" ? " (current draft)" : ""}
+                </p>
+                <p className="text-xs text-neutral-500">
+                  {new Date(s._creationTime).toLocaleString("en-GB")}
+                  {s.versionNote ? ` · ${s.versionNote}` : ""}
+                </p>
+              </div>
+              {s.status !== "draft" && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={async () => {
+                    await restore({ shootDayId: dayId, fromId: s._id });
+                    toast.success(`Restored v${s.version} into a new draft.`);
+                    onClose();
+                  }}
+                >
+                  Restore
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </DialogContent>
+    </Dialog>
+  );
+}
