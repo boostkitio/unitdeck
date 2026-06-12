@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   // include them explicitly or the function ships without a browser.
   outputFileTracingIncludes: {
     "/api/call-sheets/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
+    "/api/tools/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
   },
 };
 

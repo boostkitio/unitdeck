@@ -178,6 +178,13 @@ export default defineSchema({
     source: v.string(), // which page captured it
   }).index("by_email", ["email"]),
 
+  // Ephemeral renders for the public call sheet maker (no login, no storage)
+  toolRenders: defineTable({
+    token: v.string(),
+    data: callSheetDataValidator,
+    expiresAt: v.number(),
+  }).index("by_token", ["token"]),
+
   feedback: defineTable({
     orgId: v.id("organisations"),
     userId: v.string(), // Clerk subject

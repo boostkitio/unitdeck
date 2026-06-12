@@ -28,6 +28,7 @@ import type * as people from "../people.js";
 import type * as projects from "../projects.js";
 import type * as setMode from "../setMode.js";
 import type * as shootDays from "../shootDays.js";
+import type * as tools from "../tools.js";
 import type * as waitlist from "../waitlist.js";
 import type * as wrap from "../wrap.js";
 
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   setMode: typeof setMode;
   shootDays: typeof shootDays;
+  tools: typeof tools;
   waitlist: typeof waitlist;
   wrap: typeof wrap;
 }>;

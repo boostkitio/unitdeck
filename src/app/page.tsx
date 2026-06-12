@@ -83,7 +83,7 @@ export default async function Home() {
             className="text-sm text-neutral-300 hover:text-white"
             href="/templates/call-sheet-template"
           >
-            Free call sheet template
+            Free call sheet maker
           </Link>
         </footer>
       </div>

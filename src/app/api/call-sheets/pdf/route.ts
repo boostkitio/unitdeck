@@ -4,22 +4,10 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 
+import { launchBrowser } from "@/lib/pdf-browser";
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-async function launchBrowser() {
-  const puppeteer = (await import("puppeteer-core")).default;
-  if (process.env.VERCEL) {
-    const chromium = (await import("@sparticuz/chromium")).default;
-    return puppeteer.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
-      headless: true,
-    });
-  }
-  // Local dev: use the installed Chrome
-  return puppeteer.launch({ channel: "chrome", headless: true });
-}
 
 export async function POST(req: NextRequest) {
   const { getToken } = await auth();
