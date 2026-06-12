@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ChaseDialog } from "@/components/agents/chase-dialog";
 
 export function SendDialog({
   dayId,
@@ -143,7 +144,11 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 
 export function RecipientStrip({ dayId }: { dayId: Id<"shootDays"> }) {
   const recipients = useQuery(api.distribution.listForShootDay, { shootDayId: dayId });
+  const [chaseOpen, setChaseOpen] = useState(false);
   if (!recipients || recipients.length === 0) return null;
+  const unconfirmed = recipients.filter((r) =>
+    ["pending", "sent", "viewed", "failed"].includes(r.status)
+  ).length;
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-6 py-2 dark:border-neutral-800 dark:bg-neutral-900">
       {recipients.map((r) => {
@@ -162,6 +167,15 @@ export function RecipientStrip({ dayId }: { dayId: Id<"shootDays"> }) {
           </span>
         );
       })}
+      {unconfirmed > 0 && (
+        <button
+          className="ml-auto text-xs font-medium text-neutral-500 underline underline-offset-2 hover:text-neutral-900 dark:hover:text-neutral-100"
+          onClick={() => setChaseOpen(true)}
+        >
+          Chase {unconfirmed} unconfirmed
+        </button>
+      )}
+      {chaseOpen && <ChaseDialog dayId={dayId} onClose={() => setChaseOpen(false)} />}
     </div>
   );
 }
