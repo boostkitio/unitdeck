@@ -51,12 +51,20 @@ export function ShootDaysSection({ projectId }: { projectId: Id<"projects"> }) {
                     : ""}
                 </p>
               </div>
-              <Link
-                href={`/projects/${projectId}/shoot-days/${day._id}/call-sheet`}
-                className={buttonVariants({ variant: "secondary", size: "sm" })}
-              >
-                Call sheet
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/projects/${projectId}/shoot-days/${day._id}/wrap`}
+                  className={buttonVariants({ variant: "ghost", size: "sm" })}
+                >
+                  Wrap
+                </Link>
+                <Link
+                  href={`/projects/${projectId}/shoot-days/${day._id}/call-sheet`}
+                  className={buttonVariants({ variant: "secondary", size: "sm" })}
+                >
+                  Call sheet
+                </Link>
+              </div>
             </li>
           ))}
         </ul>
