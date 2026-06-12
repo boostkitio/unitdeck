@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { callSheetDataValidator } from "./lib/callSheetData";
+import { proposalValidator } from "./lib/agentProposals";
 
 export const weatherSnapshotValidator = v.object({
   fetchedAt: v.number(),
@@ -146,4 +147,28 @@ export default defineSchema({
   })
     .index("by_recipient", ["recipientId"])
     .index("by_call_sheet", ["callSheetId"]),
+
+  agentRuns: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.optional(v.id("projects")),
+    shootDayId: v.optional(v.id("shootDays")),
+    agent: v.union(
+      v.literal("brief_parser"),
+      v.literal("call_sheet_checker"),
+      v.literal("message_drafter")
+    ),
+    model: v.string(),
+    input: v.string(), // what the model was shown (truncated to 20k chars)
+    proposal: proposalValidator,
+    status: v.union(
+      v.literal("proposed"), // awaiting a human decision
+      v.literal("advisory"), // read-only output, no decision needed
+      v.literal("approved"),
+      v.literal("rejected")
+    ),
+    decidedBy: v.optional(v.string()), // Clerk user id (identity.subject)
+    decidedAt: v.optional(v.number()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_shoot_day", ["shootDayId"]),
 });
