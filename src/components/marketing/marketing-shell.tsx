@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 import { Logo } from "@/components/logo";
 import { WaitlistForm } from "./waitlist-form";
+import { ShaderBand } from "./shader-band";
 
 export function MarketingShell({
   children,
@@ -23,12 +24,13 @@ export function MarketingShell({
       <article className="prose-headings:tracking-tight mx-auto max-w-3xl px-6 pb-16">
         {children}
       </article>
-      <section className="border-t border-neutral-200 bg-neutral-50">
-        <div className="mx-auto max-w-3xl px-6 py-12">
+      <section className="relative overflow-hidden">
+        <ShaderBand />
+        <div className="relative mx-auto max-w-3xl px-6 py-14 text-white">
           <h2 className="text-xl font-semibold tracking-tight">
             Run your next shoot with {BRAND.name}
           </h2>
-          <p className="mt-2 max-w-xl text-sm text-neutral-600">
+          <p className="mt-2 max-w-xl text-sm text-neutral-200">
             From client brief to wrapped shoot day: AI call sheets, one-tap crew confirmations and
             a command centre for the whole company. Join the waitlist for early access.
           </p>
