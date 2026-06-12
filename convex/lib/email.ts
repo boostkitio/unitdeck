@@ -1,0 +1,65 @@
+import type { CallSheetData } from "./callSheetData";
+
+export function escapeHtml(s: string): string {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+export function formatEmailDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+export function callSheetEmail(args: {
+  data: CallSheetData;
+  recipientName: string;
+  recipientCallTime: string;
+  setModeUrl: string;
+  isUpdate: boolean;
+}): { subject: string; html: string } {
+  const { data, recipientName, recipientCallTime, setModeUrl, isUpdate } = args;
+  const dateText = formatEmailDate(data.date);
+  const subject = `${isUpdate ? "Updated call sheet" : "Call sheet"}: ${data.title} – ${dateText}`;
+  const firstLocation = data.locations[0];
+
+  const row = (label: string, value: string) =>
+    `<tr><td style="padding:6px 12px 6px 0;color:#737373;font-size:13px;white-space:nowrap;vertical-align:top;">${label}</td>` +
+    `<td style="padding:6px 0;font-size:14px;color:#171717;">${value}</td></tr>`;
+
+  const html = `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 12px;"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;padding:32px;">
+<tr><td>
+  <p style="margin:0;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#737373;">${escapeHtml(data.productionCompany)}</p>
+  <h1 style="margin:6px 0 2px;font-size:22px;color:#171717;">${escapeHtml(data.title)}</h1>
+  <p style="margin:0 0 20px;font-size:14px;color:#404040;">${isUpdate ? "Your call sheet has been updated. Please check the latest details below." : "Your call sheet is ready."}</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-top:1px solid #e5e5e5;border-bottom:1px solid #e5e5e5;margin-bottom:24px;">
+    ${row("Hello", escapeHtml(recipientName))}
+    ${row("Date", escapeHtml(dateText))}
+    ${row("Your call time", `<strong>${escapeHtml(recipientCallTime)}</strong>`)}
+    ${row("General call", escapeHtml(data.generalCallTime))}
+    ${firstLocation ? row("Location", `${escapeHtml(firstLocation.name)}<br/><span style="color:#525252;">${escapeHtml(firstLocation.address)}</span>`) : ""}
+  </table>
+  <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:6px;background:#171717;">
+    <a href="${setModeUrl}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">Open your call sheet</a>
+  </td></tr></table>
+  <p style="margin:16px 0 0;font-size:13px;color:#737373;">Please confirm your availability on the page above. The link is personal to you, no login needed.</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+
+  return { subject, html };
+}
