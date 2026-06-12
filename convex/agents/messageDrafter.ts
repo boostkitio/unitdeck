@@ -16,7 +16,7 @@ import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx, QueryCtx } from "../_generated/server";
 
 const UNCONFIRMED = new Set(["pending", "sent", "viewed", "failed"]);
-const FROM = "UnitDeck <callsheets@updates.boostkit.io>";
+const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
 
 async function chaseContext(ctx: QueryCtx | MutationCtx, shootDayId: Id<"shootDays">) {
   const { org } = await requireOrg(ctx);

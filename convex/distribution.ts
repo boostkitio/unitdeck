@@ -6,7 +6,7 @@ import { callSheetEmail } from "./lib/email";
 import { Id } from "./_generated/dataModel";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const FROM = "UnitDeck <callsheets@updates.boostkit.io>";
+const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
 
 function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24));

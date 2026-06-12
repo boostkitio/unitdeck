@@ -62,7 +62,7 @@ export const notify = internalAction({
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          from: "UnitDeck <callsheets@updates.boostkit.io>",
+          from: "UnitDeck <callsheets@mail.unitdeck.app>",
           to: ["matt@boostkit.io"],
           subject: `UnitDeck feedback from ${row.orgName}`,
           html,
