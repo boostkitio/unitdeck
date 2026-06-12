@@ -37,10 +37,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { statusLabel, STATUS_BADGE_CLASSES, ProjectStatus } from "@/lib/project-status";
+import { BriefDialog } from "@/components/agents/brief-dialog";
 
 export default function ProjectsPage() {
   const { organization } = useOrganization();
   const projects = useQuery(api.projects.list, organization ? {} : "skip");
+  const [briefOpen, setBriefOpen] = useState(false);
 
   return (
     <div>
@@ -49,8 +51,14 @@ export default function ProjectsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
           <p className="mt-1 text-sm text-neutral-500">Every production, from brief to delivery.</p>
         </div>
-        <CreateProjectDialog />
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => setBriefOpen(true)}>
+            New from brief
+          </Button>
+          <CreateProjectDialog />
+        </div>
       </div>
+      {briefOpen && <BriefDialog onClose={() => setBriefOpen(false)} />}
 
       <div className="mt-6">
         {projects === undefined ? (
