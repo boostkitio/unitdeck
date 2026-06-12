@@ -242,45 +242,79 @@ export function ComposerForm({
           </div>
         </div>
         {data.crew.map((row) => (
-          <div key={row.id} className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
-            <Input
-              placeholder="Name"
-              value={row.name}
-              onChange={(e) =>
-                set({
-                  crew: data.crew.map((c) => (c.id === row.id ? { ...c, name: e.target.value } : c)),
-                })
-              }
-            />
-            <Input
-              placeholder="Role"
-              value={row.role}
-              onChange={(e) =>
-                set({
-                  crew: data.crew.map((c) => (c.id === row.id ? { ...c, role: e.target.value } : c)),
-                })
-              }
-            />
-            <Input
-              type="time"
-              className="w-28"
-              value={row.callTime}
-              onChange={(e) =>
-                set({
-                  crew: data.crew.map((c) =>
-                    c.id === row.id ? { ...c, callTime: e.target.value } : c
-                  ),
-                })
-              }
-            />
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-red-600"
-              onClick={() => set({ crew: data.crew.filter((c) => c.id !== row.id) })}
-            >
-              Remove
-            </Button>
+          <div
+            key={row.id}
+            className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800"
+          >
+            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+              <Input
+                placeholder="Name"
+                value={row.name}
+                onChange={(e) =>
+                  set({
+                    crew: data.crew.map((c) =>
+                      c.id === row.id ? { ...c, name: e.target.value } : c
+                    ),
+                  })
+                }
+              />
+              <Input
+                placeholder="Role"
+                value={row.role}
+                onChange={(e) =>
+                  set({
+                    crew: data.crew.map((c) =>
+                      c.id === row.id ? { ...c, role: e.target.value } : c
+                    ),
+                  })
+                }
+              />
+              <Input
+                type="time"
+                className="w-28"
+                value={row.callTime}
+                onChange={(e) =>
+                  set({
+                    crew: data.crew.map((c) =>
+                      c.id === row.id ? { ...c, callTime: e.target.value } : c
+                    ),
+                  })
+                }
+              />
+            </div>
+            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+              <Input
+                type="email"
+                placeholder="Email (needed to send)"
+                value={row.email ?? ""}
+                onChange={(e) =>
+                  set({
+                    crew: data.crew.map((c) =>
+                      c.id === row.id ? { ...c, email: e.target.value || undefined } : c
+                    ),
+                  })
+                }
+              />
+              <Input
+                placeholder="Phone"
+                value={row.phone ?? ""}
+                onChange={(e) =>
+                  set({
+                    crew: data.crew.map((c) =>
+                      c.id === row.id ? { ...c, phone: e.target.value || undefined } : c
+                    ),
+                  })
+                }
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-red-600"
+                onClick={() => set({ crew: data.crew.filter((c) => c.id !== row.id) })}
+              >
+                Remove
+              </Button>
+            </div>
           </div>
         ))}
       </section>
