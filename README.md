@@ -7,7 +7,7 @@ Production OS for video companies: plan shoots, send call sheets, track confirma
 - Next.js (App Router, TypeScript, Tailwind v4, shadcn/ui on Base UI)
 - Convex (database, realtime, functions): project `unit` on team `boostkit_`
 - Clerk (auth, organisations as tenancy boundary)
-- Vercel (hosting)
+- Vercel (hosting): project `unit` on team `boostkit`, production at https://unit-boostkit.vercel.app, auto-deploys from `main`
 
 ## Local development
 
@@ -38,3 +38,5 @@ $env:Path = "C:\Users\itswe\node22;$env:Path"
 - Product spec: `docs/superpowers/specs/2026-06-12-unit-mvp-design.md`
 - Competitor research: `docs/research/2026-06-12-studiobinder-competitor-research.md`
 - Phase 1 plan: `docs/superpowers/plans/2026-06-12-unit-phase1-foundation.md`
+- Phase 2 plan (call sheets, versioning, PDF): `docs/superpowers/plans/2026-06-12-unit-phase2-call-sheets.md`
+- Phase 3 plan (distribution, set mode, command centre): `docs/superpowers/plans/2026-06-12-unit-phase3-distribution.md`
