@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PROJECT_STATUSES, ProjectStatus } from "@/lib/project-status";
+import { ShootDaysSection } from "./shoot-days";
 
 type ProjectWithClient = Doc<"projects"> & { clientName: string | null };
 
@@ -173,6 +174,8 @@ function ProjectEditor({
           </Button>
         </div>
       </div>
+
+      <ShootDaysSection projectId={project._id} />
     </div>
   );
 }
