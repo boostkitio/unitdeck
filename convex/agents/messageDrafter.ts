@@ -76,7 +76,13 @@ export const draft = action({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
-    const context = await ctx.runQuery(internal.agents.messageDrafter.getChaseContext, {
+    const context: {
+      orgId: Id<"organisations">;
+      orgName: string;
+      title: string;
+      date: string;
+      unconfirmed: { name: string; role: string }[];
+    } = await ctx.runQuery(internal.agents.messageDrafter.getChaseContext, {
       shootDayId: args.shootDayId,
     });
     if (context.unconfirmed.length === 0) {
