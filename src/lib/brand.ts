@@ -6,3 +6,5 @@ export const BRAND = {
   description:
     "Plan shoots, send call sheets, track confirmations and run production days from one place. From client brief to wrap.",
 } as const;
+
+export const SITE_URL = "https://unit-boostkit.vercel.app"; // swap when the real domain lands
