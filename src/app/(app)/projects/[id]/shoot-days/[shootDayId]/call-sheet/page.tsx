@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CallSheetDocument } from "@/components/call-sheet/call-sheet-document";
 import { ComposerForm } from "@/components/call-sheet/composer-form";
 import { SendDialog, RecipientStrip } from "@/components/call-sheet/send-dialog";
+import { CheckDialog } from "@/components/agents/check-dialog";
 
 export default function CallSheetPage({
   params,
@@ -71,6 +72,7 @@ function Composer({
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [checkOpen, setCheckOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -175,6 +177,9 @@ function Composer({
           >
             Refresh weather
           </Button>
+          <Button size="sm" variant="ghost" onClick={() => setCheckOpen(true)}>
+            Check sheet
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)}>
             History
           </Button>
@@ -212,6 +217,7 @@ function Composer({
 
       {historyOpen && <HistoryDialog dayId={dayId} onClose={() => setHistoryOpen(false)} />}
       {sendOpen && <SendDialog dayId={dayId} data={data} onClose={() => setSendOpen(false)} />}
+      {checkOpen && <CheckDialog dayId={dayId} onClose={() => setCheckOpen(false)} />}
     </div>
   );
 }
