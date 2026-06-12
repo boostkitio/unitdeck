@@ -74,8 +74,16 @@ export default async function Home() {
             )}
           </div>
         </section>
-        <footer className="px-8 py-6 text-sm text-neutral-400">
-          {BRAND.name} · {BRAND.domain}
+        <footer className="flex flex-col gap-4 px-8 py-6 sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-sm text-neutral-400">
+            {BRAND.name} · {BRAND.domain}
+          </span>
+          <Link
+            className="text-sm text-neutral-300 hover:text-white"
+            href="/templates/call-sheet-template"
+          >
+            Free call sheet template
+          </Link>
         </footer>
       </div>
     </main>
