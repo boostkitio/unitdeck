@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Unit (codename)
 
-## Getting Started
+Production OS for video companies: plan shoots, send call sheets, track confirmations and run production days from one place. The product name is provisional; `src/lib/brand.ts` is the single rename point.
 
-First, run the development server:
+## Stack
+
+- Next.js (App Router, TypeScript, Tailwind v4, shadcn/ui on Base UI)
+- Convex (database, realtime, functions): project `unit` on team `boostkit_`
+- Clerk (auth, organisations as tenancy boundary)
+- Vercel (hosting)
+
+## Local development
 
 ```bash
+npm install
+npx convex dev   # run under Node 22 on Windows (see note below)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy `.env.example` to `.env.local` and fill in the values. Convex writes its own values when `npx convex dev` first runs.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Windows note
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The Convex CLI crashes on exit under Node 24 (libuv assertion). Prefix the shell with the portable Node 22:
 
-## Learn More
+```powershell
+$env:Path = "C:\Users\itswe\node22;$env:Path"
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Architecture rules
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Every Convex table carries `orgId`. Every query/mutation derives the org from the Clerk identity via `requireOrg` (`convex/lib/auth.ts`), never from client arguments.
+- AI agents (phase 4) write proposals to `agentRuns`, never directly to production data.
+- All UI copy imports from `src/lib/brand.ts`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Docs
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Product spec: `docs/superpowers/specs/2026-06-12-unit-mvp-design.md`
+- Competitor research: `docs/research/2026-06-12-studiobinder-competitor-research.md`
+- Phase 1 plan: `docs/superpowers/plans/2026-06-12-unit-phase1-foundation.md`

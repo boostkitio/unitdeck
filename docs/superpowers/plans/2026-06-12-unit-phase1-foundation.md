@@ -267,7 +267,7 @@ export async function requireOrg(ctx: QueryCtx | MutationCtx) {
 **Files:**
 - Create: `convex/projects.ts`, `convex/people.ts`, `convex/clients.ts`
 
-- [ ] **Step 1: Implement CRUD** — each function calls `requireOrg`, filters with `.withIndex("by_org", q => q.eq("orgId", org._id))`, and validates args with `v` validators. Mutations never accept `orgId` from the client. `list`/`get`/`create`/`update`/`archive` for projects; `list`/`get`/`create`/`update`/`remove` for people and clients.
+- [ ] **Step 1: Implement CRUD**: each function calls `requireOrg`, filters with `.withIndex("by_org", q => q.eq("orgId", org._id))`, and validates args with `v` validators. Mutations never accept `orgId` from the client. `list`/`get`/`create`/`update`/`archive` for projects; `list`/`get`/`create`/`update`/`remove` for people and clients.
 
 - [ ] **Step 2: Push schema/functions, run a smoke test in the Convex dashboard function runner, commit.**
 
@@ -289,8 +289,8 @@ export async function requireOrg(ctx: QueryCtx | MutationCtx) {
 **Files:**
 - Create: `src/app/(app)/projects/page.tsx` (list + create dialog), `src/app/(app)/projects/[id]/page.tsx` (detail: status, client, brief summary)
 
-- [ ] **Step 1: List page** — `useQuery(api.projects.list)`, table with name/client/status badge, create dialog with Zod-validated form.
-- [ ] **Step 2: Detail page** — editable fields, status select, archive action with confirm.
+- [ ] **Step 1: List page**: `useQuery(api.projects.list)`, table with name/client/status badge, create dialog with Zod-validated form.
+- [ ] **Step 2: Detail page**: editable fields, status select, archive action with confirm.
 - [ ] **Step 3: Build check, commit.**
 
 ### Task 10: People and clients pages
