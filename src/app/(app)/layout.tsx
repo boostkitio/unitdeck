@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
-import { BRAND } from "@/lib/brand";
+import { Logo } from "@/components/logo";
 import { OrgGate } from "./org-bootstrap";
 import { FeedbackButton } from "@/components/feedback-button";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <aside className="flex w-56 shrink-0 flex-col border-r border-neutral-200 bg-white px-3 py-4 dark:border-neutral-800 dark:bg-neutral-900">
         <Link
           href="/"
-          className="px-2 text-base font-semibold tracking-tight"
+          className="px-2"
           onClick={(e) => {
             if (pathname === "/") {
               e.preventDefault();
@@ -32,7 +32,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             }
           }}
         >
-          {BRAND.name}
+          <Logo size={14} />
         </Link>
         <div className="mt-4">
           <OrganizationSwitcher

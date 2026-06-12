@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
+import { Logo } from "@/components/logo";
 import { WaitlistForm } from "./waitlist-form";
 
 export function MarketingShell({
@@ -12,8 +13,8 @@ export function MarketingShell({
   return (
     <main className="min-h-screen bg-white text-neutral-900">
       <header className="mx-auto flex max-w-3xl items-center justify-between px-6 py-6">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          {BRAND.name}
+        <Link href="/">
+          <Logo size={16} />
         </Link>
         <Link href="/" className="text-sm font-medium text-neutral-500 hover:text-neutral-900">
           Home

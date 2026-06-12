@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { SignInButton } from "@clerk/nextjs";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Logo } from "@/components/logo";
 import { BRAND } from "@/lib/brand";
 
 export default async function Home() {
@@ -32,8 +33,7 @@ export default async function Home() {
       />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <header className="flex items-center justify-between px-8 py-6">
-          <span className="text-lg font-semibold tracking-tight">{BRAND.name}</span>
+        <header className="flex items-center justify-end px-8 py-6">
           {signedIn ? (
             <Link
               href="/dashboard"
@@ -50,6 +50,7 @@ export default async function Home() {
           )}
         </header>
         <section className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+          <Logo size={32} className="mb-8" />
           <h1 className="max-w-2xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
             {BRAND.tagline}
           </h1>
