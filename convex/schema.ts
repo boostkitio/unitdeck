@@ -84,6 +84,7 @@ export default defineSchema({
     locationIds: v.array(v.id("locations")),
     weather: v.optional(weatherSnapshotValidator),
     sun: v.optional(v.object({ sunrise: v.string(), sunset: v.string() })),
+    wrapNotes: v.optional(v.string()),
   })
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"]),
