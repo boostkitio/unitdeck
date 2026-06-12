@@ -18,6 +18,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { CallSheetDocument } from "@/components/call-sheet/call-sheet-document";
 import { ComposerForm } from "@/components/call-sheet/composer-form";
+import { SendDialog, RecipientStrip } from "@/components/call-sheet/send-dialog";
 
 export default function CallSheetPage({
   params,
@@ -69,6 +70,7 @@ function Composer({
   const [data, setData] = useState<CallSheetData>(draft.data);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -186,11 +188,15 @@ function Composer({
           >
             Save version
           </Button>
-          <Button size="sm" disabled={exporting} onClick={exportPdf}>
+          <Button size="sm" variant="secondary" disabled={exporting} onClick={exportPdf}>
             {exporting ? "Exporting…" : "Export PDF"}
+          </Button>
+          <Button size="sm" onClick={() => setSendOpen(true)}>
+            Send
           </Button>
         </div>
       </div>
+      <RecipientStrip dayId={dayId} />
 
       {/* Editor + live preview */}
       <div className="flex min-h-0 flex-1">
@@ -205,6 +211,7 @@ function Composer({
       </div>
 
       {historyOpen && <HistoryDialog dayId={dayId} onClose={() => setHistoryOpen(false)} />}
+      {sendOpen && <SendDialog dayId={dayId} data={data} onClose={() => setSendOpen(false)} />}
     </div>
   );
 }
