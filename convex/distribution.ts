@@ -50,13 +50,15 @@ export const send = mutation({
     }
 
     // Freeze the draft as the sent version, open the next draft
-    const draft = await ctx.db
+    const versions = await ctx.db
       .query("callSheets")
       .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", args.shootDayId))
       .order("desc")
-      .first();
+      .take(50);
+    const draft = versions[0];
     if (!draft || draft.status !== "draft") throw new Error("No draft to send");
-    const isUpdate = draft.version > 1;
+    // "Updated" only when crew have already received a version of this sheet
+    const isUpdate = versions.some((s) => s.status === "sent");
     await ctx.db.patch(draft._id, { status: "sent", versionNote: "Sent to crew" });
     await ctx.db.insert("callSheets", {
       orgId: org._id,
