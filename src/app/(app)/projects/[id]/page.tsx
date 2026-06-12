@@ -1,12 +1,12 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
-import { Id } from "../../../../../convex/_generated/dataModel";
+import { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,27 +29,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { PROJECT_STATUSES, ProjectStatus } from "@/lib/project-status";
 
+type ProjectWithClient = Doc<"projects"> & { clientName: string | null };
+
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const projectId = id as Id<"projects">;
-  const router = useRouter();
   const { organization } = useOrganization();
   const project = useQuery(api.projects.get, organization ? { id: projectId } : "skip");
   const clients = useQuery(api.clients.list, organization ? {} : "skip");
-  const updateProject = useMutation(api.projects.update);
-  const archiveProject = useMutation(api.projects.archive);
-
-  const [name, setName] = useState("");
-  const [briefSummary, setBriefSummary] = useState("");
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (project && !loaded) {
-      setName(project.name);
-      setBriefSummary(project.briefSummary ?? "");
-      setLoaded(true);
-    }
-  }, [project, loaded]);
 
   if (project === undefined) {
     return (
@@ -63,6 +50,24 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     return <p className="py-12 text-center text-sm text-neutral-500">Project not found.</p>;
   }
 
+  // Keyed by project id so form state resets if the route changes project.
+  return <ProjectEditor key={project._id} project={project} clients={clients ?? []} />;
+}
+
+function ProjectEditor({
+  project,
+  clients,
+}: {
+  project: ProjectWithClient;
+  clients: Doc<"clients">[];
+}) {
+  const router = useRouter();
+  const updateProject = useMutation(api.projects.update);
+  const archiveProject = useMutation(api.projects.archive);
+
+  const [name, setName] = useState(project.name);
+  const [briefSummary, setBriefSummary] = useState(project.briefSummary ?? "");
+
   async function save(patch: {
     name?: string;
     clientId?: Id<"clients"> | null;
@@ -70,7 +75,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     briefSummary?: string;
   }) {
     try {
-      await updateProject({ id: projectId, ...patch });
+      await updateProject({ id: project._id, ...patch });
       toast.success("Saved.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save.");
@@ -83,7 +88,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
         <ArchiveDialog
           onArchive={async () => {
-            await archiveProject({ id: projectId });
+            await archiveProject({ id: project._id });
             toast.success("Project archived.");
             router.push("/projects");
           }}
@@ -142,7 +147,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">No client</SelectItem>
-              {(clients ?? []).map((c) => (
+              {clients.map((c) => (
                 <SelectItem key={c._id} value={c._id}>
                   {c.name}
                 </SelectItem>
