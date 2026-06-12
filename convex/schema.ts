@@ -172,4 +172,9 @@ export default defineSchema({
   })
     .index("by_org", ["orgId"])
     .index("by_shoot_day", ["shootDayId"]),
+
+  waitlist: defineTable({
+    email: v.string(),
+    source: v.string(), // which page captured it
+  }).index("by_email", ["email"]),
 });
