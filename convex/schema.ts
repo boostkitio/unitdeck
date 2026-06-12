@@ -182,6 +182,7 @@ export default defineSchema({
     orgId: v.id("organisations"),
     userId: v.string(), // Clerk subject
     userName: v.optional(v.string()),
+    userEmail: v.optional(v.string()),
     orgName: v.string(),
     message: v.string(),
     page: v.string(), // app path the feedback was sent from

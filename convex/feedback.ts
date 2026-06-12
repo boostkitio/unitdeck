@@ -16,7 +16,11 @@ export const submit = mutation({
     const feedbackId = await ctx.db.insert("feedback", {
       orgId: org._id,
       userId: identity.subject,
-      userName: typeof identity.name === "string" ? identity.name : undefined,
+      userName:
+        typeof identity.name === "string" && identity.name.trim() !== ""
+          ? identity.name
+          : undefined,
+      userEmail: typeof identity.email === "string" ? identity.email : undefined,
       orgName: org.name,
       message: args.message.trim(),
       page: args.page.slice(0, 200),
@@ -51,8 +55,9 @@ export const notify = internalAction({
     });
     if (!row) return null;
 
+    const who = row.userName ?? row.userEmail ?? row.userId;
     const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#171717;">
-<p style="font-size:14px;"><strong>${escapeHtml(row.userName ?? row.userId)}</strong> (${escapeHtml(row.orgName)}) sent feedback from <code>${escapeHtml(row.page)}</code>:</p>
+<p style="font-size:14px;"><strong>${escapeHtml(who)}</strong> (${escapeHtml(row.orgName)}) sent feedback from <code>${escapeHtml(row.page)}</code>:</p>
 <blockquote style="margin:12px 0;padding:12px 16px;background:#f5f5f5;border-left:3px solid #171717;font-size:14px;white-space:pre-line;">${escapeHtml(row.message)}</blockquote>
 </body></html>`;
 
