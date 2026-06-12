@@ -13,6 +13,7 @@ const nav = [
   { href: "/projects", label: "Projects" },
   { href: "/people", label: "People" },
   { href: "/clients", label: "Clients" },
+  { href: "/locations", label: "Locations" },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
