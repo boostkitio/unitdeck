@@ -220,18 +220,25 @@ export const refreshWeather = action({
     }
     const sunrise = daily.sunrise[0]?.slice(11, 16) ?? "";
     const sunset = daily.sunset[0]?.slice(11, 16) ?? "";
+    const weather = {
+      fetchedAt: Date.now(),
+      summary: WEATHER_CODES[daily.weather_code[0]] ?? "Unknown",
+      tempMinC: daily.temperature_2m_min[0],
+      tempMaxC: daily.temperature_2m_max[0],
+      precipitationProbability: daily.precipitation_probability_max[0] ?? undefined,
+      windMaxKph: daily.wind_speed_10m_max[0],
+    };
     await ctx.runMutation(internal.shootDays.saveWeather, {
       id: args.id,
-      weather: {
-        fetchedAt: Date.now(),
-        summary: WEATHER_CODES[daily.weather_code[0]] ?? "Unknown",
-        tempMinC: daily.temperature_2m_min[0],
-        tempMaxC: daily.temperature_2m_max[0],
-        precipitationProbability: daily.precipitation_probability_max[0] ?? undefined,
-        windMaxKph: daily.wind_speed_10m_max[0],
-      },
+      weather,
       sun: { sunrise, sunset },
     });
-    return { ok: true as const };
+    // Returned directly so callers can update documents without re-querying
+    return {
+      ok: true as const,
+      weatherSummary: `${weather.summary}, ${Math.round(weather.tempMinC)}–${Math.round(weather.tempMaxC)}°C`,
+      sunrise,
+      sunset,
+    };
   },
 });

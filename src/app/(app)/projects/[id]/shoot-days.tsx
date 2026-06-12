@@ -6,7 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -51,15 +51,12 @@ export function ShootDaysSection({ projectId }: { projectId: Id<"projects"> }) {
                     : ""}
                 </p>
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                render={
-                  <Link href={`/projects/${projectId}/shoot-days/${day._id}/call-sheet`}>
-                    Call sheet
-                  </Link>
-                }
-              />
+              <Link
+                href={`/projects/${projectId}/shoot-days/${day._id}/call-sheet`}
+                className={buttonVariants({ variant: "secondary", size: "sm" })}
+              >
+                Call sheet
+              </Link>
             </li>
           ))}
         </ul>

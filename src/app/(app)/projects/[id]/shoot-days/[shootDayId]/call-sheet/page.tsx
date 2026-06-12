@@ -65,7 +65,6 @@ function Composer({
   const saveDraft = useMutation(api.callSheets.saveDraft);
   const snapshot = useMutation(api.callSheets.snapshotVersion);
   const refreshWeather = useAction(api.shootDays.refreshWeather);
-  const day = useQuery(api.shootDays.get, { id: dayId });
 
   const [data, setData] = useState<CallSheetData>(draft.data);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -159,15 +158,13 @@ function Composer({
             onClick={async () => {
               const result = await refreshWeather({ id: dayId });
               if (result.ok) {
-                // Weather lands on the shoot day; copy it into this document
-                if (day?.weather) {
-                  onChange({
-                    ...data,
-                    weatherSummary: `${day.weather.summary}, ${Math.round(day.weather.tempMinC)}–${Math.round(day.weather.tempMaxC)}°C`,
-                    sunrise: day.sun?.sunrise,
-                    sunset: day.sun?.sunset,
-                  });
-                }
+                // The action returns the snapshot directly; copy it into this document
+                onChange({
+                  ...data,
+                  weatherSummary: result.weatherSummary,
+                  sunrise: result.sunrise,
+                  sunset: result.sunset,
+                });
                 toast.success("Weather updated.");
               } else {
                 toast.info(result.reason);

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
 import { BRAND } from "@/lib/brand";
-import { OrgBootstrap } from "./org-bootstrap";
+import { OrgGate } from "./org-bootstrap";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -60,8 +60,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
-        <OrgBootstrap />
-        <div className="mx-auto max-w-5xl px-8 py-8">{children}</div>
+        <div className="mx-auto max-w-5xl px-8 py-8">
+          <OrgGate>{children}</OrgGate>
+        </div>
       </main>
       <Toaster richColors />
     </div>
