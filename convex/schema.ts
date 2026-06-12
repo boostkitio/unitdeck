@@ -105,4 +105,45 @@ export default defineSchema({
     token: v.string(),
     expiresAt: v.number(),
   }).index("by_token", ["token"]),
+
+  recipients: defineTable({
+    orgId: v.id("organisations"),
+    shootDayId: v.id("shootDays"),
+    personId: v.optional(v.id("people")),
+    name: v.string(),
+    role: v.string(),
+    email: v.string(),
+    callTime: v.string(), // "HH:MM"
+    token: v.string(), // unguessable, powers the set mode link
+    status: v.union(
+      v.literal("pending"), // created/re-sent, email not yet accepted
+      v.literal("sent"), // Resend accepted the email
+      v.literal("failed"), // Resend rejected it; lastError set
+      v.literal("viewed"), // opened their set mode page
+      v.literal("confirmed"),
+      v.literal("declined")
+    ),
+    sentAt: v.optional(v.number()),
+    viewedAt: v.optional(v.number()),
+    confirmedAt: v.optional(v.number()),
+    declinedAt: v.optional(v.number()),
+    checkInAt: v.optional(v.number()),
+    safetyAckAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_shoot_day", ["shootDayId"])
+    .index("by_token", ["token"]),
+
+  sends: defineTable({
+    orgId: v.id("organisations"),
+    recipientId: v.id("recipients"),
+    callSheetId: v.id("callSheets"), // the frozen version that went out
+    channel: v.literal("email"),
+    status: v.union(v.literal("pending"), v.literal("sent"), v.literal("failed")),
+    providerId: v.optional(v.string()), // Resend email id
+    error: v.optional(v.string()),
+  })
+    .index("by_recipient", ["recipientId"])
+    .index("by_call_sheet", ["callSheetId"]),
 });
