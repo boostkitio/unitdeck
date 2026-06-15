@@ -15,6 +15,10 @@ function SheetClose({ ...props }: DialogPrimitive.Close.Props) {
   return <DialogPrimitive.Close data-slot="sheet-close" {...props} />;
 }
 
+function SheetTitle({ ...props }: DialogPrimitive.Title.Props) {
+  return <DialogPrimitive.Title data-slot="sheet-title" {...props} />;
+}
+
 function SheetContent({
   className,
   children,
@@ -44,4 +48,4 @@ function SheetContent({
   );
 }
 
-export { Sheet, SheetTrigger, SheetClose, SheetContent };
+export { Sheet, SheetTrigger, SheetClose, SheetContent, SheetTitle };

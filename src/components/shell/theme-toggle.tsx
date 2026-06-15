@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot hydration guard for next-themes
   useEffect(() => setMounted(true), []);
 
   // Before mount we assume the dark default so SSR and the first client paint

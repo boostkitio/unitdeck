@@ -9,8 +9,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         <main className="flex-1">
-          {/* pb-24 on mobile clears the fixed bottom tab bar */}
-          <div className="mx-auto max-w-5xl px-4 py-6 pb-24 md:px-8 md:py-8 md:pb-8">
+          {/* pb-24 on mobile clears the fixed bottom tab bar (plus the home-indicator safe area) */}
+          <div className="mx-auto max-w-5xl px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-8 md:py-8 md:pb-8">
             {children}
           </div>
         </main>

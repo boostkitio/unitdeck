@@ -18,6 +18,7 @@ export function MobileTabBar() {
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active ? "page" : undefined}
             className={cn(
               "flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors",
               active && "text-primary"
@@ -31,6 +32,7 @@ export function MobileTabBar() {
       <MoreSheet>
         <button
           type="button"
+          aria-label="More navigation"
           className="flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors aria-expanded:text-primary"
         >
           <MenuIcon className="size-5" />
