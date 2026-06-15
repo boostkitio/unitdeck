@@ -37,7 +37,7 @@ function StatTile({
       <CardHeader className="pb-1">
         <CardTitle
           className={cn(
-            "text-xs font-medium uppercase tracking-wide",
+            "text-xs font-medium",
             warn ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
           )}
         >
