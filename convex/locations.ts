@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
 import { chatJson } from "./lib/llm";
+import { AI_MODEL_FAST } from "./lib/ai";
 
 const locationFields = {
   name: v.string(),
@@ -184,7 +185,7 @@ Rules:
 - "postcode" is the full UK postcode (e.g. "SL0 0NH"). Null if unavailable.
 - Return fewer than 4 results if you are unsure of the others. Never invent addresses.`;
 
-    const raw = await chatJson({ system, user: args.query, maxTokens: 4000 });
+    const raw = await chatJson({ system, user: args.query, model: AI_MODEL_FAST });
 
     // Defensively shape the unknown result
     const obj = raw as Record<string, unknown>;

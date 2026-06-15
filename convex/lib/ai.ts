@@ -12,6 +12,14 @@
  * assume the first tokens are the answer.
  */
 export const AI_MODEL = "deepseek/deepseek-v4-flash";
+
+/**
+ * Fast, non-reasoning model for lightweight lookups (e.g. location address
+ * autofill) where the reasoning model's latency isn't worth it. Same provider,
+ * same OPENROUTER_API_KEY. Pass it to chatJson via the `model` option.
+ */
+export const AI_MODEL_FAST = "deepseek/deepseek-chat";
+
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 export function openRouterHeaders(): Record<string, string> {

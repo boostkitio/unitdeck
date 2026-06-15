@@ -22,14 +22,20 @@ export async function chatJson(args: {
   system: string;
   user: string;
   maxTokens?: number;
+  model?: string;
 }): Promise<unknown> {
-  const maxTokens = Math.max(args.maxTokens ?? 4000, 4000);
+  // The default model is a reasoning model and needs generous headroom for its
+  // hidden reasoning tokens; a fast non-reasoning override does not.
+  const maxTokens = args.model
+    ? (args.maxTokens ?? 1500)
+    : Math.max(args.maxTokens ?? 4000, 4000);
+  const model = args.model ?? AI_MODEL;
 
   async function once(messages: Array<{ role: string; content: string }>) {
     const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: openRouterHeaders(),
-      body: JSON.stringify({ model: AI_MODEL, messages, max_tokens: maxTokens }),
+      body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
     });
     if (!res.ok) {
       const text = await res.text();

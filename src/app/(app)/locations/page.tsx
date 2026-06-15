@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
@@ -189,11 +189,18 @@ function LocationDialog({
       : lat !== undefined && lng !== undefined
         ? `${lat},${lng}`
         : "";
+  // Debounce so the map iframe doesn't reload on every keystroke while the
+  // address is being edited.
+  const [debouncedMapQuery, setDebouncedMapQuery] = useState(mapQuery);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedMapQuery(mapQuery), 500);
+    return () => clearTimeout(t);
+  }, [mapQuery]);
   const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const mapEmbedSrc = address.trim()
     ? mapsKey
-      ? `https://www.google.com/maps/embed/v1/place?key=${mapsKey}&q=${encodeURIComponent(mapQuery)}`
-      : `https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}&output=embed`
+      ? `https://www.google.com/maps/embed/v1/place?key=${mapsKey}&q=${encodeURIComponent(debouncedMapQuery)}`
+      : `https://www.google.com/maps?q=${encodeURIComponent(debouncedMapQuery)}&output=embed`
     : null;
   const mapLinkHref = address.trim()
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`
@@ -304,7 +311,7 @@ function LocationDialog({
                 title="Map"
                 src={mapEmbedSrc}
                 className="h-48 w-full rounded-md border border-border"
-                loading="lazy"
+                loading="eager"
                 referrerPolicy="no-referrer-when-downgrade"
                 allowFullScreen={false}
               />
