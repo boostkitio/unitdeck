@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { statusLabel, STATUS_BADGE_CLASSES, ProjectStatus } from "@/lib/project-status";
+import { statusLabel, statusBadgeClass } from "@/lib/project-status";
 import { BriefDialog } from "@/components/agents/brief-dialog";
 
 export default function ProjectsPage() {
@@ -92,7 +92,7 @@ export default function ProjectsPage() {
                   <TableCell>
                     <Badge
                       variant="secondary"
-                      className={STATUS_BADGE_CLASSES[p.status as ProjectStatus]}
+                      className={statusBadgeClass(p.status)}
                     >
                       {statusLabel(p.status)}
                     </Badge>
