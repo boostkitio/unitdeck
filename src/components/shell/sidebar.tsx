@@ -3,14 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
+import { SearchIcon } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { FeedbackButton } from "@/components/feedback-button";
 import { ThemeToggle } from "./theme-toggle";
 import { NAV_ITEMS, isActive } from "./nav-items";
 import { cn } from "@/lib/utils";
+import { useCommandPalette } from "@/components/command/command-palette";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { open } = useCommandPalette();
+
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar px-3 py-4 md:flex">
       <Link
@@ -53,6 +57,17 @@ export function Sidebar() {
         })}
       </nav>
       <div className="mt-auto space-y-3">
+        <button
+          type="button"
+          onClick={open}
+          className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <SearchIcon className="size-4" />
+          <span className="flex-1 text-left">Search</span>
+          <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline">
+            ⌘K
+          </kbd>
+        </button>
         <FeedbackButton />
         <div className="flex items-center justify-between px-2">
           <UserButton />

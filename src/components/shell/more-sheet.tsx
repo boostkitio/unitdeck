@@ -1,13 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { OrganizationSwitcher } from "@clerk/nextjs";
+import { SearchIcon } from "lucide-react";
 import { Sheet, SheetTrigger, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { FeedbackButton } from "@/components/feedback-button";
 import { ThemeToggle } from "./theme-toggle";
 import { MORE_ITEMS, isActive } from "./nav-items";
 import { cn } from "@/lib/utils";
+import { useCommandPalette } from "@/components/command/command-palette";
 
 /**
  * `children` must be a single React element — it is passed directly to Base UI's
@@ -15,8 +18,11 @@ import { cn } from "@/lib/utils";
  */
 export function MoreSheet({ children }: { children: React.ReactElement }) {
   const pathname = usePathname();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const { open: openPalette } = useCommandPalette();
+
   return (
-    <Sheet>
+    <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
       <SheetTrigger render={children} />
       <SheetContent>
         <SheetTitle className="px-1 pb-1 font-heading text-sm">More</SheetTitle>
@@ -28,6 +34,18 @@ export function MoreSheet({ children }: { children: React.ReactElement }) {
           />
           <ThemeToggle />
         </div>
+        {/* Search shortcut at the top of the sheet list */}
+        <button
+          type="button"
+          onClick={() => {
+            setSheetOpen(false);
+            openPalette();
+          }}
+          className="flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <SearchIcon className="size-4" />
+          Search
+        </button>
         <nav className="flex flex-col">
           {MORE_ITEMS.map((item) => {
             const Icon = item.icon;
