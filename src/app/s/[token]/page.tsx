@@ -39,21 +39,21 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
   if (result === undefined) {
     return (
       <Shell>
-        <p className="text-sm text-neutral-500">Loading your call sheet…</p>
+        <p className="text-sm text-muted-foreground">Loading your call sheet…</p>
       </Shell>
     );
   }
   if (result === null) {
     return (
       <Shell>
-        <p className="text-sm">This link isn&apos;t valid. Check with your producer.</p>
+        <p className="text-sm text-foreground">This link isn&apos;t valid. Check with your producer.</p>
       </Shell>
     );
   }
   if (result.expired) {
     return (
       <Shell>
-        <p className="text-sm">This call sheet link has expired.</p>
+        <p className="text-sm text-foreground">This call sheet link has expired.</p>
       </Shell>
     );
   }
@@ -73,17 +73,17 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
   return (
     <Shell>
       {/* Header */}
-      <p className="text-[11px] uppercase tracking-widest text-neutral-500">
+      <p className="text-[11px] tracking-widest text-muted-foreground">
         {data.productionCompany}
       </p>
-      <h1 className="mt-1 text-xl font-bold">{data.title}</h1>
-      <p className="mt-0.5 text-sm text-neutral-600">{formatDate(data.date)}</p>
+      <h1 className="mt-1 font-heading text-xl font-semibold text-foreground">{data.title}</h1>
+      <p className="mt-0.5 text-sm text-muted-foreground">{formatDate(data.date)}</p>
 
-      {/* My call */}
-      <div className="mt-4 rounded-xl bg-neutral-900 p-4 text-white">
-        <p className="text-xs uppercase tracking-widest text-neutral-400">Your call time</p>
-        <p className="text-3xl font-bold tabular-nums">{recipient.callTime}</p>
-        <p className="mt-1 text-sm text-neutral-300">
+      {/* Call-time hero */}
+      <div className="mt-4 rounded-2xl bg-[linear-gradient(120deg,#11182F,#34406B_58%,#6B7FBE)] p-5 text-white">
+        <p className="text-[11px] tracking-widest text-white/60">Your call time</p>
+        <p className="mt-1 font-heading text-4xl font-semibold tabular-nums">{recipient.callTime}</p>
+        <p className="mt-2 text-sm text-white/75">
           {recipient.name} · {recipient.role} · General call {data.generalCallTime}
         </p>
       </div>
@@ -91,12 +91,12 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
       {/* Confirm / decline */}
       <div className="mt-3">
         {recipient.status === "confirmed" ? (
-          <div className="flex items-center justify-between rounded-lg border border-green-300 bg-green-50 px-4 py-3">
-            <p className="text-sm font-medium text-green-800">
+          <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+            <p className="text-sm font-medium text-emerald-300">
               You&apos;re confirmed. See you on set.
             </p>
             <button
-              className="text-xs text-green-700 underline"
+              className="text-xs text-emerald-400 underline underline-offset-2 disabled:opacity-50"
               disabled={busy}
               onClick={() => act(() => decline({ token }))}
             >
@@ -104,10 +104,10 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
             </button>
           </div>
         ) : recipient.status === "declined" ? (
-          <div className="flex items-center justify-between rounded-lg border border-red-300 bg-red-50 px-4 py-3">
-            <p className="text-sm font-medium text-red-800">You&apos;ve declined this shoot.</p>
+          <div className="flex items-center justify-between rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+            <p className="text-sm font-medium text-red-300">You&apos;ve declined this shoot.</p>
             <button
-              className="text-xs text-red-700 underline"
+              className="text-xs text-red-400 underline underline-offset-2 disabled:opacity-50"
               disabled={busy}
               onClick={() => act(() => confirm({ token }))}
             >
@@ -133,7 +133,7 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
 
       {/* Day facts */}
       {(data.weatherSummary || data.sunrise || data.sunset) && (
-        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 rounded-lg border border-neutral-200 px-3 py-2 text-xs text-neutral-600">
+        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 rounded-xl border border-border bg-card px-3 py-2.5 text-xs text-muted-foreground">
           {data.weatherSummary && <span>{data.weatherSummary}</span>}
           {data.sunrise && <span>Sunrise {data.sunrise}</span>}
           {data.sunset && <span>Sunset {data.sunset}</span>}
@@ -145,27 +145,27 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
         <Section title="Locations">
           <div className="space-y-2">
             {data.locations.map((loc, i) => (
-              <div key={loc.id} className="rounded-lg border border-neutral-200 p-3">
-                <p className="text-sm font-semibold">
+              <div key={loc.id} className="rounded-xl border border-border bg-card p-4">
+                <p className="text-sm font-semibold text-foreground">
                   {i + 1}. {loc.name}
                 </p>
-                <p className="mt-0.5 whitespace-pre-line text-sm text-neutral-600">{loc.address}</p>
+                <p className="mt-1 whitespace-pre-line text-sm text-muted-foreground">{loc.address}</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-xs">
                   <a
-                    className="font-medium underline underline-offset-2"
+                    className="font-medium text-primary underline underline-offset-2"
                     target="_blank"
                     rel="noreferrer"
                     href={mapsUrl(loc.address)}
                   >
                     Open in Maps
                   </a>
-                  {loc.w3w && <span className="text-neutral-500">{loc.w3w}</span>}
+                  {loc.w3w && <span className="text-muted-foreground">{loc.w3w}</span>}
                 </div>
                 {loc.parkingNotes && (
-                  <p className="mt-2 text-xs text-neutral-600">Parking: {loc.parkingNotes}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Parking: {loc.parkingNotes}</p>
                 )}
                 {loc.nearestHospital && (
-                  <p className="mt-1 text-xs text-neutral-600">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     Nearest A&amp;E: {loc.nearestHospital}
                   </p>
                 )}
@@ -178,16 +178,16 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
       {/* Schedule */}
       {data.schedule.length > 0 && (
         <Section title="Schedule">
-          <div className="divide-y divide-neutral-100 rounded-lg border border-neutral-200">
+          <div className="divide-y divide-border rounded-xl border border-border bg-card overflow-hidden">
             {data.schedule.map((b) => (
-              <div key={b.id} className="flex gap-3 px-3 py-2">
-                <p className="w-24 shrink-0 text-sm font-semibold tabular-nums">
+              <div key={b.id} className="flex gap-3 px-4 py-3">
+                <p className="w-24 shrink-0 text-sm font-semibold tabular-nums text-foreground">
                   {b.start}
                   {b.end ? `–${b.end}` : ""}
                 </p>
                 <div>
-                  <p className="text-sm">{b.title}</p>
-                  {b.notes && <p className="text-xs text-neutral-500">{b.notes}</p>}
+                  <p className="text-sm text-foreground">{b.title}</p>
+                  {b.notes && <p className="text-xs text-muted-foreground">{b.notes}</p>}
                 </div>
               </div>
             ))}
@@ -198,18 +198,20 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
       {/* Contacts */}
       {data.contacts.length > 0 && (
         <Section title="Key contacts">
-          <div className="space-y-1">
+          <div className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden">
             {data.contacts.map((c) => (
-              <p key={c.id} className="text-sm">
-                <span className="font-medium">{c.name}</span>
-                <span className="text-neutral-500"> ({c.role}) </span>
+              <div key={c.id} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{c.name}</p>
+                  <p className="text-xs text-muted-foreground">{c.role}</p>
+                </div>
                 <a
-                  className="underline underline-offset-2"
+                  className="text-sm text-primary underline underline-offset-2"
                   href={`tel:${c.phone.replace(/\s/g, "")}`}
                 >
                   {c.phone}
                 </a>
-              </p>
+              </div>
             ))}
           </div>
         </Section>
@@ -218,23 +220,25 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
       {/* Notes */}
       {data.notes && (
         <Section title="Notes">
-          <p className="whitespace-pre-line text-sm text-neutral-700">{data.notes}</p>
+          <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <p className="whitespace-pre-line text-sm text-muted-foreground">{data.notes}</p>
+          </div>
         </Section>
       )}
 
       {/* Safety */}
       {data.safetyNotes && (
         <Section title="Safety">
-          <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3">
-            <p className="whitespace-pre-line text-sm text-amber-900">{data.safetyNotes}</p>
+          <div className="rounded-xl border-2 border-amber-500/40 bg-amber-500/10 p-4">
+            <p className="whitespace-pre-line text-sm text-amber-200">{data.safetyNotes}</p>
             {recipient.safetyAckAt ? (
-              <p className="mt-2 text-xs font-medium text-amber-800">
+              <p className="mt-2 text-xs font-medium text-amber-400">
                 Acknowledged {new Date(recipient.safetyAckAt).toLocaleString("en-GB")}
               </p>
             ) : (
               <Button
                 size="sm"
-                className="mt-3"
+                className="mt-3 border-amber-500/40 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
                 disabled={busy}
                 onClick={() => act(() => ackSafety({ token }))}
               >
@@ -246,30 +250,39 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
       )}
 
       {/* Check-in (shoot day onwards) */}
-      <div className="mt-6 border-t border-neutral-200 pt-4 pb-10">
+      <div className="mt-6 border-t border-border pt-5 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
         {recipient.checkInAt ? (
-          <p className="text-center text-sm font-medium text-green-700">
-            Checked in at{" "}
-            {new Date(recipient.checkInAt).toLocaleTimeString("en-GB", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-center">
+            <p className="text-sm font-medium text-emerald-300">
+              Checked in at{" "}
+              {new Date(recipient.checkInAt).toLocaleTimeString("en-GB", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+          </div>
         ) : isShootDayOrLater ? (
-          <Button className="h-12 w-full" disabled={busy} onClick={() => act(() => checkIn({ token }))}>
+          <Button
+            className="h-12 w-full text-base"
+            disabled={busy}
+            onClick={() => act(() => checkIn({ token }))}
+          >
             Check in on set
           </Button>
         ) : (
-          <p className="text-center text-xs text-neutral-400">Check-in opens on the shoot day.</p>
+          <p className="text-center text-xs text-muted-foreground">Check-in opens on the shoot day.</p>
         )}
       </div>
+
+      {/* Footer */}
+      <p className="pb-4 text-center text-[10px] text-muted-foreground/40">Sent with UnitDeck</p>
     </Shell>
   );
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="min-h-screen bg-white text-neutral-900">
+    <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-md px-4 py-6">{children}</div>
     </main>
   );
@@ -278,7 +291,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-5">
-      <h2 className="mb-2 text-xs font-bold uppercase tracking-widest text-neutral-500">{title}</h2>
+      <h2 className="mb-2.5 text-[11px] font-semibold tracking-widest text-muted-foreground">{title}</h2>
       {children}
     </section>
   );
