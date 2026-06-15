@@ -1,13 +1,46 @@
-import { internalAction, internalMutation, internalQuery, mutation } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
 import { escapeHtml } from "./lib/email";
 import { Doc, Id } from "./_generated/dataModel";
 
+// ---------------------------------------------------------------------------
+// Shared types
+// ---------------------------------------------------------------------------
+
+/** The feedback type discriminant — single source of truth for Convex validators. */
+const feedbackTypeValidator = v.union(
+  v.literal("missing"),
+  v.literal("issue"),
+  v.literal("idea"),
+  v.literal("praise")
+);
+
+/** What the `list` query returns per row. Exported so the frontend can type
+ *  its useQuery result without importing Doc<"feedback"> (which won't have the
+ *  new optional fields until Convex codegen has run with the updated schema). */
+export type FeedbackItem = {
+  _id: Id<"feedback">;
+  _creationTime: number;
+  page: string;
+  type: "missing" | "issue" | "idea" | "praise" | undefined;
+  status: "open" | "addressed";
+  message: string;
+  who: string;
+};
+
+// ---------------------------------------------------------------------------
+// Mutations / queries
+// ---------------------------------------------------------------------------
+
 /** Product feedback from inside the app. Stored first, then emailed to Matt. */
 export const submit = mutation({
-  args: { message: v.string(), page: v.string() },
+  args: {
+    message: v.string(),
+    page: v.string(),
+    type: v.optional(feedbackTypeValidator),
+  },
   handler: async (ctx, args) => {
     const { identity, org } = await requireOrg(ctx);
     if (args.message.trim().length < 5) {
@@ -24,11 +57,55 @@ export const submit = mutation({
       orgName: org.name,
       message: args.message.trim(),
       page: args.page.slice(0, 200),
+      type: args.type,
+      status: "open",
     });
     await ctx.scheduler.runAfter(0, internal.feedback.notify, { feedbackId });
     return null;
   },
 });
+
+/** Return all feedback for this org, newest first. */
+export const list = query({
+  args: {},
+  handler: async (ctx): Promise<FeedbackItem[]> => {
+    const { org } = await requireOrg(ctx);
+    const rows = await ctx.db
+      .query("feedback")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .order("desc")
+      .collect();
+    return rows.map((row) => ({
+      _id: row._id,
+      _creationTime: row._creationTime,
+      page: row.page,
+      type: row.type,
+      status: row.status ?? "open",
+      message: row.message,
+      who: row.userName ?? row.userEmail ?? "Someone",
+    }));
+  },
+});
+
+/** Toggle the status of a feedback item. Org-scoped. */
+export const setStatus = mutation({
+  args: {
+    id: v.id("feedback"),
+    status: v.union(v.literal("open"), v.literal("addressed")),
+  },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const row = await ctx.db.get(args.id);
+    if (!row) throw new Error("Feedback not found");
+    if (row.orgId !== org._id) throw new Error("Not authorised");
+    await ctx.db.patch(args.id, { status: args.status });
+    return null;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Internal helpers (unchanged)
+// ---------------------------------------------------------------------------
 
 export const getForNotify = internalQuery({
   args: { feedbackId: v.id("feedback") },

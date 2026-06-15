@@ -194,5 +194,14 @@ export default defineSchema({
     message: v.string(),
     page: v.string(), // app path the feedback was sent from
     emailStatus: v.optional(v.string()), // "sent" or the error
+    type: v.optional(
+      v.union(
+        v.literal("missing"),
+        v.literal("issue"),
+        v.literal("idea"),
+        v.literal("praise")
+      )
+    ),
+    status: v.optional(v.union(v.literal("open"), v.literal("addressed"))),
   }).index("by_org", ["orgId"]),
 });

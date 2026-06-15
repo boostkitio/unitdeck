@@ -40,3 +40,45 @@ test("unauthenticated submission is rejected", async () => {
     t.mutation(api.feedback.submit, { message: "hello there", page: "/" })
   ).rejects.toThrow("Not authenticated");
 });
+
+test("list returns newest-first with correct type/status, and setStatus updates it", async () => {
+  const { asA } = await setup();
+
+  // Submit two items on different pages with different types
+  await asA.mutation(api.feedback.submit, {
+    message: "The dashboard is missing a summary card.",
+    page: "/dashboard",
+    type: "missing",
+  });
+  await asA.mutation(api.feedback.submit, {
+    message: "The export button throws an error every time.",
+    page: "/projects",
+    type: "issue",
+  });
+
+  // list should return both, newest first
+  const items = await asA.query(api.feedback.list, {});
+  expect(items).toHaveLength(2);
+
+  // Newest first: the second submission (issue on /projects) should be first
+  expect(items[0].page).toBe("/projects");
+  expect(items[0].type).toBe("issue");
+  expect(items[0].status).toBe("open");
+
+  expect(items[1].page).toBe("/dashboard");
+  expect(items[1].type).toBe("missing");
+  expect(items[1].status).toBe("open");
+
+  // Mark the first item addressed
+  await asA.mutation(api.feedback.setStatus, {
+    id: items[0]._id,
+    status: "addressed",
+  });
+
+  // list should now show the updated status
+  const updated = await asA.query(api.feedback.list, {});
+  const addressed = updated.find((i) => i._id === items[0]._id);
+  const stillOpen = updated.find((i) => i._id === items[1]._id);
+  expect(addressed?.status).toBe("addressed");
+  expect(stillOpen?.status).toBe("open");
+});
