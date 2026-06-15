@@ -30,11 +30,11 @@ export function ShootDaysSection({ projectId }: { projectId: Id<"projects"> }) {
         </Button>
       </div>
       {days === undefined ? null : days.length === 0 ? (
-        <p className="mt-4 text-sm text-neutral-500">
+        <p className="mt-4 text-sm text-muted-foreground">
           No shoot days yet. Add one to start a call sheet.
         </p>
       ) : (
-        <ul className="mt-4 divide-y divide-neutral-200 rounded-md border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+        <ul className="mt-4 divide-y divide-border rounded-md border border-border">
           {days.map((day) => (
             <li key={day._id} className="flex items-center justify-between px-4 py-3">
               <div>
@@ -42,7 +42,7 @@ export function ShootDaysSection({ projectId }: { projectId: Id<"projects"> }) {
                   {day.date}
                   {day.label ? ` · ${day.label}` : ""}
                 </p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-muted-foreground">
                   {day.locations.length > 0
                     ? day.locations.map((l) => l.name).join(", ")
                     : "No locations"}
@@ -113,11 +113,11 @@ function CreateShootDayDialog({
           <div className="space-y-2">
             <Label>Locations</Label>
             {locations === undefined || locations.length === 0 ? (
-              <p className="text-sm text-neutral-500">
+              <p className="text-sm text-muted-foreground">
                 No locations in your database yet. You can add them later.
               </p>
             ) : (
-              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2">
                 {locations.map((l) => (
                   <label key={l._id} className="flex items-center gap-2 text-sm">
                     <input

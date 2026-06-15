@@ -76,13 +76,13 @@ export function ChaseDialog({
           <p className="text-sm text-red-600">{error}</p>
         ) : runId === null ? (
           <div className="space-y-3">
-            <p className="text-sm text-neutral-500">Drafting a nudge…</p>
+            <p className="text-sm text-muted-foreground">Drafting a nudge…</p>
             <Skeleton className="h-5 w-3/5" />
             <Skeleton className="h-20 w-full" />
           </div>
         ) : (
           <>
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-muted-foreground">
               Goes to the {count} unconfirmed {count === 1 ? "person" : "people"}, each with their
               personal call sheet link appended. Edit freely before sending.
             </p>

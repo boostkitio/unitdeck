@@ -124,8 +124,8 @@ export default function PeoplePage() {
     <div>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">People</h1>
-          <p className="mt-1 text-sm text-neutral-500">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">People</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Crew, freelancers and contacts. Your company memory.
           </p>
         </div>
@@ -139,38 +139,82 @@ export default function PeoplePage() {
             <Skeleton className="h-10 w-full" />
           </div>
         ) : people.length === 0 ? (
-          <p className="py-12 text-center text-sm text-neutral-500">
+          <p className="py-12 text-center text-sm text-muted-foreground">
             No people yet. Add your regular crew first.
           </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead className="text-right">Day rate</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            {/* Desktop table */}
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead className="text-right">Day rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {people.map((p) => (
+                    <TableRow
+                      key={p._id}
+                      className="cursor-pointer"
+                      onClick={() => openEdit(p)}
+                    >
+                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{p.role}</TableCell>
+                      <TableCell className="text-muted-foreground">{p.email ?? ""}</TableCell>
+                      <TableCell className="text-muted-foreground">{p.phone ?? ""}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {p.dayRate !== undefined ? `£${p.dayRate}` : ""}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {/* Mobile card list */}
+            <ul className="space-y-2 md:hidden">
               {people.map((p) => (
-                <TableRow
+                <li
                   key={p._id}
-                  className="cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  className="cursor-pointer rounded-lg border border-border bg-card px-4 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => openEdit(p)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openEdit(p);
+                    }
+                  }}
                 >
-                  <TableCell className="font-medium">{p.name}</TableCell>
-                  <TableCell className="text-neutral-500">{p.role}</TableCell>
-                  <TableCell className="text-neutral-500">{p.email ?? ""}</TableCell>
-                  <TableCell className="text-neutral-500">{p.phone ?? ""}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {p.dayRate !== undefined ? `£${p.dayRate}` : ""}
-                  </TableCell>
-                </TableRow>
+                  <p className="font-medium text-foreground">{p.name}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{p.role}</p>
+                  {p.email && (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">Email</span>{" "}
+                      {p.email}
+                    </p>
+                  )}
+                  {p.phone && (
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">Phone</span>{" "}
+                      {p.phone}
+                    </p>
+                  )}
+                  {p.dayRate !== undefined && (
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">Day rate</span>{" "}
+                      £{p.dayRate}
+                    </p>
+                  )}
+                </li>
               ))}
-            </TableBody>
-          </Table>
+            </ul>
+          </>
         )}
       </div>
 

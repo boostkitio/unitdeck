@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 const SEVERITY_STYLES: Record<CheckIssue["severity"], string> = {
   high: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
   medium: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  low: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
+  low: "bg-muted text-muted-foreground",
 };
 
 export function CheckDialog({
@@ -50,7 +50,7 @@ export function CheckDialog({
           <p className="text-sm text-red-600">{error}</p>
         ) : issues === null ? (
           <div className="space-y-3">
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-muted-foreground">
               Reviewing the sheet like a production manager would…
             </p>
             <Skeleton className="h-5 w-full" />
@@ -58,8 +58,8 @@ export function CheckDialog({
             <Skeleton className="h-5 w-3/5" />
           </div>
         ) : issues.length === 0 ? (
-          <p className="text-sm text-neutral-600">
-            Nothing flagged. The sheet covers the essentials — worth a final human read before
+          <p className="text-sm text-muted-foreground">
+            Nothing flagged. The sheet covers the essentials. Worth a final human read before
             sending.
           </p>
         ) : (
@@ -74,7 +74,7 @@ export function CheckDialog({
                 <div>
                   <p className="text-sm">{issue.message}</p>
                   {issue.suggestion && (
-                    <p className="mt-0.5 text-xs text-neutral-500">{issue.suggestion}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{issue.suggestion}</p>
                   )}
                 </div>
               </li>

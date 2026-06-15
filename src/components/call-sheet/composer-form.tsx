@@ -101,7 +101,7 @@ export function ComposerForm({
         {data.schedule.map((block, i) => (
           <div
             key={block.id}
-            className="rounded-md border border-neutral-200 p-3 dark:border-neutral-800"
+            className="rounded-md border border-border p-3"
           >
             <div className="flex items-start gap-2">
               <Input

@@ -48,8 +48,8 @@ export default function ProjectsPage() {
     <div>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
-          <p className="mt-1 text-sm text-neutral-500">Every production, from brief to delivery.</p>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">Projects</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Every production, from brief to delivery.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={() => setBriefOpen(true)}>
@@ -68,7 +68,7 @@ export default function ProjectsPage() {
             <Skeleton className="h-10 w-full" />
           </div>
         ) : projects.length === 0 ? (
-          <p className="py-12 text-center text-sm text-neutral-500">
+          <p className="py-12 text-center text-sm text-muted-foreground">
             No projects yet. Create your first one.
           </p>
         ) : (
@@ -88,7 +88,7 @@ export default function ProjectsPage() {
                       {p.name}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-neutral-500">{p.clientName ?? "·"}</TableCell>
+                  <TableCell className="text-muted-foreground">{p.clientName ?? "·"}</TableCell>
                   <TableCell>
                     <Badge
                       variant="secondary"

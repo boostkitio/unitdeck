@@ -38,17 +38,17 @@ export function SendDialog({
           <DialogTitle>Send call sheet</DialogTitle>
         </DialogHeader>
         {sendable.length === 0 ? (
-          <p className="text-sm text-neutral-500">
+          <p className="text-sm text-muted-foreground">
             No crew members have an email address yet. Add emails to crew rows first (pick people
             from your People database to fill them automatically).
           </p>
         ) : (
           <div className="space-y-1">
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-muted-foreground">
               Sending freezes this version and emails each person a personal link. They confirm on
               the page, no login needed.
             </p>
-            <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+            <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-md border border-border p-2">
               {sendable.map((c) => (
                 <label key={c.id} className="flex items-center gap-2 text-sm">
                   <input
@@ -62,7 +62,7 @@ export function SendDialog({
                     }}
                   />
                   <span className="font-medium">{c.name}</span>
-                  <span className="text-neutral-500">
+                  <span className="text-muted-foreground">
                     {c.role} · {c.email} · call {c.callTime}
                   </span>
                 </label>
@@ -118,7 +118,7 @@ export function SendDialog({
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   pending: {
     label: "Sending",
-    className: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
+    className: "bg-muted text-muted-foreground",
   },
   sent: {
     label: "Sent",
@@ -150,7 +150,7 @@ export function RecipientStrip({ dayId }: { dayId: Id<"shootDays"> }) {
     ["pending", "sent", "viewed", "failed"].includes(r.status)
   ).length;
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-6 py-2 dark:border-neutral-800 dark:bg-neutral-900">
+    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-6 py-2">
       {recipients.map((r) => {
         const s = STATUS_LABELS[r.status] ?? STATUS_LABELS.pending;
         return (
@@ -169,7 +169,7 @@ export function RecipientStrip({ dayId }: { dayId: Id<"shootDays"> }) {
       })}
       {unconfirmed > 0 && (
         <button
-          className="ml-auto text-xs font-medium text-neutral-500 underline underline-offset-2 hover:text-neutral-900 dark:hover:text-neutral-100"
+          className="ml-auto text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
           onClick={() => setChaseOpen(true)}
         >
           Chase {unconfirmed} unconfirmed

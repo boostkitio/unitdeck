@@ -132,11 +132,11 @@ function Composer({
   return (
     <div className="-mx-8 -my-8 flex h-screen flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-neutral-200 bg-white px-6 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="flex items-center justify-between border-b border-border bg-card px-6 py-3">
         <div className="flex items-center gap-3">
           <Link
             href={`/projects/${projectId}`}
-            className="text-sm text-neutral-500 hover:underline"
+            className="text-sm text-muted-foreground hover:underline"
           >
             ← Back to project
           </Link>
@@ -145,7 +145,7 @@ function Composer({
             className={
               saveState === "error"
                 ? "text-xs font-medium text-red-600"
-                : "text-xs text-neutral-400"
+                : "text-xs text-muted-foreground"
             }
           >
             {saveState === "saved"
@@ -205,10 +205,10 @@ function Composer({
 
       {/* Editor + live preview */}
       <div className="flex min-h-0 flex-1">
-        <div className="w-[420px] shrink-0 overflow-y-auto border-r border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="w-full shrink-0 overflow-y-auto border-r border-border bg-card p-6 md:w-[420px]">
           <ComposerForm data={data} onChange={onChange} />
         </div>
-        <div className="flex-1 overflow-y-auto bg-neutral-200 p-8 dark:bg-neutral-950">
+        <div className="hidden flex-1 overflow-y-auto bg-muted p-8 md:block">
           <div className="origin-top scale-[0.85] shadow-xl">
             <CallSheetDocument data={data} versionLabel={`v${draft.version} draft`} />
           </div>
@@ -231,7 +231,7 @@ function HistoryDialog({ dayId, onClose }: { dayId: Id<"shootDays">; onClose: ()
         <DialogHeader>
           <DialogTitle>Version history</DialogTitle>
         </DialogHeader>
-        <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+        <ul className="divide-y divide-border">
           {(versions ?? []).map((s) => (
             <li key={s._id} className="flex items-center justify-between py-2.5">
               <div>
@@ -239,7 +239,7 @@ function HistoryDialog({ dayId, onClose }: { dayId: Id<"shootDays">; onClose: ()
                   v{s.version}
                   {s.status === "draft" ? " (current draft)" : ""}
                 </p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-muted-foreground">
                   {new Date(s._creationTime).toLocaleString("en-GB")}
                   {s.versionNote ? ` · ${s.versionNote}` : ""}
                 </p>

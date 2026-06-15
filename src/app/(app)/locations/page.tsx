@@ -37,14 +37,14 @@ export default function LocationsPage() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Locations</h1>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight">Locations</h1>
         <Button onClick={() => setEditing("new")}>Add location</Button>
       </div>
       <div className="mt-6">
         {locations === undefined ? (
           <Skeleton className="h-40 w-full" />
         ) : locations.length === 0 ? (
-          <p className="py-12 text-center text-sm text-neutral-500">
+          <p className="py-12 text-center text-sm text-muted-foreground">
             No locations yet. Add the studios, offices and venues you shoot at.
           </p>
         ) : (
@@ -63,7 +63,7 @@ export default function LocationsPage() {
                   <TableCell className="font-medium">{l.name}</TableCell>
                   <TableCell>{l.address}</TableCell>
                   <TableCell>{l.parkingNotes ?? "—"}</TableCell>
-                  <TableCell className="text-neutral-500">
+                  <TableCell className="text-muted-foreground">
                     {l.lat !== undefined
                       ? `${l.lat.toFixed(4)}, ${l.lng?.toFixed(4)}`
                       : "Not looked up"}

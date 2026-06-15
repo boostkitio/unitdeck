@@ -59,7 +59,7 @@ export default function WrapPage({
     <div className="mx-auto max-w-3xl">
       <div className="flex items-start justify-between gap-4 print:hidden">
         <div>
-          <Link href={`/projects/${id}`} className="text-sm text-neutral-500 hover:underline">
+          <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:underline">
             ← Back to project
           </Link>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Wrap report</h1>
@@ -70,19 +70,19 @@ export default function WrapPage({
       </div>
 
       <div className="mt-6">
-        <p className="text-sm text-neutral-500">{report.projectName}</p>
+        <p className="text-sm text-muted-foreground">{report.projectName}</p>
         <p className="text-lg font-medium">
           {report.date}
           {report.label ? ` · ${report.label}` : ""}
         </p>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           {checkedIn} of {report.attendance.length} checked in on set
         </p>
       </div>
 
       <table className="mt-6 w-full text-sm">
         <thead>
-          <tr className="border-b border-neutral-300 text-left text-xs uppercase tracking-wider text-neutral-500">
+          <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
             <th className="py-2 pr-2 font-semibold">Name</th>
             <th className="py-2 pr-2 font-semibold">Role</th>
             <th className="py-2 pr-2 font-semibold">Call</th>
@@ -93,7 +93,7 @@ export default function WrapPage({
         </thead>
         <tbody>
           {report.attendance.map((a, i) => (
-            <tr key={i} className="border-b border-neutral-100 dark:border-neutral-800">
+            <tr key={i} className="border-b border-border">
               <td className="py-2 pr-2 font-medium">{a.name}</td>
               <td className="py-2 pr-2">{a.role}</td>
               <td className="py-2 pr-2 tabular-nums">{a.callTime}</td>
@@ -108,7 +108,7 @@ export default function WrapPage({
       <div className="mt-8">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">Wrap notes</h2>
-          <span className="text-xs text-neutral-400 print:hidden">
+          <span className="text-xs text-muted-foreground print:hidden">
             {saveState === "saved" ? "Saved" : "Saving…"}
           </span>
         </div>

@@ -64,7 +64,7 @@ export function BriefDialog({ onClose }: { onClose: () => void }) {
         {!proposal ? (
           <>
             <div className="space-y-2">
-              <p className="text-sm text-neutral-500">
+              <p className="text-sm text-muted-foreground">
                 Paste the client&apos;s email thread, notes or brief. You review everything before
                 anything is created.
               </p>
@@ -161,7 +161,7 @@ function ProposalReview({
         <div className="space-y-2">
           <Label>Shoot days</Label>
           {days.length === 0 ? (
-            <p className="text-sm text-neutral-500">No dates found in the brief.</p>
+            <p className="text-sm text-muted-foreground">No dates found in the brief.</p>
           ) : (
             days.map((d, i) => (
               <div key={i} className="flex items-center gap-2">

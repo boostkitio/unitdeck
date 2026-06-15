@@ -48,7 +48,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     );
   }
   if (project === null) {
-    return <p className="py-12 text-center text-sm text-neutral-500">Project not found.</p>;
+    return <p className="py-12 text-center text-sm text-muted-foreground">Project not found.</p>;
   }
 
   // Keyed by project id so form state resets if the route changes project.
@@ -86,7 +86,7 @@ function ProjectEditor({
   return (
     <div>
       <div className="flex items-start justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight">{project.name}</h1>
         <ArchiveDialog
           onArchive={async () => {
             await archiveProject({ id: project._id });
@@ -95,7 +95,7 @@ function ProjectEditor({
           }}
         />
       </div>
-      <p className="mt-1 text-sm text-neutral-500">{project.clientName ?? "No client assigned"}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{project.clientName ?? "No client assigned"}</p>
 
       <div className="mt-8 max-w-xl space-y-6">
         <div className="space-y-2">
@@ -201,7 +201,7 @@ function ArchiveDialog({ onArchive }: { onArchive: () => Promise<void> }) {
         <DialogHeader>
           <DialogTitle>Archive this project?</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-neutral-500">
+        <p className="text-sm text-muted-foreground">
           The project moves to archived status and disappears from active lists. Nothing is
           deleted, and you can restore it by changing its status back.
         </p>

@@ -90,8 +90,8 @@ export default function ClientsPage() {
     <div>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Clients</h1>
-          <p className="mt-1 text-sm text-neutral-500">Who you make work for.</p>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">Clients</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Who you make work for.</p>
         </div>
         <Button onClick={openCreate}>Add client</Button>
       </div>
@@ -103,7 +103,7 @@ export default function ClientsPage() {
             <Skeleton className="h-10 w-full" />
           </div>
         ) : clients.length === 0 ? (
-          <p className="py-12 text-center text-sm text-neutral-500">No clients yet.</p>
+          <p className="py-12 text-center text-sm text-muted-foreground">No clients yet.</p>
         ) : (
           <Table>
             <TableHeader>
@@ -116,7 +116,7 @@ export default function ClientsPage() {
               {clients.map((c) => (
                 <TableRow key={c._id} className="cursor-pointer" onClick={() => openEdit(c)}>
                   <TableCell className="font-medium">{c.name}</TableCell>
-                  <TableCell className="max-w-md truncate text-neutral-500">
+                  <TableCell className="max-w-md truncate text-muted-foreground">
                     {c.notes ?? ""}
                   </TableCell>
                 </TableRow>
