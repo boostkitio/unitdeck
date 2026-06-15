@@ -182,8 +182,11 @@ function LocationDialog({
     lat !== undefined && lng !== undefined
       ? `${lat},${lng}`
       : address.trim();
+  const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const mapEmbedSrc = address.trim()
-    ? `https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}&output=embed`
+    ? mapsKey
+      ? `https://www.google.com/maps/embed/v1/place?key=${mapsKey}&q=${encodeURIComponent(mapQuery)}`
+      : `https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}&output=embed`
     : null;
   const mapLinkHref = address.trim()
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`
