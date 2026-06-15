@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Unbounded } from "next/font/google";
 import { BRAND } from "@/lib/brand";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { ThemeProvider } from "./theme-provider";
+import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,12 +23,21 @@ const unbounded = Unbounded({
   weight: ["600"],
 });
 
+export const viewport: Viewport = {
+  themeColor: "#11182F",
+};
+
 export const metadata: Metadata = {
   title: {
     default: `${BRAND.name} · ${BRAND.tagline}`,
     template: `%s · ${BRAND.name}`,
   },
   description: BRAND.description,
+  appleWebApp: {
+    capable: true,
+    title: "UnitDeck",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export default function RootLayout({
@@ -42,6 +52,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${unbounded.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <ServiceWorkerRegister />
         <ThemeProvider>
           <ConvexClientProvider>{children}</ConvexClientProvider>
         </ThemeProvider>
