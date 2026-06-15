@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { useOrganization } from "@clerk/nextjs";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { useTheme } from "next-themes";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
@@ -67,12 +67,20 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const { organization } = useOrganization();
+  const { isAuthenticated } = useConvexAuth();
 
-  // Convex data queries – org-scoped, mirroring the pattern on each page
-  const projects = useQuery(api.projects.list, organization ? {} : "skip");
-  const people = useQuery(api.people.list, organization ? {} : "skip");
-  const clients = useQuery(api.clients.list, organization ? {} : "skip");
-  const locations = useQuery(api.locations.list, organization ? {} : "skip");
+  // Only query org-scoped data once the Convex org row exists. OrgGate provisions
+  // it (via organisations.ensure) on first load; querying before that throws
+  // "Organisation not provisioned". Because this provider sits ABOVE OrgGate, an
+  // ungated query would crash the whole shell on a fresh deployment before
+  // ensure can run — a deadlock. organisations.current returns null (never throws)
+  // until provisioned, so it is safe to call here.
+  const orgRow = useQuery(api.organisations.current, isAuthenticated ? {} : "skip");
+  const ready = !!organization && !!orgRow;
+  const projects = useQuery(api.projects.list, ready ? {} : "skip");
+  const people = useQuery(api.people.list, ready ? {} : "skip");
+  const clients = useQuery(api.clients.list, ready ? {} : "skip");
+  const locations = useQuery(api.locations.list, ready ? {} : "skip");
 
   const openPalette = useCallback(() => {
     setIsOpen(true);
@@ -298,7 +306,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
               ) : (
                 groups.map((group) => (
                   <div key={group.name} className="mb-1">
-                    <p className="px-2 pb-0.5 pt-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    <p className="px-2 pb-0.5 pt-1.5 text-[11px] font-medium tracking-wide text-muted-foreground">
                       {group.name}
                     </p>
                     {group.entries.map((entry) => {
