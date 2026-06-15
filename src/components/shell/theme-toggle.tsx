@@ -10,7 +10,9 @@ export function ThemeToggle({ className }: { className?: string }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const isDark = resolvedTheme === "dark";
+  // Before mount we assume the dark default so SSR and the first client paint
+  // agree (no hydration mismatch) and there is no icon swap for the common case.
+  const isDark = mounted ? resolvedTheme === "dark" : true;
 
   return (
     <Button
@@ -20,8 +22,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
       onClick={() => setTheme(isDark ? "light" : "dark")}
     >
-      {/* Render a stable icon until mounted to avoid a hydration mismatch */}
-      {mounted && isDark ? <SunIcon /> : <MoonIcon />}
+      {isDark ? <SunIcon /> : <MoonIcon />}
     </Button>
   );
 }

@@ -15,7 +15,7 @@ export function statusLabel(value: string): string {
 
 // Canonical status colours. Each works on both light and dark surfaces.
 // brief=slate, pre-pro=amber, shooting=emerald (rolling), post=violet, delivered=blue, archived=muted.
-export const STATUS_BADGE_CLASSES: Record<ProjectStatus, string> = {
+const STATUS_BADGE_CLASSES: Record<ProjectStatus, string> = {
   brief: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300",
   pre_production: "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
   shooting: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
