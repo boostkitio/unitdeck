@@ -133,8 +133,11 @@ function LocationDialog({
     if (!name.trim() || name === location?.name) setName(s.name);
     setAddress(s.address);
     if (s.nearestHospital) setNearestHospital(s.nearestHospital);
-    if (s.lat !== undefined) setLat(s.lat);
-    if (s.lng !== undefined) setLng(s.lng);
+    // The model's coordinates are only a rough estimate (often the town centre),
+    // so discard them: the map geocodes the address via Google, and precise
+    // lat/lng are resolved by the OpenStreetMap lookup on save.
+    setLat(undefined);
+    setLng(undefined);
     setSuggestions(null);
     setSmartQuery("");
   }
@@ -177,11 +180,15 @@ function LocationDialog({
     }
   }
 
-  // Build the map src once — uses lat/lng if available, else the address string
+  // Build the map src once. Prefer the address so Google geocodes it precisely
+  // (the model's coordinates are only rough); fall back to lat/lng only when
+  // there is no address yet.
   const mapQuery =
-    lat !== undefined && lng !== undefined
-      ? `${lat},${lng}`
-      : address.trim();
+    address.trim() !== ""
+      ? address.trim()
+      : lat !== undefined && lng !== undefined
+        ? `${lat},${lng}`
+        : "";
   const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const mapEmbedSrc = address.trim()
     ? mapsKey
