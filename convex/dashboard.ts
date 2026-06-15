@@ -116,3 +116,73 @@ export const attention = query({
     return items;
   },
 });
+
+export type UpcomingShootDay = {
+  shootDayId: Id<"shootDays">;
+  projectId: Id<"projects">;
+  projectName: string;
+  date: string;
+  label?: string;
+  locationName: string | null;
+  confirmed: number;
+  total: number;
+};
+
+// Projects in these statuses do not surface on the "this week" panel even if a
+// stray future shoot day exists.
+const EXCLUDED_FROM_WEEK = new Set(["archived"]);
+
+/**
+ * Shoot days in the next 7 days (today inclusive) for non-archived projects,
+ * with per-day crew confirmation counts. Powers the dashboard "This week" panel.
+ */
+export const upcomingShootDays = query({
+  args: {},
+  handler: async (ctx): Promise<UpcomingShootDay[]> => {
+    const { org } = await requireOrg(ctx);
+    const today = new Date().toISOString().slice(0, 10);
+    const horizon = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(500);
+    const projectById = new Map(projects.map((p) => [p._id, p]));
+
+    const days = await ctx.db
+      .query("shootDays")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(500);
+
+    const upcoming = days
+      .filter((d) => d.date >= today && d.date <= horizon)
+      .filter((d) => {
+        const project = projectById.get(d.projectId);
+        return project !== undefined && !EXCLUDED_FROM_WEEK.has(project.status);
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const result: UpcomingShootDay[] = [];
+    for (const day of upcoming) {
+      const project = projectById.get(day.projectId)!;
+      const recipients = await ctx.db
+        .query("recipients")
+        .withIndex("by_shoot_day", (q) => q.eq("shootDayId", day._id))
+        .take(300);
+      const confirmed = recipients.filter((r) => r.status === "confirmed").length;
+      const firstLocation =
+        day.locationIds.length > 0 ? await ctx.db.get(day.locationIds[0]) : null;
+      result.push({
+        shootDayId: day._id,
+        projectId: project._id,
+        projectName: project.name,
+        date: day.date,
+        label: day.label,
+        locationName: firstLocation?.name ?? null,
+        confirmed,
+        total: recipients.length,
+      });
+    }
+    return result;
+  },
+});

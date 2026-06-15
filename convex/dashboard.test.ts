@@ -41,3 +41,56 @@ test("attention feed flags unsent sheets, unconfirmed crew and missing pieces", 
   expect(items.some((i) => i.kind === "call_sheet_not_sent")).toBe(false);
   expect(items.some((i) => i.kind === "unconfirmed_crew")).toBe(true);
 });
+
+test("upcoming shoot days lists this week's days with confirmation counts", async () => {
+  const t = convexTest(schema, modules);
+  const inThree = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const inThirty = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const ids = await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+    const project = await ctx.db.insert("projects", { orgId: org, name: "Promo", status: "shooting" });
+    const soon = await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: inThree,
+      locationIds: [],
+    });
+    // A day outside the 7-day window must not appear
+    await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: inThirty,
+      locationIds: [],
+    });
+    // Two crew on the soon day: one confirmed, one merely sent
+    await ctx.db.insert("recipients", {
+      orgId: org,
+      shootDayId: soon,
+      name: "Ada",
+      role: "DP",
+      email: "ada@example.test",
+      callTime: "07:00",
+      token: "tok_ada",
+      status: "confirmed",
+    });
+    await ctx.db.insert("recipients", {
+      orgId: org,
+      shootDayId: soon,
+      name: "Ben",
+      role: "Gaffer",
+      email: "ben@example.test",
+      callTime: "07:00",
+      token: "tok_ben",
+      status: "sent",
+    });
+    return { soon };
+  });
+  const asB = t.withIdentity({ subject: "user_b", org_id: "org_b" });
+
+  const week = await asB.query(api.dashboard.upcomingShootDays, {});
+  expect(week.length).toBe(1);
+  expect(week[0].shootDayId).toBe(ids.soon);
+  expect(week[0].projectName).toBe("Promo");
+  expect(week[0].total).toBe(2);
+  expect(week[0].confirmed).toBe(1);
+});
