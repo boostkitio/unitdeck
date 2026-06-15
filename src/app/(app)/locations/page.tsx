@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
+import type { AddressSuggestion } from "../../../../convex/locations";
 import { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,6 +97,7 @@ function LocationDialog({
   const updateLocation = useMutation(api.locations.update);
   const archiveLocation = useMutation(api.locations.archive);
   const geocode = useAction(api.locations.geocode);
+  const suggestAddress = useAction(api.locations.suggestAddress);
 
   const [name, setName] = useState(location?.name ?? "");
   const [address, setAddress] = useState(location?.address ?? "");
@@ -103,7 +105,39 @@ function LocationDialog({
   const [parkingNotes, setParkingNotes] = useState(location?.parkingNotes ?? "");
   const [accessNotes, setAccessNotes] = useState(location?.accessNotes ?? "");
   const [nearestHospital, setNearestHospital] = useState(location?.nearestHospital ?? "");
+  const [lat, setLat] = useState<number | undefined>(location?.lat);
+  const [lng, setLng] = useState<number | undefined>(location?.lng);
   const [busy, setBusy] = useState(false);
+
+  // Smart find state
+  const [smartQuery, setSmartQuery] = useState("");
+  const [smartBusy, setSmartBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[] | null>(null);
+  const smartInputRef = useRef<HTMLInputElement>(null);
+
+  async function runSmartFind() {
+    if (smartQuery.trim().length < 3) return;
+    setSmartBusy(true);
+    setSuggestions(null);
+    try {
+      const result = await suggestAddress({ query: smartQuery });
+      setSuggestions(result.suggestions);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not fetch suggestions.");
+    } finally {
+      setSmartBusy(false);
+    }
+  }
+
+  function applySuggestion(s: AddressSuggestion) {
+    if (!name.trim() || name === location?.name) setName(s.name);
+    setAddress(s.address);
+    if (s.nearestHospital) setNearestHospital(s.nearestHospital);
+    if (s.lat !== undefined) setLat(s.lat);
+    if (s.lng !== undefined) setLng(s.lng);
+    setSuggestions(null);
+    setSmartQuery("");
+  }
 
   async function save() {
     if (name.trim() === "" || address.trim() === "") {
@@ -119,6 +153,8 @@ function LocationDialog({
         parkingNotes: parkingNotes || undefined,
         accessNotes: accessNotes || undefined,
         nearestHospital: nearestHospital || undefined,
+        lat,
+        lng,
       };
       let id: Id<"locations">;
       if (location) {
@@ -129,7 +165,8 @@ function LocationDialog({
       }
       toast.success("Location saved.");
       onClose();
-      // Geocode in the background; non-fatal if the address can't be resolved
+      // Geocode in the background via OpenStreetMap to refine/fill coords;
+      // only patches if it finds a result, so existing good coords survive
       void geocode({ id }).then((r) => {
         if (r && !r.found) toast.info("Could not find coordinates for that address.");
       });
@@ -140,13 +177,96 @@ function LocationDialog({
     }
   }
 
+  // Build the map src once — uses lat/lng if available, else the address string
+  const mapQuery =
+    lat !== undefined && lng !== undefined
+      ? `${lat},${lng}`
+      : address.trim();
+  const mapEmbedSrc = address.trim()
+    ? `https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}&output=embed`
+    : null;
+  const mapLinkHref = address.trim()
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`
+    : null;
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{location ? "Edit location" : "Add location"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          {/* Smart find row */}
+          <div className="space-y-2">
+            <Label htmlFor="loc-smart">Smart find</Label>
+            <div className="flex gap-2">
+              <Input
+                id="loc-smart"
+                ref={smartInputRef}
+                placeholder="Search a venue, place or address…"
+                value={smartQuery}
+                onChange={(e) => setSmartQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void runSmartFind();
+                  }
+                }}
+                disabled={smartBusy}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={smartBusy || smartQuery.trim().length < 3}
+                onClick={() => void runSmartFind()}
+              >
+                {smartBusy ? (
+                  <span className="flex items-center gap-1.5">
+                    <svg
+                      className="h-3.5 w-3.5 animate-spin"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                    </svg>
+                    Finding…
+                  </span>
+                ) : (
+                  "Find"
+                )}
+              </Button>
+            </div>
+
+            {/* Suggestion list */}
+            {suggestions !== null && suggestions.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No matches found. Enter the address manually below.
+              </p>
+            )}
+            {suggestions !== null && suggestions.length > 0 && (
+              <div className="space-y-1.5">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="w-full rounded-md border border-border bg-card px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                    onClick={() => applySuggestion(s)}
+                  >
+                    <span className="font-medium">{s.name}</span>
+                    <span className="ml-1 text-muted-foreground">&mdash; {s.address}</span>
+                    {s.nearestHospital && (
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Nearest A&amp;E: {s.nearestHospital}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="loc-name">Name</Label>
             <Input id="loc-name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -157,9 +277,40 @@ function LocationDialog({
               id="loc-address"
               rows={2}
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
+              onChange={(e) => {
+                setAddress(e.target.value);
+                // Address edited manually: clear AI-supplied coords so the
+                // map shows the typed address rather than stale coordinates
+                setLat(undefined);
+                setLng(undefined);
+              }}
             />
           </div>
+
+          {/* Embedded Google Map */}
+          {mapEmbedSrc && (
+            <div className="space-y-1">
+              <iframe
+                title="Map"
+                src={mapEmbedSrc}
+                className="h-48 w-full rounded-md border border-border"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                allowFullScreen={false}
+              />
+              {mapLinkHref && (
+                <a
+                  href={mapLinkHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary hover:underline"
+                >
+                  Open in Google Maps
+                </a>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="loc-w3w">what3words</Label>

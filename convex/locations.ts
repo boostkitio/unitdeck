@@ -2,6 +2,7 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
+import { chatJson } from "./lib/llm";
 
 const locationFields = {
   name: v.string(),
@@ -37,7 +38,11 @@ export const get = query({
 });
 
 export const create = mutation({
-  args: locationFields,
+  args: {
+    ...locationFields,
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     if (args.name.trim().length === 0) throw new Error("Location name is required");
@@ -55,6 +60,8 @@ export const update = mutation({
     accessNotes: v.optional(v.string()),
     nearestHospital: v.optional(v.string()),
     notes: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -65,8 +72,11 @@ export const update = mutation({
       throw new Error("Location name is required");
     }
     await ctx.db.patch(id, patch);
-    // Address changed: stale coordinates must not survive
-    if (patch.address !== undefined && patch.address !== location.address) {
+    // Address changed and caller didn't supply new coordinates: stale coords must not survive
+    const addressChanged =
+      patch.address !== undefined && patch.address !== location.address;
+    const coordsProvided = patch.lat !== undefined || patch.lng !== undefined;
+    if (addressChanged && !coordsProvided) {
       await ctx.db.patch(id, { lat: undefined, lng: undefined });
     }
     return null;
@@ -122,5 +132,87 @@ export const geocode = action({
     const lng = parseFloat(results[0].lon);
     await ctx.runMutation(internal.locations.saveCoordinates, { id: args.id, lat, lng });
     return { found: true as const, lat, lng };
+  },
+});
+
+/**
+ * Shape returned to the frontend for each address suggestion.
+ */
+export type AddressSuggestion = {
+  name: string;
+  address: string;
+  postcode: string | undefined;
+  nearestHospital: string | undefined;
+  lat: number | undefined;
+  lng: number | undefined;
+};
+
+/**
+ * AI-powered UK address/venue suggestion. Requires a signed-in user.
+ * Returns up to 4 suggestions matching the query.
+ */
+export const suggestAddress = action({
+  args: { query: v.string() },
+  handler: async (ctx, args): Promise<{ suggestions: AddressSuggestion[] }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    if (args.query.trim().length < 3) return { suggestions: [] };
+
+    const system = `You are a UK location and address assistant for a film and TV production management tool called UnitDeck.
+Given a venue name, place name, or partial address, return up to 4 of the best matching real UK postal addresses.
+
+Reply with ONLY a JSON object in exactly this shape, no prose, no code fences:
+{
+  "suggestions": [
+    {
+      "name": "Venue or location name",
+      "address": "Full single-line or comma-separated UK postal address",
+      "postcode": "UK postcode or null",
+      "nearestHospital": "Name of nearest A&E or hospital or null",
+      "lat": 51.5074,
+      "lng": -0.1278
+    }
+  ]
+}
+
+Rules:
+- Only return real UK addresses you are confident about.
+- "address" must be a clean comma-separated address (no newlines), e.g. "1 Sample St, Soho, London W1A 1AA".
+- "name" is the venue or location name a production would use (e.g. "Pinewood Studios", "Twickenham Studios").
+- "nearestHospital" is the name of the nearest NHS A&E or major hospital (e.g. "Wexham Park Hospital"). Null if unknown.
+- "lat" and "lng" are your best-estimate decimal coordinates. Null if genuinely unsure.
+- "postcode" is the full UK postcode (e.g. "SL0 0NH"). Null if unavailable.
+- Return fewer than 4 results if you are unsure of the others. Never invent addresses.`;
+
+    const raw = await chatJson({ system, user: args.query, maxTokens: 4000 });
+
+    // Defensively shape the unknown result
+    const obj = raw as Record<string, unknown>;
+    const rawSuggestions = Array.isArray(obj?.suggestions) ? obj.suggestions : [];
+
+    const suggestions: AddressSuggestion[] = rawSuggestions
+      .slice(0, 4)
+      .map((s) => {
+        const item = s as Record<string, unknown>;
+        const address = typeof item?.address === "string" ? item.address.trim() : "";
+        if (!address) return null;
+        return {
+          name: typeof item?.name === "string" && item.name.trim() !== "" ? item.name.trim() : address,
+          address,
+          postcode:
+            typeof item?.postcode === "string" && item.postcode.trim() !== ""
+              ? item.postcode.trim()
+              : undefined,
+          nearestHospital:
+            typeof item?.nearestHospital === "string" && item.nearestHospital.trim() !== ""
+              ? item.nearestHospital.trim()
+              : undefined,
+          lat: typeof item?.lat === "number" && isFinite(item.lat) ? item.lat : undefined,
+          lng: typeof item?.lng === "number" && isFinite(item.lng) ? item.lng : undefined,
+        } satisfies AddressSuggestion;
+      })
+      .filter((s): s is AddressSuggestion => s !== null);
+
+    return { suggestions };
   },
 });
