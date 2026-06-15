@@ -62,7 +62,7 @@ export default function WrapPage({
           <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:underline">
             ← Back to project
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Wrap report</h1>
+          <h1 className="mt-1 font-heading text-2xl font-semibold tracking-tight">Wrap report</h1>
         </div>
         <Button variant="secondary" onClick={() => window.print()}>
           Print

@@ -244,7 +244,7 @@ export function ComposerForm({
         {data.crew.map((row) => (
           <div
             key={row.id}
-            className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800"
+            className="space-y-2 rounded-md border border-border p-3"
           >
             <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
               <Input
