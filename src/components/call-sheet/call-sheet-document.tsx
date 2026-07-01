@@ -1,4 +1,5 @@
 import type { CallSheetData } from "../../../convex/lib/callSheetData";
+import { groupEquipmentBySupplier, callStrip } from "./format";
 
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -27,10 +28,22 @@ export function CallSheetDocument({
 }) {
   return (
     <div className="mx-auto w-[210mm] min-h-[297mm] bg-white p-[14mm] font-sans text-[10pt] leading-snug text-neutral-900">
+      {data.confidential && (
+        <p className="mb-3 text-center text-[8pt] font-bold uppercase tracking-wide text-red-600">
+          Confidential document. Do not misplace. Dispose of securely.
+        </p>
+      )}
       {/* Header */}
       <header className="border-b-2 border-neutral-900 pb-3">
         <div className="flex items-end justify-between">
           <div>
+            {data.branding?.logoUrl && (
+              <img
+                src={data.branding.logoUrl}
+                alt=""
+                className="mb-2 h-10 w-auto object-contain"
+              />
+            )}
             <p className="text-[8pt] uppercase tracking-widest text-neutral-500">
               {data.productionCompany}
               {data.clientName ? ` for ${data.clientName}` : ""}
@@ -44,10 +57,14 @@ export function CallSheetDocument({
         </div>
         <div className="mt-3 flex justify-between text-[11pt]">
           <p className="font-semibold">{formatDate(data.date)}</p>
-          <p>
-            <span className="font-semibold">General call: </span>
-            {data.generalCallTime}
-          </p>
+          <div className="flex flex-wrap justify-end gap-x-4 gap-y-0.5 text-right">
+            {callStrip(data).map((ct) => (
+              <span key={ct.id}>
+                <span className="font-semibold">{ct.label}: </span>
+                {ct.time}
+              </span>
+            ))}
+          </div>
         </div>
       </header>
 
@@ -78,6 +95,21 @@ export function CallSheetDocument({
                     {loc.parkingNotes && <span className="mr-3">Parking: {loc.parkingNotes}</span>}
                     {loc.nearestHospital && <span>Nearest A&amp;E: {loc.nearestHospital}</span>}
                   </p>
+                  {(loc.satNav || loc.publicTransport) && (
+                    <p className="text-[8.5pt] text-neutral-600">
+                      {loc.satNav && <span className="mr-3">Sat nav: {loc.satNav}</span>}
+                      {loc.publicTransport && <span>Transport: {loc.publicTransport}</span>}
+                    </p>
+                  )}
+                  {(loc.nearestHospital || loc.nearestPoliceStation) && (
+                    <p className="text-[8.5pt] text-neutral-600">
+                      In an emergency call 999.
+                      {loc.nearestHospital && <span className="ml-2">Nearest A&amp;E: {loc.nearestHospital}.</span>}
+                      {loc.nearestPoliceStation && (
+                        <span className="ml-2">Nearest police: {loc.nearestPoliceStation}.</span>
+                      )}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
@@ -114,7 +146,7 @@ export function CallSheetDocument({
       {data.crew.length > 0 && (
         <section className="mt-5">
           <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
-            Crew
+            {data.crewSectionTitle ?? "Crew"}
           </h2>
           <table className="mt-2 w-full border-collapse text-left">
             <thead>
@@ -141,6 +173,38 @@ export function CallSheetDocument({
         </section>
       )}
 
+      {(data.contactSections ?? []).map((section) => (
+        <section key={section.id} className="mt-5">
+          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
+            {section.title}
+          </h2>
+          <table className="mt-2 w-full border-collapse text-left">
+            <thead>
+              <tr className="border-b border-neutral-400 text-[8pt] uppercase tracking-wider text-neutral-500">
+                <th className="py-1 pr-2 font-semibold">Role</th>
+                <th className="py-1 pr-2 font-semibold">Name</th>
+                <th className="py-1 pr-2 font-semibold">Reports to</th>
+                <th className="py-1 pr-2 font-semibold">Phone</th>
+                <th className="py-1 pr-2 font-semibold">Email</th>
+                <th className="py-1 font-semibold">Call</th>
+              </tr>
+            </thead>
+            <tbody>
+              {section.rows.map((r) => (
+                <tr key={r.id} className="border-b border-neutral-200">
+                  <td className="py-1.5 pr-2">{r.role}</td>
+                  <td className="py-1.5 pr-2 font-medium">{r.name}</td>
+                  <td className="py-1.5 pr-2 text-neutral-600">{r.reportsTo ?? ""}</td>
+                  <td className="py-1.5 pr-2 whitespace-nowrap">{r.phone ?? ""}</td>
+                  <td className="py-1.5 pr-2">{r.email ?? ""}</td>
+                  <td className="py-1.5 font-semibold">{r.callTime ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ))}
+
       {/* Key contacts */}
       {data.contacts.length > 0 && (
         <section className="mt-5">
@@ -152,6 +216,46 @@ export function CallSheetDocument({
               <p key={c.id}>
                 <span className="font-semibold">{c.name}</span> ({c.role}) {c.phone}
               </p>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data.camera &&
+        (data.camera.recordingFormat ||
+          data.camera.frameRate ||
+          data.camera.aspectRatios ||
+          data.camera.namingConvention ||
+          data.camera.otherNotes) && (
+          <section className="mt-5">
+            <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
+              Camera
+            </h2>
+            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[9pt]">
+              {data.camera.recordingFormat && (<><dt className="font-semibold">Recording format</dt><dd>{data.camera.recordingFormat}</dd></>)}
+              {data.camera.frameRate && (<><dt className="font-semibold">Frame rate</dt><dd>{data.camera.frameRate}</dd></>)}
+              {data.camera.aspectRatios && (<><dt className="font-semibold">Aspect ratios</dt><dd>{data.camera.aspectRatios}</dd></>)}
+              {data.camera.namingConvention && (<><dt className="font-semibold">Naming convention</dt><dd>{data.camera.namingConvention}</dd></>)}
+              {data.camera.otherNotes && (<><dt className="font-semibold">Other notes</dt><dd>{data.camera.otherNotes}</dd></>)}
+            </dl>
+          </section>
+        )}
+
+      {data.equipment && data.equipment.length > 0 && (
+        <section className="mt-5">
+          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
+            Equipment
+          </h2>
+          <div className="mt-2 space-y-2 text-[9pt]">
+            {groupEquipmentBySupplier(data.equipment).map((group) => (
+              <div key={group.supplier ?? "other"}>
+                <p className="font-semibold">{group.supplier ?? "Other"}</p>
+                <ul className="ml-4 list-disc">
+                  {group.items.map((it) => (
+                    <li key={it.id}>{it.item}</li>
+                  ))}
+                </ul>
+              </div>
             ))}
           </div>
         </section>
@@ -174,6 +278,26 @@ export function CallSheetDocument({
           <p className="mt-1 whitespace-pre-line">{data.safetyNotes}</p>
         </section>
       )}
+
+      {data.invoicing &&
+        (data.invoicing.legalName ||
+          data.invoicing.companyNumber ||
+          data.invoicing.vatNumber ||
+          data.invoicing.invoiceEmail ||
+          data.invoicing.receiptsNote) && (
+          <section className="mt-5 border-t border-neutral-300 pt-2 text-[8pt] text-neutral-600">
+            <p className="font-semibold uppercase tracking-widest">Invoicing</p>
+            <p>
+              {[data.invoicing.legalName,
+                data.invoicing.companyNumber && `Company no. ${data.invoicing.companyNumber}`,
+                data.invoicing.vatNumber && `VAT ${data.invoicing.vatNumber}`,
+                data.invoicing.invoiceEmail && `Invoices to ${data.invoicing.invoiceEmail}`]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            {data.invoicing.receiptsNote && <p>{data.invoicing.receiptsNote}</p>}
+          </section>
+        )}
     </div>
   );
 }
