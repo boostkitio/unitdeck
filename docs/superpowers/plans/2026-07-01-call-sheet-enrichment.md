@@ -19,6 +19,7 @@
 - Copy rules for all user-facing text and commit messages: first person singular, UK English, no em dashes (en dashes allowed), sentence case (no all-caps headers). No "Claude"/"Anthropic"/AI references anywhere. Commits carry **no** `Co-Authored-By` trailer and no "Generated with" footer.
 - Test runner: `edge-runtime` environment, includes `convex/**/*.test.ts` and `src/**/*.test.ts`. No jsdom / React Testing Library is installed, so presentational components are verified by `npm run build` + manual visual QA; pure functions are unit-tested.
 - After each task: commit. Push at the end of the feature (Matt's workspace rule: commit and push before declaring done; branch is `main`).
+- **Live domain:** everything must work on the production site `https://unitdeck.app`. `src/lib/brand.ts` already exports `SITE_URL = "https://unitdeck.app"`; PDF routes render via `req.nextUrl.origin` (resolves to the live host); the logo resolves to an absolute Convex storage URL (fetchable by both the app and headless Chromium). Do not introduce localhost or app-relative absolute URLs. Production dependency to verify before "done": `SITE_URL` must be set in the Convex **production** deployment env (it powers crew set-mode email links); the local test env not having it causes the known pre-existing `setMode`/`messageDrafter` failures.
 
 ---
 
@@ -1309,6 +1310,322 @@ Run: `npm test`
 Expected: all suites pass.
 Run: `npm run build`
 Expected: build succeeds. Confirm `git status` shows the branch up to date with `origin/main`.
+
+---
+
+### Task 10: Demo dataset (self-serve seed + CLI)
+
+Seed a realistic dataset modelled on Charlie's own Klaxon/Barclays shoot so a new user (Charlie) can log into `unitdeck.app`, load it in one click, and analyse a fully enriched call sheet. Depends only on the Task 1 validators, but is built last so the seeded data renders through the finished document and composer.
+
+**Files:**
+- Create: `convex/demoData.ts`
+- Create: `convex/demoData.test.ts`
+- Modify: `src/app/(app)/dashboard/page.tsx` (empty-state "Load sample data" button)
+
+**Interfaces:**
+- Consumes: `requireOrg` (`convex/lib/auth.ts`), `CallSheetData` and the enriched validators (Task 1).
+- Produces:
+  - `seedDemoDataForOrg(ctx: MutationCtx, orgId: Id<"organisations">): Promise<{ seeded: boolean; projectId: Id<"projects"> }>` — idempotent (skips if a project named "Barclays Pension Advice" already exists in the org); patches org settings; inserts client, people, location, project, shoot day and a v1 enriched call sheet draft.
+  - `seedDemo()` public mutation — `requireOrg` then calls the helper on the caller's org (the button path).
+  - `seedDemoForOrg({ orgId })` internal mutation — the CLI path: `npx convex run demoData:seedDemoForOrg '{"orgId":"<id>"}'`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `convex/demoData.test.ts`:
+
+```ts
+/// <reference types="vite/client" />
+import { convexTest } from "convex-test";
+import { expect, test } from "vitest";
+import { api } from "./_generated/api";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+
+async function setup() {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Klaxon", clerkOrgId: "org_a" });
+  });
+  return { t, asA: t.withIdentity({ subject: "user_a", org_id: "org_a" }) };
+}
+
+test("seedDemo populates an enriched dataset for the caller's org", async () => {
+  const { t, asA } = await setup();
+  const res = await asA.mutation(api.demoData.seedDemo, {});
+  expect(res.seeded).toBe(true);
+  const counts = await t.run(async (ctx) => {
+    const projects = await ctx.db.query("projects").collect();
+    const people = await ctx.db.query("people").collect();
+    const sheets = await ctx.db.query("callSheets").collect();
+    const org = (await ctx.db.query("organisations").first())!;
+    return { projects, peopleCount: people.length, sheet: sheets[0], org };
+  });
+  expect(counts.projects.some((p) => p.name === "Barclays Pension Advice")).toBe(true);
+  expect(counts.peopleCount).toBeGreaterThanOrEqual(6);
+  expect(counts.sheet.data.callTimes).toHaveLength(4);
+  expect(counts.sheet.data.contactSections).toHaveLength(3);
+  expect(counts.sheet.data.camera?.frameRate).toContain("25");
+  expect(counts.sheet.data.confidential).toBe(true);
+  expect(counts.org.settings?.invoicing?.legalName).toBe("Klaxon Studio Ltd");
+});
+
+test("seedDemo is idempotent", async () => {
+  const { t, asA } = await setup();
+  await asA.mutation(api.demoData.seedDemo, {});
+  const second = await asA.mutation(api.demoData.seedDemo, {});
+  expect(second.seeded).toBe(false);
+  const projectCount = await t.run(async (ctx) =>
+    (await ctx.db.query("projects").collect()).filter((p) => p.name === "Barclays Pension Advice").length
+  );
+  expect(projectCount).toBe(1);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run convex/demoData.test.ts`
+Expected: FAIL ("seedDemo is not a function" on the api).
+
+- [ ] **Step 3: Implement `convex/demoData.ts`**
+
+Create the file. Read `convex/_generated/ai/guidelines.md` first if unsure about Convex APIs. Use dummy contact details throughout (names/roles are Charlie's real crew so it's familiar, but phones use the Ofcom reserved `07700 900xxx` range and emails use `@example.com`, so nothing can reach a real inbox if the demo sheet is ever sent).
+
+```ts
+import { mutation, internalMutation, MutationCtx } from "./_generated/server";
+import { v } from "convex/values";
+import { requireOrg } from "./lib/auth";
+import { Id } from "./_generated/dataModel";
+import { CallSheetData } from "./lib/callSheetData";
+
+const DEMO_PROJECT = "Barclays Pension Advice";
+
+export async function seedDemoDataForOrg(
+  ctx: MutationCtx,
+  orgId: Id<"organisations">
+): Promise<{ seeded: boolean; projectId: Id<"projects"> }> {
+  const existing = await ctx.db
+    .query("projects")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .collect();
+  const already = existing.find((p) => p.name === DEMO_PROJECT);
+  if (already) return { seeded: false, projectId: already._id };
+
+  const org = await ctx.db.get(orgId);
+  await ctx.db.patch(orgId, {
+    settings: {
+      ...org?.settings,
+      brandColor: "#11182F",
+      confidentialByDefault: true,
+      invoicing: {
+        legalName: "Klaxon Studio Ltd",
+        companyNumber: "15712401",
+        vatNumber: "GB470025721",
+        invoiceEmail: "invoices@klaxon.studio",
+        receiptsNote: "Please keep and submit all receipts to Klaxon Studio.",
+      },
+    },
+  });
+
+  const clientId = await ctx.db.insert("clients", {
+    orgId,
+    name: "RAPP (Barclays)",
+    notes: "Agency: RAPP. End client: Barclays.",
+  });
+
+  const crewPeople = [
+    { name: "James England", role: "Producer", email: "producer@example.com", phone: "07700 900447" },
+    { name: "Charlie Fox", role: "Director of Photography", email: "dp@example.com", phone: "07700 900988" },
+    { name: "Matt Hill", role: "Camera Operator", email: "cam@example.com", phone: "07700 900076" },
+    { name: "James Travis", role: "Camera Assistant", email: "ac@example.com", phone: "07700 900855" },
+    { name: "Michael O'Donahue", role: "Sound Recordist", email: "sound@example.com", phone: "07700 900721" },
+    { name: "Rozzie Roux", role: "Autocue Operator", email: "autocue@example.com", phone: "07700 900982" },
+  ];
+  const pid: Record<string, Id<"people">> = {};
+  for (const p of crewPeople) pid[p.name] = await ctx.db.insert("people", { orgId, ...p });
+
+  const locationId = await ctx.db.insert("locations", {
+    orgId,
+    name: "Bermondsey Loft",
+    address: "3 Tanner St, London, SE1 3LE",
+    parkingNotes: "Premier Inn Tower Bridge, 159 Tower Bridge Road, SE1 3LP",
+    satNav: "SE1 3JT",
+    publicTransport: "London Bridge 10 min walk; Bermondsey tube 20 min walk",
+    nearestHospital: "St Thomas' A&E, Westminster Bridge Rd, SE1 7EH",
+    nearestPoliceStation: "Southwark Police Station, 323 Borough High St, SE1 1JL",
+  });
+
+  const projectId = await ctx.db.insert("projects", {
+    orgId,
+    clientId,
+    name: DEMO_PROJECT,
+    status: "pre_production",
+    briefSummary: "4x 15sec talking-head videos, versioned for 16:9, 1:1 and 9:16.",
+  });
+
+  const shootDayId = await ctx.db.insert("shootDays", {
+    orgId,
+    projectId,
+    date: "2026-06-09",
+    label: "Day 1: studio talking heads",
+    locationIds: [locationId],
+    sun: { sunrise: "04:44", sunset: "21:16" },
+  });
+
+  const data: CallSheetData = {
+    title: DEMO_PROJECT,
+    date: "2026-06-09",
+    generalCallTime: "07:45",
+    productionCompany: "Klaxon Studio",
+    clientName: "RAPP (Barclays)",
+    confidential: true,
+    branding: { brandColor: "#11182F" },
+    invoicing: {
+      legalName: "Klaxon Studio Ltd",
+      companyNumber: "15712401",
+      vatNumber: "GB470025721",
+      invoiceEmail: "invoices@klaxon.studio",
+      receiptsNote: "Please keep and submit all receipts to Klaxon Studio.",
+    },
+    callTimes: [
+      { id: "ct-crew", label: "Crew call", time: "07:45" },
+      { id: "ct-agency", label: "Agency call", time: "08:00" },
+      { id: "ct-client", label: "Client call", time: "08:45" },
+      { id: "ct-talent", label: "Talent call", time: "09:45" },
+    ],
+    locations: [
+      {
+        id: "loc-1",
+        locationId,
+        name: "Bermondsey Loft",
+        address: "3 Tanner St, London, SE1 3LE",
+        parkingNotes: "Premier Inn Tower Bridge, 159 Tower Bridge Road, SE1 3LP",
+        satNav: "SE1 3JT",
+        publicTransport: "London Bridge 10 min walk; Bermondsey tube 20 min walk",
+        nearestHospital: "St Thomas' A&E, Westminster Bridge Rd, SE1 7EH",
+        nearestPoliceStation: "Southwark Police Station, 323 Borough High St, SE1 1JL",
+      },
+    ],
+    schedule: [
+      { id: "s1", start: "07:45", title: "Crew call and load in" },
+      { id: "s2", start: "08:15", title: "Block through locations", notes: "Charlie, Adam, Francesco" },
+      { id: "s3", start: "10:00", title: "Talent to set" },
+      { id: "s4", start: "10:15", title: "RX: consolidation film #1" },
+      { id: "s5", start: "11:30", title: "Reset, position #2 and wardrobe" },
+      { id: "s6", start: "12:00", title: "RX: SIPP film #2" },
+      { id: "s7", start: "13:15", title: "Lunch" },
+      { id: "s8", start: "14:30", title: "RX: time is your advantage #3" },
+      { id: "s9", start: "16:15", title: "RX: planning and advice #4" },
+      { id: "s10", start: "17:00", title: "Talent, agency, client wrap" },
+      { id: "s11", start: "18:00", title: "Hard out of location" },
+    ],
+    crew: [
+      { id: "c1", personId: pid["James England"], name: "James England", role: "Producer", callTime: "07:45", email: "producer@example.com", phone: "07700 900447" },
+      { id: "c2", personId: pid["Charlie Fox"], name: "Charlie Fox", role: "Director of Photography", callTime: "07:45", email: "dp@example.com", phone: "07700 900988" },
+      { id: "c3", personId: pid["Matt Hill"], name: "Matt Hill", role: "Camera Operator", callTime: "07:45", email: "cam@example.com", phone: "07700 900076" },
+      { id: "c4", personId: pid["James Travis"], name: "James Travis", role: "Camera Assistant", callTime: "07:45", email: "ac@example.com", phone: "07700 900855" },
+      { id: "c5", personId: pid["Michael O'Donahue"], name: "Michael O'Donahue", role: "Sound Recordist", callTime: "08:30", email: "sound@example.com", phone: "07700 900721" },
+      { id: "c6", personId: pid["Rozzie Roux"], name: "Rozzie Roux", role: "Autocue Operator", callTime: "08:30", email: "autocue@example.com", phone: "07700 900982" },
+    ],
+    crewSectionTitle: "Crew",
+    contactSections: [
+      {
+        id: "sec-agency",
+        title: "Agency",
+        rows: [
+          { id: "a1", name: "Adam Pretty", role: "Senior Producer", callTime: "08:00", email: "adam@example.com", phone: "07700 900963" },
+          { id: "a2", name: "Neil Williamson", role: "RAPP", email: "neil@example.com", reportsTo: "Adam Pretty" },
+          { id: "a3", name: "Francesco Perillo", role: "RAPP", email: "fran@example.com", reportsTo: "Adam Pretty" },
+        ],
+      },
+      {
+        id: "sec-client",
+        title: "Client",
+        rows: [
+          { id: "cl1", name: "Pauline Howard", role: "Barclays", callTime: "08:45", email: "pauline@example.com" },
+          { id: "cl2", name: "Joyce Chen", role: "Barclays", callTime: "08:45", email: "joyce@example.com" },
+          { id: "cl3", name: "Adrian Richards", role: "Barclays", callTime: "08:45", email: "adrian@example.com" },
+        ],
+      },
+      {
+        id: "sec-contrib",
+        title: "Contributors",
+        rows: [{ id: "t1", name: "Claire Francis", role: "Talent", callTime: "09:45", email: "claire@example.com" }],
+      },
+    ],
+    camera: {
+      recordingFormat: "3840 x 2160, S-Gamut3.Cine / S-Log3",
+      frameRate: "25fps / PAL",
+      aspectRatios: "9:16 and 1:1",
+      namingConvention: "26MMDD_prodtitle_camA_001_",
+      otherNotes: "PTCs, 2x camera setup, lapel + boom, 4x client IEMs. Time-of-day timecode, record on-camera sound.",
+    },
+    equipment: [
+      { id: "e1", supplier: "Klaxon Studio", item: "Sony FX9 (x2)" },
+      { id: "e2", supplier: "Klaxon Studio", item: "Sony FX6 or FX3" },
+      { id: "e3", supplier: "Klaxon Studio", item: "Sigma Cine Prime set: 14, 24, 25, 50, 85, 135mm" },
+      { id: "e4", supplier: "Klaxon Studio", item: "Prosup 2.9m slider" },
+      { id: "e5", supplier: "Klaxon Studio", item: "Aputure 600d + 150cm dome; 300d + 90cm dome" },
+      { id: "e6", supplier: "Klaxon Studio", item: "Blackmagic ATEM Pro, Atomos + ProHD client monitors" },
+      { id: "e7", supplier: "Michael O'Donahue", item: "Sound kit: lapel + booms, 4x IEMs, 2x TC boxes" },
+    ],
+    notes:
+      "Extremely time-dependent shoot with a hard out of the location at 18:00. Bring reusable water bottles. Snacks on set; lunch via Deliveroo. Take extra care of the property, damages are chargeable.",
+    safetyNotes:
+      "All cables to be taped down. In an emergency call 999. Nearest A&E: St Thomas'. First aid kit on set. Report any accidents to the producer.",
+    sunrise: "04:44",
+    sunset: "21:16",
+  };
+
+  await ctx.db.insert("callSheets", {
+    orgId,
+    shootDayId,
+    projectId,
+    version: 1,
+    status: "draft",
+    data,
+  });
+
+  return { seeded: true, projectId };
+}
+
+export const seedDemo = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    return await seedDemoDataForOrg(ctx, org._id);
+  },
+});
+
+export const seedDemoForOrg = internalMutation({
+  args: { orgId: v.id("organisations") },
+  handler: async (ctx, args) => {
+    return await seedDemoDataForOrg(ctx, args.orgId);
+  },
+});
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run convex/demoData.test.ts`
+Expected: PASS (2 tests).
+
+- [ ] **Step 5: Add the "Load sample data" button to the dashboard empty state**
+
+In `src/app/(app)/dashboard/page.tsx`, add `useMutation`/`useState`/`toast` imports as needed, wire a `seedDemo` mutation, and render a "Load sample data" button in the "Active productions" empty-state branch (the `active.length === 0` block, currently a `<p>`). The button calls `seedDemo`, is disabled while running, and toasts on success; the reactive queries repopulate the dashboard automatically. Follow the existing `Button` usage in the file. Keep copy sentence case and UK English ("Load sample data", "Loading sample data…").
+
+- [ ] **Step 6: Build and verify**
+
+Run: `npm run build`
+Expected: build succeeds. Manual QA: on a fresh org, click "Load sample data" on the dashboard; confirm the Barclays project, crew, location and enriched call sheet appear, open the call sheet and confirm every enriched block renders and the PDF exports. Confirm a second click does not duplicate (button can be hidden once projects exist).
+
+- [ ] **Step 7: Commit and push**
+
+```bash
+git add convex/demoData.ts convex/demoData.test.ts "src/app/(app)/dashboard/page.tsx"
+git commit -m "Add self-serve demo dataset seed for the Barclays sample shoot"
+git push
+```
 
 ---
 
