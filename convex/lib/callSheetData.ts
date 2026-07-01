@@ -123,3 +123,28 @@ export type ContactSection = Infer<typeof contactSectionValidator>;
 export type CallTimeEntry = Infer<typeof callTimeValidator>;
 export type EquipmentRow = Infer<typeof equipmentRowValidator>;
 export type CameraInfo = Infer<typeof cameraInfoValidator>;
+
+/**
+ * One-way, idempotent migration: fold the deprecated flat `contacts[]` into a
+ * "Key contacts" section so every group lives in `contactSections[]`. Safe to
+ * call on already-migrated data (no-op when `contacts` is empty).
+ */
+export function migrateLegacyContacts(data: CallSheetData): CallSheetData {
+  if (!data.contacts || data.contacts.length === 0) return data;
+  const rows: SectionRow[] = data.contacts.map((c) => ({
+    id: c.id,
+    name: c.name,
+    role: c.role,
+    phone: c.phone || undefined,
+  }));
+  const section: ContactSection = {
+    id: `sec-legacy-${data.contacts[0].id}`,
+    title: "Key contacts",
+    rows,
+  };
+  return {
+    ...data,
+    contacts: [],
+    contactSections: [...(data.contactSections ?? []), section],
+  };
+}
