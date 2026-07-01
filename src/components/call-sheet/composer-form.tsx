@@ -6,7 +6,6 @@ import { api } from "../../../convex/_generated/api";
 import type {
   CallSheetData,
   CameraInfo,
-  ContactRow,
   ContactSection,
   CrewRow,
   EquipmentRow,
@@ -387,72 +386,6 @@ export function ComposerForm({
                 Remove
               </Button>
             </div>
-          </div>
-        ))}
-      </section>
-
-      {/* Key contacts */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Key contacts</h3>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() =>
-              set({
-                contacts: [
-                  ...data.contacts,
-                  { id: newId("contact"), name: "", role: "", phone: "" } satisfies ContactRow,
-                ],
-              })
-            }
-          >
-            Add contact
-          </Button>
-        </div>
-        {data.contacts.map((c) => (
-          <div key={c.id} className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-2">
-            <Input
-              placeholder="Name"
-              value={c.name}
-              onChange={(e) =>
-                set({
-                  contacts: data.contacts.map((x) =>
-                    x.id === c.id ? { ...x, name: e.target.value } : x
-                  ),
-                })
-              }
-            />
-            <Input
-              placeholder="Role"
-              value={c.role}
-              onChange={(e) =>
-                set({
-                  contacts: data.contacts.map((x) =>
-                    x.id === c.id ? { ...x, role: e.target.value } : x
-                  ),
-                })
-              }
-            />
-            <Input
-              placeholder="Phone"
-              value={c.phone}
-              onChange={(e) =>
-                set({
-                  contacts: data.contacts.map((x) =>
-                    x.id === c.id ? { ...x, phone: e.target.value } : x
-                  ),
-                })
-              }
-            />
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-red-600"
-              onClick={() => set({ contacts: data.contacts.filter((x) => x.id !== c.id) })}
-            >
-              Remove
-            </Button>
           </div>
         ))}
       </section>
