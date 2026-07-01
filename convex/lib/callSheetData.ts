@@ -17,6 +17,7 @@ export const crewRowValidator = v.object({
   phone: v.optional(v.string()),
   email: v.optional(v.string()),
   notes: v.optional(v.string()),
+  reportsTo: v.optional(v.string()),
 });
 
 export const contactRowValidator = v.object({
@@ -34,6 +35,55 @@ export const locationEntryValidator = v.object({
   w3w: v.optional(v.string()),
   parkingNotes: v.optional(v.string()),
   nearestHospital: v.optional(v.string()),
+  satNav: v.optional(v.string()),
+  publicTransport: v.optional(v.string()),
+  nearestPoliceStation: v.optional(v.string()),
+});
+
+export const sectionRowValidator = v.object({
+  id: v.string(),
+  personId: v.optional(v.id("people")),
+  name: v.string(),
+  role: v.string(),
+  callTime: v.optional(v.string()),
+  phone: v.optional(v.string()),
+  email: v.optional(v.string()),
+  reportsTo: v.optional(v.string()),
+  notes: v.optional(v.string()),
+});
+
+export const contactSectionValidator = v.object({
+  id: v.string(),
+  title: v.string(),
+  rows: v.array(sectionRowValidator),
+});
+
+export const callTimeValidator = v.object({
+  id: v.string(),
+  label: v.string(),
+  time: v.string(),
+});
+
+export const equipmentRowValidator = v.object({
+  id: v.string(),
+  supplier: v.optional(v.string()),
+  item: v.string(),
+});
+
+export const cameraInfoValidator = v.object({
+  recordingFormat: v.optional(v.string()),
+  frameRate: v.optional(v.string()),
+  aspectRatios: v.optional(v.string()),
+  namingConvention: v.optional(v.string()),
+  otherNotes: v.optional(v.string()),
+});
+
+export const invoicingValidator = v.object({
+  legalName: v.optional(v.string()),
+  companyNumber: v.optional(v.string()),
+  vatNumber: v.optional(v.string()),
+  invoiceEmail: v.optional(v.string()),
+  receiptsNote: v.optional(v.string()),
 });
 
 export const callSheetDataValidator = v.object({
@@ -51,6 +101,16 @@ export const callSheetDataValidator = v.object({
   weatherSummary: v.optional(v.string()),
   sunrise: v.optional(v.string()),
   sunset: v.optional(v.string()),
+  callTimes: v.optional(v.array(callTimeValidator)),
+  crewSectionTitle: v.optional(v.string()),
+  contactSections: v.optional(v.array(contactSectionValidator)),
+  camera: v.optional(cameraInfoValidator),
+  equipment: v.optional(v.array(equipmentRowValidator)),
+  branding: v.optional(
+    v.object({ logoUrl: v.optional(v.string()), brandColor: v.optional(v.string()) })
+  ),
+  invoicing: v.optional(invoicingValidator),
+  confidential: v.optional(v.boolean()),
 });
 
 export type CallSheetData = Infer<typeof callSheetDataValidator>;
@@ -58,3 +118,8 @@ export type ScheduleBlock = Infer<typeof scheduleBlockValidator>;
 export type CrewRow = Infer<typeof crewRowValidator>;
 export type ContactRow = Infer<typeof contactRowValidator>;
 export type LocationEntry = Infer<typeof locationEntryValidator>;
+export type SectionRow = Infer<typeof sectionRowValidator>;
+export type ContactSection = Infer<typeof contactSectionValidator>;
+export type CallTimeEntry = Infer<typeof callTimeValidator>;
+export type EquipmentRow = Infer<typeof equipmentRowValidator>;
+export type CameraInfo = Infer<typeof cameraInfoValidator>;

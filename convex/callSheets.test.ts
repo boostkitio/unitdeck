@@ -127,3 +127,89 @@ test("cross-org access is rejected everywhere", async () => {
     asB.mutation(api.callSheets.createRenderToken, { id: draftId })
   ).rejects.toThrow();
 });
+
+test("enriched call sheet data and org settings round-trip through the schema", async () => {
+  const t = convexTest(schema, modules);
+  const read = await t.run(async (ctx) => {
+    const orgId = await ctx.db.insert("organisations", {
+      name: "Org A",
+      clerkOrgId: "org_a",
+      settings: {
+        brandColor: "#ff0000",
+        invoicing: {
+          legalName: "Klaxon Studio Ltd",
+          companyNumber: "15712401",
+          vatNumber: "GB470025721",
+          invoiceEmail: "invoices@klaxon.studio",
+          receiptsNote: "Keep and submit all receipts",
+        },
+        confidentialByDefault: true,
+      },
+    });
+    const projectId = await ctx.db.insert("projects", {
+      orgId,
+      name: "P",
+      status: "brief",
+    });
+    const dayId = await ctx.db.insert("shootDays", {
+      orgId,
+      projectId,
+      date: "2026-06-09",
+      locationIds: [],
+    });
+    const csId = await ctx.db.insert("callSheets", {
+      orgId,
+      shootDayId: dayId,
+      projectId,
+      version: 1,
+      status: "draft",
+      data: {
+        title: "T",
+        date: "2026-06-09",
+        generalCallTime: "07:45",
+        productionCompany: "Klaxon",
+        locations: [
+          {
+            id: "l1",
+            name: "Loft",
+            address: "3 Tanner St",
+            satNav: "SE1 3JT",
+            publicTransport: "London Bridge 10 min walk",
+            nearestPoliceStation: "Southwark Police Station",
+          },
+        ],
+        schedule: [],
+        crew: [],
+        contacts: [],
+        callTimes: [{ id: "ct1", label: "Crew call", time: "07:45" }],
+        crewSectionTitle: "Crew",
+        contactSections: [
+          {
+            id: "s1",
+            title: "Agency",
+            rows: [
+              { id: "r1", name: "Adam", role: "Senior Producer", email: "a@omc.com", reportsTo: "" },
+            ],
+          },
+        ],
+        camera: {
+          recordingFormat: "3840x2160 S-Log3",
+          frameRate: "25",
+          aspectRatios: "16:9, 1:1, 9:16",
+          namingConvention: "26MMDD_prodtitle_camA_001_",
+          otherNotes: "2x camera, lapel + boom",
+        },
+        equipment: [{ id: "e1", supplier: "Klaxon Studio", item: "Sony FX9" }],
+        branding: { logoUrl: "https://example/logo.png", brandColor: "#ff0000" },
+        invoicing: { legalName: "Klaxon Studio Ltd", invoiceEmail: "invoices@klaxon.studio" },
+        confidential: true,
+      },
+    });
+    return await ctx.db.get(csId);
+  });
+  expect(read?.data.contactSections?.[0].title).toBe("Agency");
+  expect(read?.data.camera?.aspectRatios).toBe("16:9, 1:1, 9:16");
+  expect(read?.data.locations[0].satNav).toBe("SE1 3JT");
+  expect(read?.data.equipment?.[0].item).toBe("Sony FX9");
+  expect(read?.data.confidential).toBe(true);
+});

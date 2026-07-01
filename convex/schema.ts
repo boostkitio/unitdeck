@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { callSheetDataValidator } from "./lib/callSheetData";
+import { callSheetDataValidator, invoicingValidator } from "./lib/callSheetData";
 import { proposalValidator } from "./lib/agentProposals";
 
 export const weatherSnapshotValidator = v.object({
@@ -19,6 +19,9 @@ export default defineSchema({
     settings: v.optional(
       v.object({
         brandColor: v.optional(v.string()),
+        logoStorageId: v.optional(v.id("_storage")),
+        invoicing: v.optional(invoicingValidator),
+        confidentialByDefault: v.optional(v.boolean()),
       })
     ),
   }).index("by_clerk_org", ["clerkOrgId"]),
@@ -74,6 +77,9 @@ export default defineSchema({
     lng: v.optional(v.number()),
     notes: v.optional(v.string()),
     archived: v.optional(v.boolean()),
+    satNav: v.optional(v.string()),
+    publicTransport: v.optional(v.string()),
+    nearestPoliceStation: v.optional(v.string()),
   }).index("by_org", ["orgId"]),
 
   shootDays: defineTable({
