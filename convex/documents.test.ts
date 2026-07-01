@@ -70,3 +70,20 @@ test("saveDraft edits only while draft, and cross-org is rejected", async () => 
   await expect(asB.query(api.documents.get, { id })).resolves.toBeNull();
   await expect(asB.mutation(api.documents.saveDraft, { id, data: doc!.data })).rejects.toThrow();
 });
+
+test("send freezes the draft to sent and rejects without a signer email", async () => {
+  const { asA, ids, t } = await setup();
+  const id = await asA.mutation(api.documents.create, { projectId: ids.projectA, personId: ids.person });
+  await asA.mutation(api.documents.send, { id });
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.status).toBe("sent");
+  expect(typeof doc?.sentAt).toBe("number");
+
+  // A doc whose signer has no email cannot be sent: create a second draft (no person)
+  // and blank its signer email directly, then assert send rejects.
+  const id2 = await asA.mutation(api.documents.create, { projectId: ids.projectA });
+  await t.run(async (ctx) => {
+    await ctx.db.patch(id2, { signer: { name: "X", email: "" } });
+  });
+  await expect(asA.mutation(api.documents.send, { id: id2 })).rejects.toThrow();
+});

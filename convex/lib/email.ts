@@ -63,3 +63,29 @@ export function callSheetEmail(args: {
 
   return { subject, html };
 }
+
+export function talentReleaseInviteEmail(args: {
+  talentName: string;
+  productionTitle: string;
+  productionCompany: string;
+  signUrl: string;
+}): { subject: string; html: string } {
+  const subject = `Please sign your talent release: ${args.productionTitle}`;
+  const html = `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 12px;"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;padding:32px;">
+<tr><td>
+  <p style="margin:0;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#737373;">${escapeHtml(args.productionCompany)}</p>
+  <h1 style="margin:6px 0 8px;font-size:22px;color:#171717;">Talent release</h1>
+  <p style="margin:0 0 20px;font-size:14px;color:#404040;">Hello ${escapeHtml(args.talentName)}, please review and sign your talent release for ${escapeHtml(args.productionTitle)}.</p>
+  <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:6px;background:#171717;">
+    <a href="${args.signUrl}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">Review and sign</a>
+  </td></tr></table>
+  <p style="margin:16px 0 0;font-size:13px;color:#737373;">The link is personal to you, no login needed.</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+  return { subject, html };
+}

@@ -1,8 +1,12 @@
-import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
+import { mutation, query, internalAction, internalQuery, MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { talentReleaseDataValidator } from "./lib/documentData";
+import { talentReleaseInviteEmail } from "./lib/email";
+import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
+
+const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
 
 function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
@@ -77,5 +81,45 @@ export const saveDraft = mutation({
     if (doc.status !== "draft") throw new Error("Only a draft can be edited");
     await ctx.db.patch(args.id, { data: args.data, title: `Talent release: ${args.data.talentName || "unnamed"}` });
     return null;
+  },
+});
+
+export const send = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const { doc } = await requireOwnedDoc(ctx, args.id);
+    if (doc.status !== "draft") throw new Error("Only a draft can be sent");
+    if (!doc.signer.email) throw new Error("Add the signer's email before sending");
+    await ctx.db.patch(args.id, { status: "sent", sentAt: Date.now() });
+    await ctx.scheduler.runAfter(0, internal.documents.deliverInvite, { id: args.id });
+    return null;
+  },
+});
+
+export const getForInvite = internalQuery({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => await ctx.db.get(args.id),
+});
+
+export const deliverInvite = internalAction({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const apiKey = process.env.RESEND_API_KEY;
+    const siteUrl = process.env.SITE_URL;
+    if (!apiKey) throw new Error("RESEND_API_KEY is not set in the Convex environment");
+    if (!siteUrl) throw new Error("SITE_URL is not set in the Convex environment");
+    const doc = await ctx.runQuery(internal.documents.getForInvite, { id: args.id });
+    if (!doc) return;
+    const { subject, html } = talentReleaseInviteEmail({
+      talentName: doc.data.talentName || doc.signer.name,
+      productionTitle: doc.data.productionTitle,
+      productionCompany: doc.data.productionCompany,
+      signUrl: `${siteUrl}/sign/${doc.signToken}`,
+    });
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: FROM, to: [doc.signer.email], subject, html }),
+    });
   },
 });
