@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isActive } from "./nav-items";
+import { isActive, MORE_ITEMS, NAV_ITEMS } from "./nav-items";
 
 describe("isActive", () => {
   it("matches the dashboard only on an exact path", () => {
@@ -14,5 +14,21 @@ describe("isActive", () => {
 
   it("does not match a different section", () => {
     expect(isActive("/people", "/projects")).toBe(false);
+  });
+
+  it("matches the settings section and its nested routes", () => {
+    expect(isActive("/settings", "/settings")).toBe(true);
+    expect(isActive("/settings/anything", "/settings")).toBe(true);
+    expect(isActive("/people", "/settings")).toBe(false);
+  });
+});
+
+describe("NAV_ITEMS", () => {
+  it("includes a Settings entry pointing at /settings", () => {
+    expect(NAV_ITEMS).toContainEqual(expect.objectContaining({ href: "/settings", label: "Settings" }));
+  });
+
+  it("puts Settings in the More sheet, not the primary tabs", () => {
+    expect(MORE_ITEMS).toContainEqual(expect.objectContaining({ href: "/settings", label: "Settings" }));
   });
 });

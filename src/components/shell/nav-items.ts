@@ -5,6 +5,7 @@ import {
   Building2Icon,
   MapPinIcon,
   MessageSquareIcon,
+  SettingsIcon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/clients", label: "Clients", icon: Building2Icon },
   { href: "/locations", label: "Locations", icon: MapPinIcon },
   { href: "/feedback", label: "Feedback", icon: MessageSquareIcon },
+  { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 /** First three become bottom tabs; the rest live in the More sheet. */

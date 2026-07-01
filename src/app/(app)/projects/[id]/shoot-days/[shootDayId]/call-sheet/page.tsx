@@ -67,6 +67,7 @@ function Composer({
   const saveDraft = useMutation(api.callSheets.saveDraft);
   const snapshot = useMutation(api.callSheets.snapshotVersion);
   const refreshWeather = useAction(api.shootDays.refreshWeather);
+  const orgDefaults = useQuery(api.organisations.callSheetDefaults, {});
 
   const [data, setData] = useState<CallSheetData>(draft.data);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -176,6 +177,23 @@ function Composer({
             }}
           >
             Refresh weather
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!orgDefaults}
+            onClick={() => {
+              if (!orgDefaults) return;
+              onChange({
+                ...data,
+                branding: orgDefaults.branding ?? data.branding,
+                invoicing: orgDefaults.invoicing ?? data.invoicing,
+                confidential: orgDefaults.confidential ?? data.confidential,
+              });
+              toast.success("Refreshed from organisation defaults.");
+            }}
+          >
+            Refresh branding
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setCheckOpen(true)}>
             Check sheet
