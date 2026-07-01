@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { clerkOrgIdFromIdentity, requireIdentity } from "./lib/auth";
+import { clerkOrgIdFromIdentity, requireIdentity, requireOrg } from "./lib/auth";
+import { invoicingValidator } from "./lib/callSheetData";
 
 /**
  * Idempotently creates the organisation row for the caller's active Clerk org.
@@ -41,5 +42,73 @@ export const current = query({
       .query("organisations")
       .withIndex("by_clerk_org", (q) => q.eq("clerkOrgId", clerkOrgId))
       .unique();
+  },
+});
+
+export const updateSettings = mutation({
+  args: {
+    brandColor: v.optional(v.string()),
+    invoicing: v.optional(invoicingValidator),
+    confidentialByDefault: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    await ctx.db.patch(org._id, { settings: { ...org.settings, ...args } });
+    return null;
+  },
+});
+
+export const generateLogoUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireOrg(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const setLogo = mutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    await ctx.db.patch(org._id, {
+      settings: { ...org.settings, logoStorageId: args.storageId },
+    });
+    return null;
+  },
+});
+
+export const settingsView = query({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const logoUrl = org.settings?.logoStorageId
+      ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? undefined)
+      : undefined;
+    return {
+      name: org.name,
+      brandColor: org.settings?.brandColor,
+      invoicing: org.settings?.invoicing,
+      confidentialByDefault: org.settings?.confidentialByDefault,
+      logoUrl,
+    };
+  },
+});
+
+export const callSheetDefaults = query({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const logoUrl = org.settings?.logoStorageId
+      ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? undefined)
+      : undefined;
+    const branding =
+      org.settings?.brandColor || logoUrl
+        ? { brandColor: org.settings?.brandColor, logoUrl }
+        : undefined;
+    return {
+      branding,
+      invoicing: org.settings?.invoicing,
+      confidential: org.settings?.confidentialByDefault,
+    };
   },
 });
