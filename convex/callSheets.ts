@@ -38,6 +38,10 @@ export const ensure = mutation({
       await Promise.all(day.locationIds.map((id) => ctx.db.get(id)))
     ).filter((l): l is Doc<"locations"> => l !== null);
 
+    const logoUrl = org.settings?.logoStorageId
+      ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? undefined)
+      : undefined;
+
     const data: CallSheetData = {
       title: project.name,
       date: day.date,
@@ -52,10 +56,22 @@ export const ensure = mutation({
         w3w: l.w3w,
         parkingNotes: l.parkingNotes,
         nearestHospital: l.nearestHospital,
+        satNav: l.satNav,
+        publicTransport: l.publicTransport,
+        nearestPoliceStation: l.nearestPoliceStation,
       })),
       schedule: [],
       crew: [],
       contacts: [],
+      crewSectionTitle: "Crew",
+      contactSections: [],
+      callTimes: [{ id: "ct-crew", label: "Crew call", time: "08:00" }],
+      branding:
+        org.settings?.brandColor || logoUrl
+          ? { brandColor: org.settings?.brandColor, logoUrl }
+          : undefined,
+      invoicing: org.settings?.invoicing,
+      confidential: org.settings?.confidentialByDefault,
       weatherSummary: day.weather
         ? `${day.weather.summary}, ${Math.round(day.weather.tempMinC)}–${Math.round(day.weather.tempMaxC)}°C`
         : undefined,

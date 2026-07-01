@@ -213,3 +213,43 @@ test("enriched call sheet data and org settings round-trip through the schema", 
   expect(read?.data.equipment?.[0].item).toBe("Sony FX9");
   expect(read?.data.confidential).toBe(true);
 });
+
+test("ensure copies org defaults, seeds call times, and carries location fields", async () => {
+  const t = convexTest(schema, modules);
+  const { dayId } = await t.run(async (ctx) => {
+    const orgId = await ctx.db.insert("organisations", {
+      name: "Klaxon",
+      clerkOrgId: "org_a",
+      settings: {
+        brandColor: "#111111",
+        invoicing: { legalName: "Klaxon Studio Ltd", invoiceEmail: "invoices@klaxon.studio" },
+        confidentialByDefault: true,
+      },
+    });
+    const locId = await ctx.db.insert("locations", {
+      orgId,
+      name: "Bermondsey Loft",
+      address: "3 Tanner St, London SE1 3LE",
+      satNav: "SE1 3JT",
+      publicTransport: "London Bridge 10 min walk",
+      nearestPoliceStation: "Southwark Police Station",
+    });
+    const projectId = await ctx.db.insert("projects", { orgId, name: "Barclays", status: "pre_production" });
+    const dayId = await ctx.db.insert("shootDays", {
+      orgId,
+      projectId,
+      date: "2026-06-09",
+      locationIds: [locId],
+    });
+    return { dayId };
+  });
+  const asA = t.withIdentity({ subject: "user_a", org_id: "org_a" });
+  await asA.mutation(api.callSheets.ensure, { shootDayId: dayId });
+  const draft = await asA.query(api.callSheets.getCurrent, { shootDayId: dayId });
+  expect(draft?.data.invoicing?.legalName).toBe("Klaxon Studio Ltd");
+  expect(draft?.data.confidential).toBe(true);
+  expect(draft?.data.branding?.brandColor).toBe("#111111");
+  expect(draft?.data.callTimes?.[0]).toMatchObject({ label: "Crew call", time: "08:00" });
+  expect(draft?.data.locations[0].satNav).toBe("SE1 3JT");
+  expect(draft?.data.locations[0].nearestPoliceStation).toBe("Southwark Police Station");
+});
