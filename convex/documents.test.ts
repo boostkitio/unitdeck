@@ -124,3 +124,11 @@ test("decline records a declined status", async () => {
   expect(doc?.status).toBe("declined");
   expect(doc?.declineReason).toBe("Not available");
 });
+
+test("attachSignedPdf stores the file id on a signed doc", async () => {
+  const { t, asA, id, token } = await sentDoc();
+  await t.mutation(api.documents.sign, { token, typedName: "Claire Francis" });
+  const fileId = await t.run(async (ctx) => await ctx.storage.store(new Blob([new Uint8Array([1, 2, 3])], { type: "application/pdf" })));
+  await t.mutation(api.documents.attachSignedPdf, { token, fileId });
+  expect((await asA.query(api.documents.get, { id }))?.signedPdfFileId).toBe(fileId);
+});

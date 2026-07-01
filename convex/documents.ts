@@ -2,7 +2,7 @@ import { mutation, query, internalAction, internalQuery, MutationCtx, QueryCtx }
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { talentReleaseDataValidator } from "./lib/documentData";
-import { talentReleaseInviteEmail } from "./lib/email";
+import { talentReleaseInviteEmail, signedCopyEmail } from "./lib/email";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 
@@ -194,5 +194,59 @@ export const decline = mutation({
     if (doc.status === "signed") throw new Error("This document is already signed");
     await ctx.db.patch(doc._id, { status: "declined", declinedAt: Date.now(), declineReason: args.reason });
     return null;
+  },
+});
+
+export const getForPrint = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await docByToken(ctx, args.token);
+    if (!doc) return null;
+    return { data: doc.data, signature: doc.signature ?? null };
+  },
+});
+
+export const generateSignedUploadUrl = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await docByToken(ctx, args.token);
+    if (!doc || doc.status !== "signed") throw new Error("Not signable");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const attachSignedPdf = mutation({
+  args: { token: v.string(), fileId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const doc = await docByToken(ctx, args.token);
+    if (!doc || doc.status !== "signed") throw new Error("Not signable");
+    await ctx.db.patch(doc._id, { signedPdfFileId: args.fileId });
+    if (doc.signer.email) {
+      await ctx.scheduler.runAfter(0, internal.documents.deliverSignedCopy, { id: doc._id });
+    }
+    return null;
+  },
+});
+
+export const deliverSignedCopy = internalAction({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const apiKey = process.env.RESEND_API_KEY;
+    const siteUrl = process.env.SITE_URL;
+    if (!apiKey || !siteUrl) throw new Error("Email env not set");
+    const doc = await ctx.runQuery(internal.documents.getForInvite, { id: args.id });
+    if (!doc) return;
+    const { subject, html } = signedCopyEmail({
+      talentName: doc.data.talentName || doc.signer.name,
+      productionTitle: doc.data.productionTitle,
+      productionCompany: doc.data.productionCompany,
+      viewUrl: `${siteUrl}/sign/${doc.signToken}`,
+    });
+    const to = [doc.signer.email].filter(Boolean) as string[];
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: FROM, to, subject, html }),
+    });
   },
 });

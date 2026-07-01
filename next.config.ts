@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/call-sheets/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/tools/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
+    "/api/documents/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
   },
 };
 
