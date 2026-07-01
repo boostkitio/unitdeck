@@ -105,6 +105,11 @@ function LocationDialog({
   const [parkingNotes, setParkingNotes] = useState(location?.parkingNotes ?? "");
   const [accessNotes, setAccessNotes] = useState(location?.accessNotes ?? "");
   const [nearestHospital, setNearestHospital] = useState(location?.nearestHospital ?? "");
+  const [satNav, setSatNav] = useState(location?.satNav ?? "");
+  const [publicTransport, setPublicTransport] = useState(location?.publicTransport ?? "");
+  const [nearestPoliceStation, setNearestPoliceStation] = useState(
+    location?.nearestPoliceStation ?? ""
+  );
   const [lat, setLat] = useState<number | undefined>(location?.lat);
   const [lng, setLng] = useState<number | undefined>(location?.lng);
   const [busy, setBusy] = useState(false);
@@ -156,6 +161,9 @@ function LocationDialog({
         parkingNotes: parkingNotes || undefined,
         accessNotes: accessNotes || undefined,
         nearestHospital: nearestHospital || undefined,
+        satNav: satNav || undefined,
+        publicTransport: publicTransport || undefined,
+        nearestPoliceStation: nearestPoliceStation || undefined,
         lat,
         lng,
       };
@@ -361,6 +369,28 @@ function LocationDialog({
               id="loc-access"
               value={accessNotes}
               onChange={(e) => setAccessNotes(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="loc-satnav">Sat nav postcode</Label>
+              <Input id="loc-satnav" value={satNav} onChange={(e) => setSatNav(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="loc-police">Nearest police station</Label>
+              <Input
+                id="loc-police"
+                value={nearestPoliceStation}
+                onChange={(e) => setNearestPoliceStation(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="loc-transport">Public transport</Label>
+            <Input
+              id="loc-transport"
+              value={publicTransport}
+              onChange={(e) => setPublicTransport(e.target.value)}
             />
           </div>
         </div>

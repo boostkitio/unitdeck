@@ -46,3 +46,20 @@ test("archive hides from list", async () => {
   await asA.mutation(api.locations.archive, { id });
   expect(await asA.query(api.locations.list, {})).toHaveLength(0);
 });
+
+test("create and update persist the new logistics fields", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.locations.create, {
+    name: "Bermondsey Loft",
+    address: "3 Tanner St, London SE1 3LE",
+    satNav: "SE1 3JT",
+    publicTransport: "London Bridge 10 min walk",
+    nearestPoliceStation: "Southwark Police Station",
+  });
+  const created = await asA.query(api.locations.get, { id });
+  expect(created?.satNav).toBe("SE1 3JT");
+  await asA.mutation(api.locations.update, { id, publicTransport: "Bermondsey tube 20 min" });
+  const updated = await asA.query(api.locations.get, { id });
+  expect(updated?.publicTransport).toBe("Bermondsey tube 20 min");
+  expect(updated?.nearestPoliceStation).toBe("Southwark Police Station");
+});
