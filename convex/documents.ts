@@ -123,3 +123,76 @@ export const deliverInvite = internalAction({
     });
   },
 });
+
+async function docByToken(ctx: QueryCtx | MutationCtx, token: string) {
+  return await ctx.db
+    .query("documents")
+    .withIndex("by_sign_token", (q) => q.eq("signToken", token))
+    .unique();
+}
+
+export const getBySignToken = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await docByToken(ctx, args.token);
+    if (!doc) return null;
+    return {
+      status: doc.status,
+      data: doc.data,
+      signer: { name: doc.signer.name },
+      signedAt: doc.signature?.signedAt ?? null,
+    };
+  },
+});
+
+export const markViewed = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await docByToken(ctx, args.token);
+    if (!doc) return null;
+    if (!doc.viewedAt && (doc.status === "sent")) {
+      await ctx.db.patch(doc._id, { viewedAt: Date.now() });
+    }
+    return null;
+  },
+});
+
+export const sign = mutation({
+  args: {
+    token: v.string(),
+    typedName: v.string(),
+    drawnImage: v.optional(v.string()),
+    ip: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const doc = await docByToken(ctx, args.token);
+    if (!doc) throw new Error("Unknown link");
+    if (doc.status === "signed") throw new Error("This document is already signed");
+    if (doc.status !== "sent") throw new Error("This document cannot be signed");
+    if (args.typedName.trim().length === 0) throw new Error("Type your full name to sign");
+    await ctx.db.patch(doc._id, {
+      status: "signed",
+      signature: {
+        typedName: args.typedName.trim(),
+        drawnImage: args.drawnImage,
+        consent: true as const,
+        signedAt: Date.now(),
+        ip: args.ip,
+        userAgent: args.userAgent,
+      },
+    });
+    return null;
+  },
+});
+
+export const decline = mutation({
+  args: { token: v.string(), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const doc = await docByToken(ctx, args.token);
+    if (!doc) throw new Error("Unknown link");
+    if (doc.status === "signed") throw new Error("This document is already signed");
+    await ctx.db.patch(doc._id, { status: "declined", declinedAt: Date.now(), declineReason: args.reason });
+    return null;
+  },
+});

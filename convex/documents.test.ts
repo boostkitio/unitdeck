@@ -87,3 +87,40 @@ test("send freezes the draft to sent and rejects without a signer email", async 
   });
   await expect(asA.mutation(api.documents.send, { id: id2 })).rejects.toThrow();
 });
+
+async function sentDoc() {
+  const { t, asA, ids } = await setup();
+  const id = await asA.mutation(api.documents.create, { projectId: ids.projectA, personId: ids.person });
+  await asA.mutation(api.documents.send, { id });
+  const token = (await asA.query(api.documents.get, { id }))!.signToken;
+  return { t, asA, id, token };
+}
+
+test("getBySignToken returns the body but no org internals", async () => {
+  const { t, token } = await sentDoc();
+  const res = await t.query(api.documents.getBySignToken, { token });
+  expect(res?.status).toBe("sent");
+  expect(res?.data.talentName).toBe("Claire Francis");
+  expect((res as Record<string, unknown>)?.orgId).toBeUndefined();
+  expect(await t.query(api.documents.getBySignToken, { token: "nope" })).toBeNull();
+});
+
+test("sign requires typed name and consent, stamps once, rejects a second sign", async () => {
+  const { t, asA, id, token } = await sentDoc();
+  await expect(t.mutation(api.documents.sign, { token, typedName: "" })).rejects.toThrow();
+  await t.mutation(api.documents.sign, { token, typedName: "Claire Francis", ip: "1.2.3.4", userAgent: "jsdom" });
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.status).toBe("signed");
+  expect(doc?.signature?.typedName).toBe("Claire Francis");
+  expect(doc?.signature?.consent).toBe(true);
+  expect(doc?.signature?.ip).toBe("1.2.3.4");
+  await expect(t.mutation(api.documents.sign, { token, typedName: "again" })).rejects.toThrow();
+});
+
+test("decline records a declined status", async () => {
+  const { t, asA, id, token } = await sentDoc();
+  await t.mutation(api.documents.decline, { token, reason: "Not available" });
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.status).toBe("declined");
+  expect(doc?.declineReason).toBe("Not available");
+});
