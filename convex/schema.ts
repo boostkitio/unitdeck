@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { callSheetDataValidator, invoicingValidator } from "./lib/callSheetData";
 import { proposalValidator } from "./lib/agentProposals";
+import { talentReleaseDataValidator } from "./lib/documentData";
 
 export const weatherSnapshotValidator = v.object({
   fetchedAt: v.number(),
@@ -210,4 +211,43 @@ export default defineSchema({
     ),
     status: v.optional(v.union(v.literal("open"), v.literal("addressed"))),
   }).index("by_org", ["orgId"]),
+
+  documents: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.optional(v.id("projects")),
+    type: v.union(v.literal("talent_release")),
+    title: v.string(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("sent"),
+      v.literal("signed"),
+      v.literal("declined"),
+      v.literal("voided")
+    ),
+    data: talentReleaseDataValidator,
+    signer: v.object({
+      name: v.string(),
+      email: v.string(),
+      personId: v.optional(v.id("people")),
+    }),
+    signToken: v.string(),
+    signature: v.optional(
+      v.object({
+        typedName: v.string(),
+        drawnImage: v.optional(v.string()),
+        consent: v.literal(true),
+        signedAt: v.number(),
+        ip: v.optional(v.string()),
+        userAgent: v.optional(v.string()),
+      })
+    ),
+    declinedAt: v.optional(v.number()),
+    declineReason: v.optional(v.string()),
+    viewedAt: v.optional(v.number()),
+    sentAt: v.optional(v.number()),
+    signedPdfFileId: v.optional(v.id("_storage")),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"])
+    .index("by_sign_token", ["signToken"]),
 });
