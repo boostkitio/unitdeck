@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
     });
     const { storageId } = (await uploadRes.json()) as { storageId: Id<"_storage"> };
     await convex.mutation(api.documents.attachSignedPdf, { token: body.token, fileId: storageId });
-  } catch {
-    // Best-effort storage; the caller still gets their PDF below.
+  } catch (err) {
+    console.error("Signed talent release PDF storage failed", err);
   }
 
   return new NextResponse(Buffer.from(pdf), {

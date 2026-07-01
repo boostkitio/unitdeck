@@ -202,7 +202,11 @@ export const getForPrint = query({
   handler: async (ctx, args) => {
     const doc = await docByToken(ctx, args.token);
     if (!doc) return null;
-    return { data: doc.data, signature: doc.signature ?? null };
+    const sig = doc.signature;
+    return {
+      data: doc.data,
+      signature: sig ? { typedName: sig.typedName, drawnImage: sig.drawnImage, signedAt: sig.signedAt } : null,
+    };
   },
 });
 
