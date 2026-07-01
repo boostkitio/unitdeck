@@ -14,6 +14,7 @@ import type * as agents_messageDrafter from "../agents/messageDrafter.js";
 import type * as callSheets from "../callSheets.js";
 import type * as clients from "../clients.js";
 import type * as dashboard from "../dashboard.js";
+import type * as demoData from "../demoData.js";
 import type * as distribution from "../distribution.js";
 import type * as feedback from "../feedback.js";
 import type * as lib_agentProposals from "../lib/agentProposals.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   callSheets: typeof callSheets;
   clients: typeof clients;
   dashboard: typeof dashboard;
+  demoData: typeof demoData;
   distribution: typeof distribution;
   feedback: typeof feedback;
   "lib/agentProposals": typeof lib_agentProposals;

@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
 import { type UpcomingShootDay } from "../../../../convex/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
@@ -114,6 +116,24 @@ export default function DashboardPage() {
   const people = useQuery(api.people.list, organization ? {} : "skip");
   const attention = useQuery(api.dashboard.attention, organization ? {} : "skip");
   const week = useQuery(api.dashboard.upcomingShootDays, organization ? {} : "skip");
+  const seedDemo = useMutation(api.demoData.seedDemo);
+  const [seeding, setSeeding] = useState(false);
+
+  async function handleLoadSampleData() {
+    setSeeding(true);
+    try {
+      const res = await seedDemo({});
+      if (res.seeded) {
+        toast.success("Sample data loaded.");
+      } else {
+        toast.info("Sample data is already loaded.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not load sample data.");
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   if (!organization) {
     return (
@@ -279,13 +299,18 @@ export default function DashboardPage() {
               <Skeleton className="h-5 w-3/4" />
             </div>
           ) : active.length === 0 ? (
-            <p className="text-muted-foreground">
-              No active productions.{" "}
-              <Link className="underline underline-offset-2 text-foreground" href="/projects">
-                Start a new project
-              </Link>{" "}
-              to see it here.
-            </p>
+            <div className="space-y-3">
+              <p className="text-muted-foreground">
+                No active productions.{" "}
+                <Link className="underline underline-offset-2 text-foreground" href="/projects">
+                  Start a new project
+                </Link>{" "}
+                to see it here.
+              </p>
+              <Button variant="secondary" onClick={handleLoadSampleData} disabled={seeding}>
+                {seeding ? "Loading sample data…" : "Load sample data"}
+              </Button>
+            </div>
           ) : (
             <ul className="divide-y divide-border">
               {active.map((p) => (
