@@ -38,6 +38,7 @@ export function CallSheetDocument({
         <div className="flex items-end justify-between">
           <div>
             {data.branding?.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={data.branding.logoUrl}
                 alt=""
@@ -93,7 +94,6 @@ export function CallSheetDocument({
                   <p className="text-[8.5pt] text-neutral-600">
                     {loc.w3w && <span className="mr-3">{loc.w3w}</span>}
                     {loc.parkingNotes && <span className="mr-3">Parking: {loc.parkingNotes}</span>}
-                    {loc.nearestHospital && <span>Nearest A&amp;E: {loc.nearestHospital}</span>}
                   </p>
                   {(loc.satNav || loc.publicTransport) && (
                     <p className="text-[8.5pt] text-neutral-600">

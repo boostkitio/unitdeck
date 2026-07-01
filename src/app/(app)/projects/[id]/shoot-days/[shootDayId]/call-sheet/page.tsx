@@ -193,7 +193,7 @@ function Composer({
               toast.success("Refreshed from organisation defaults.");
             }}
           >
-            Refresh branding
+            Refresh from organisation defaults
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setCheckOpen(true)}>
             Check sheet

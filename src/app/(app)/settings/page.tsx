@@ -88,15 +88,22 @@ function SettingsForm({ settings }: { settings: SettingsView }) {
   async function save() {
     setSaving(true);
     try {
+      const hasInvoicing = [legalName, companyNumber, vatNumber, invoiceEmail, receiptsNote].some(
+        (v) => v.trim() !== ""
+      );
       await updateSettings({
         brandColor: brandColor || undefined,
-        invoicing: {
-          legalName: legalName || undefined,
-          companyNumber: companyNumber || undefined,
-          vatNumber: vatNumber || undefined,
-          invoiceEmail: invoiceEmail || undefined,
-          receiptsNote: receiptsNote || undefined,
-        },
+        ...(hasInvoicing
+          ? {
+              invoicing: {
+                legalName: legalName || undefined,
+                companyNumber: companyNumber || undefined,
+                vatNumber: vatNumber || undefined,
+                invoiceEmail: invoiceEmail || undefined,
+                receiptsNote: receiptsNote || undefined,
+              },
+            }
+          : {}),
         confidentialByDefault,
       });
       toast.success("Settings saved.");

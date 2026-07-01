@@ -21,9 +21,9 @@ export async function seedDemoDataForOrg(
   await ctx.db.patch(orgId, {
     settings: {
       ...org?.settings,
-      brandColor: "#11182F",
-      confidentialByDefault: true,
-      invoicing: {
+      brandColor: org?.settings?.brandColor ?? "#11182F",
+      confidentialByDefault: org?.settings?.confidentialByDefault ?? true,
+      invoicing: org?.settings?.invoicing ?? {
         legalName: "Klaxon Studio Ltd",
         companyNumber: "15712401",
         vatNumber: "GB470025721",
