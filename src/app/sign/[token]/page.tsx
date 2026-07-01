@@ -110,7 +110,7 @@ export default function SignDocumentPage({ params }: { params: Promise<{ token: 
       const res = await fetch("/api/documents/sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, typedName, drawnImage }),
+        body: JSON.stringify({ token, typedName, drawnImage, consent: true }),
       });
       const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(json.error || "Could not sign");

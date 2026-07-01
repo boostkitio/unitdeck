@@ -107,14 +107,21 @@ test("getBySignToken returns the body but no org internals", async () => {
 
 test("sign requires typed name and consent, stamps once, rejects a second sign", async () => {
   const { t, asA, id, token } = await sentDoc();
-  await expect(t.mutation(api.documents.sign, { token, typedName: "" })).rejects.toThrow();
-  await t.mutation(api.documents.sign, { token, typedName: "Claire Francis", ip: "1.2.3.4", userAgent: "jsdom" });
+  await expect(t.mutation(api.documents.sign, { token, typedName: "", consent: true })).rejects.toThrow();
+  await t.mutation(api.documents.sign, { token, typedName: "Claire Francis", consent: true, ip: "1.2.3.4", userAgent: "jsdom" });
   const doc = await asA.query(api.documents.get, { id });
   expect(doc?.status).toBe("signed");
   expect(doc?.signature?.typedName).toBe("Claire Francis");
   expect(doc?.signature?.consent).toBe(true);
   expect(doc?.signature?.ip).toBe("1.2.3.4");
-  await expect(t.mutation(api.documents.sign, { token, typedName: "again" })).rejects.toThrow();
+  await expect(t.mutation(api.documents.sign, { token, typedName: "again", consent: true })).rejects.toThrow();
+});
+
+test("sign rejects when consent is not given", async () => {
+  const { t, token } = await sentDoc();
+  await expect(
+    t.mutation(api.documents.sign, { token, typedName: "Claire Francis", consent: false })
+  ).rejects.toThrow();
 });
 
 test("decline records a declined status", async () => {
@@ -127,8 +134,18 @@ test("decline records a declined status", async () => {
 
 test("attachSignedPdf stores the file id on a signed doc", async () => {
   const { t, asA, id, token } = await sentDoc();
-  await t.mutation(api.documents.sign, { token, typedName: "Claire Francis" });
+  await t.mutation(api.documents.sign, { token, typedName: "Claire Francis", consent: true });
   const fileId = await t.run(async (ctx) => await ctx.storage.store(new Blob([new Uint8Array([1, 2, 3])], { type: "application/pdf" })));
   await t.mutation(api.documents.attachSignedPdf, { token, fileId });
   expect((await asA.query(api.documents.get, { id }))?.signedPdfFileId).toBe(fileId);
+});
+
+test("markViewed sets viewedAt once and is idempotent", async () => {
+  const { t, asA, id, token } = await sentDoc();
+  expect((await asA.query(api.documents.get, { id }))?.viewedAt).toBeUndefined();
+  await t.mutation(api.documents.markViewed, { token });
+  const viewedAt = (await asA.query(api.documents.get, { id }))?.viewedAt;
+  expect(typeof viewedAt).toBe("number");
+  await t.mutation(api.documents.markViewed, { token });
+  expect((await asA.query(api.documents.get, { id }))?.viewedAt).toBe(viewedAt);
 });

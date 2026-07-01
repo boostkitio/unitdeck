@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TalentReleaseDocument } from "./talent-release-document";
-import { SendReleaseButton, StatusBadge } from "./documents-section";
+import { SendReleaseButton, StatusBadge } from "./document-status";
 
 type SaveState = "saved" | "saving" | "error";
 

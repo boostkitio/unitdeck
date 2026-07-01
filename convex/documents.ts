@@ -4,7 +4,7 @@ import { requireOrg } from "./lib/auth";
 import { talentReleaseDataValidator } from "./lib/documentData";
 import { talentReleaseInviteEmail, signedCopyEmail } from "./lib/email";
 import { internal } from "./_generated/api";
-import { Doc, Id } from "./_generated/dataModel";
+import { Id } from "./_generated/dataModel";
 
 const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
 
@@ -79,7 +79,15 @@ export const saveDraft = mutation({
   handler: async (ctx, args) => {
     const { doc } = await requireOwnedDoc(ctx, args.id);
     if (doc.status !== "draft") throw new Error("Only a draft can be edited");
-    await ctx.db.patch(args.id, { data: args.data, title: `Talent release: ${args.data.talentName || "unnamed"}` });
+    await ctx.db.patch(args.id, {
+      data: args.data,
+      title: `Talent release: ${args.data.talentName || "unnamed"}`,
+      signer: {
+        name: args.data.talentName,
+        email: args.data.talentEmail ?? "",
+        personId: doc.signer.personId,
+      },
+    });
     return null;
   },
 });
@@ -116,11 +124,16 @@ export const deliverInvite = internalAction({
       productionCompany: doc.data.productionCompany,
       signUrl: `${siteUrl}/sign/${doc.signToken}`,
     });
-    await fetch("https://api.resend.com/emails", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from: FROM, to: [doc.signer.email], subject, html }),
     });
+    if (!res.ok) {
+      const text = await res.text();
+      console.error("Resend send failed", res.status, text.slice(0, 500));
+      throw new Error(`Resend ${res.status}`);
+    }
   },
 });
 
@@ -161,6 +174,7 @@ export const sign = mutation({
   args: {
     token: v.string(),
     typedName: v.string(),
+    consent: v.boolean(),
     drawnImage: v.optional(v.string()),
     ip: v.optional(v.string()),
     userAgent: v.optional(v.string()),
@@ -171,6 +185,8 @@ export const sign = mutation({
     if (doc.status === "signed") throw new Error("This document is already signed");
     if (doc.status !== "sent") throw new Error("This document cannot be signed");
     if (args.typedName.trim().length === 0) throw new Error("Type your full name to sign");
+    if (args.consent !== true) throw new Error("You must agree to sign electronically");
+    if (args.drawnImage && args.drawnImage.length > 600000) throw new Error("Signature image is too large");
     await ctx.db.patch(doc._id, {
       status: "signed",
       signature: {
@@ -191,7 +207,7 @@ export const decline = mutation({
   handler: async (ctx, args) => {
     const doc = await docByToken(ctx, args.token);
     if (!doc) throw new Error("Unknown link");
-    if (doc.status === "signed") throw new Error("This document is already signed");
+    if (doc.status !== "sent") throw new Error("This document cannot be declined");
     await ctx.db.patch(doc._id, { status: "declined", declinedAt: Date.now(), declineReason: args.reason });
     return null;
   },
@@ -224,8 +240,9 @@ export const attachSignedPdf = mutation({
   handler: async (ctx, args) => {
     const doc = await docByToken(ctx, args.token);
     if (!doc || doc.status !== "signed") throw new Error("Not signable");
+    const firstAttach = !doc.signedPdfFileId;
     await ctx.db.patch(doc._id, { signedPdfFileId: args.fileId });
-    if (doc.signer.email) {
+    if (firstAttach && doc.signer.email) {
       await ctx.scheduler.runAfter(0, internal.documents.deliverSignedCopy, { id: doc._id });
     }
     return null;
@@ -247,10 +264,15 @@ export const deliverSignedCopy = internalAction({
       viewUrl: `${siteUrl}/sign/${doc.signToken}`,
     });
     const to = [doc.signer.email].filter(Boolean) as string[];
-    await fetch("https://api.resend.com/emails", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from: FROM, to, subject, html }),
     });
+    if (!res.ok) {
+      const text = await res.text();
+      console.error("Resend send failed", res.status, text.slice(0, 500));
+      throw new Error(`Resend ${res.status}`);
+    }
   },
 });
