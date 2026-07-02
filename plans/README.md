@@ -17,7 +17,7 @@ are listed below and can be promoted to plans on request.
 | 001  | Make the test suite green and deterministic | P1 | S | — | DONE (see execution notes: all 5 failures were the date bomb; lint has 2 pre-existing errors, handed to 002) |
 | 002  | Add a CI gate (lint, typecheck, tests) | P1 | S | 001 | DONE (required fixing 2 pre-existing react-hooks/set-state-in-effect lint errors first; first run green) |
 | 003  | Close the geocode tenancy gap and middleware route gaps | P1 | S | — | DONE |
-| 004  | Make the stored signed PDF tamper-proof, serve it directly | P2 | M | — | DONE (manual live-flow spot check left for the owner; see execution notes) |
+| 004  | Make the stored signed PDF tamper-proof, serve it directly | P2 | M | — | DONE (live-flow check passed 2026-07-02 on the dev deployment: sign → store → two sub-second identical downloads; post-store upload minting refused) |
 | 005  | Record and surface document email delivery outcomes | P2 | M | 001 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
@@ -35,26 +35,26 @@ REJECTED (with one-line rationale).
   are written to survive it (see their drift checks), but landing 001–003
   first, then the spec build, then 004–005, is the lowest-friction order.
 
-## Findings without plans (promote on request)
+## Findings without plans
 
-- Dashboard date-scan bug: `convex/dashboard.ts` `attention` and
-  `upcomingShootDays` both `take(500)` on the `by_org` index and filter by
-  date in JS; once an org exceeds 500 shoot-day rows (or 200/500 projects),
-  upcoming days silently vanish from the dashboard. Fix: add
-  `by_org_and_date` index on `shootDays` and range-query. Effort S, not urgent
-  at current data volumes but should land before real multi-year usage.
-- `convex` package bump: `npm audit` reports 2 high (`ws` memory-exhaustion
-  advisory) + 2 moderate via convex 1.41.0; `npm i convex@1.42.1` clears it
-  within semver. One-liner plus a test run; barely needs a plan.
-- Expired-token rows never deleted: `toolRenders` (15-min TTL) and
-  `renderTokens` (10-min TTL) are filtered on read but nothing removes rows;
-  add a Convex cron to delete expired rows. Effort S.
+Fixed directly on 2026-07-02 (no plan files; small, self-verifying changes):
+
+- Dashboard date-scan bug: fixed by the `by_org_and_date` index on
+  `shootDays` plus range queries in `convex/dashboard.ts`; regression test
+  with 501 history rows added to `convex/dashboard.test.ts`.
+- `convex` bump to 1.42.1: cleared the 2 high `ws` advisories. The remaining
+  2 moderate advisories are Next's own vendored postcss (build-time only);
+  they clear when Next patches upstream — do not `npm audit fix --force`.
+- Expired-token cleanup: `by_expires` indexes plus batch-bounded internal
+  mutations, run daily at 03:15 UTC by `convex/crons.ts`; tests added.
+- `.env.example`: Convex-side env vars (`SITE_URL`, `RESEND_API_KEY`) now
+  documented.
+
+Still open (promote on request):
+
 - Raw Convex ids in app URLs (`/projects/<id>`): the owner's cross-project
   convention prefers human slugs on user-facing URLs. Internal authenticated
-  app, so lower stakes; M effort if wanted.
-- `.env.example` documents Convex-side vars partially: `SITE_URL` and
-  `RESEND_API_KEY` (Convex deployment env) are not mentioned anywhere; add a
-  comment block. Effort trivial; fold into any nearby change.
+  app, so lower stakes; M effort — a feature slice, not a bug fix.
 
 ## Findings considered and rejected
 
