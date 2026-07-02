@@ -94,6 +94,7 @@ export default defineSchema({
     wrapNotes: v.optional(v.string()),
   })
     .index("by_org", ["orgId"])
+    .index("by_org_and_date", ["orgId", "date"])
     .index("by_project", ["projectId"]),
 
   callSheets: defineTable({

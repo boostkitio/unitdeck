@@ -32,13 +32,14 @@ export const attention = query({
       .take(200);
     const byId = new Map(projects.filter((p) => ACTIVE.has(p.status)).map((p) => [p._id, p]));
 
+    // Range on the composite index: only rows from today onwards are read,
+    // so a long shoot-day history can never crowd out upcoming days. Index
+    // order is already ascending by date.
     const days = await ctx.db
       .query("shootDays")
-      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .withIndex("by_org_and_date", (q) => q.eq("orgId", org._id).gte("date", today))
       .take(500);
-    const upcoming = days
-      .filter((d) => d.date >= today && byId.has(d.projectId))
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const upcoming = days.filter((d) => byId.has(d.projectId));
 
     const items: AttentionItem[] = [];
     for (const day of upcoming) {
@@ -151,16 +152,15 @@ export const upcomingShootDays = query({
 
     const days = await ctx.db
       .query("shootDays")
-      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .withIndex("by_org_and_date", (q) =>
+        q.eq("orgId", org._id).gte("date", today).lte("date", horizon)
+      )
       .take(500);
 
-    const upcoming = days
-      .filter((d) => d.date >= today && d.date <= horizon)
-      .filter((d) => {
-        const project = projectById.get(d.projectId);
-        return project !== undefined && !EXCLUDED_FROM_WEEK.has(project.status);
-      })
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const upcoming = days.filter((d) => {
+      const project = projectById.get(d.projectId);
+      return project !== undefined && !EXCLUDED_FROM_WEEK.has(project.status);
+    });
 
     const result: UpcomingShootDay[] = [];
     for (const day of upcoming) {

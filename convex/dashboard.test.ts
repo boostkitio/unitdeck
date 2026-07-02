@@ -42,6 +42,36 @@ test("attention feed flags unsent sheets, unconfirmed crew and missing pieces", 
   expect(items.some((i) => i.kind === "unconfirmed_crew")).toBe(true);
 });
 
+test("a long shoot-day history cannot crowd upcoming days out of the dashboard", async () => {
+  const t = convexTest(schema, modules);
+  const past = (n: number) =>
+    new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org C", clerkOrgId: "org_c" });
+    const project = await ctx.db.insert("projects", { orgId: org, name: "Series", status: "shooting" });
+    // More history rows than the query's take() bound; the old by_org scan
+    // read the oldest 500 first and silently dropped the upcoming day.
+    for (let i = 0; i < 501; i++) {
+      await ctx.db.insert("shootDays", {
+        orgId: org,
+        projectId: project,
+        date: past(i + 1),
+        locationIds: [],
+      });
+    }
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: future, locationIds: [] });
+  });
+  const asC = t.withIdentity({ subject: "user_c", org_id: "org_c" });
+
+  const items = await asC.query(api.dashboard.attention, {});
+  expect(items.some((i) => i.date === future && i.kind === "call_sheet_not_sent")).toBe(true);
+
+  const week = await asC.query(api.dashboard.upcomingShootDays, {});
+  expect(week.length).toBe(1);
+  expect(week[0].date).toBe(future);
+});
+
 test("upcoming shoot days lists this week's days with confirmation counts", async () => {
   const t = convexTest(schema, modules);
   const inThree = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
