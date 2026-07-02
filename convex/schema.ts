@@ -245,6 +245,15 @@ export default defineSchema({
     declineReason: v.optional(v.string()),
     viewedAt: v.optional(v.number()),
     sentAt: v.optional(v.number()),
+    // Outcome of the invite email delivery; a document stays "sent" even when
+    // the email failed (failure is a delivery attribute, not a doc status).
+    inviteDelivery: v.optional(
+      v.object({
+        status: v.union(v.literal("delivered"), v.literal("failed")),
+        error: v.optional(v.string()),
+        at: v.number(),
+      })
+    ),
     signedPdfFileId: v.optional(v.id("_storage")),
   })
     .index("by_org", ["orgId"])

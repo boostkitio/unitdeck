@@ -10,13 +10,12 @@ import { internal } from "../_generated/api";
 import { requireOrg } from "../lib/auth";
 import { chatJson, truncateInput } from "../lib/llm";
 import { AI_MODEL } from "../lib/ai";
-import { escapeHtml, formatEmailDate } from "../lib/email";
+import { escapeHtml, formatEmailDate, sendEmail } from "../lib/email";
 import { MessageProposal } from "../lib/agentProposals";
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx, QueryCtx } from "../_generated/server";
 
 const UNCONFIRMED = new Set(["pending", "sent", "viewed", "failed"]);
-const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
 
 async function chaseContext(ctx: QueryCtx | MutationCtx, shootDayId: Id<"shootDays">) {
   const { org } = await requireOrg(ctx);
@@ -218,39 +217,18 @@ export const deliverChase = internalAction({
       );
       if (!payload) continue;
       const { recipient } = payload;
-      try {
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            from: FROM,
-            to: [recipient.email],
-            subject: args.subject,
-            html: chaseHtml(args.body, `${siteUrl}/s/${recipient.token}`),
-          }),
-        });
-        if (res.ok) {
-          const json = (await res.json()) as { id: string };
-          await ctx.runMutation(internal.distribution.recordSendResult, {
-            sendId,
-            ok: true,
-            providerId: json.id,
-          });
-        } else {
-          const text = await res.text();
-          await ctx.runMutation(internal.distribution.recordSendResult, {
-            sendId,
-            ok: false,
-            error: `Resend ${res.status}: ${text.slice(0, 500)}`,
-          });
-        }
-      } catch (err) {
-        await ctx.runMutation(internal.distribution.recordSendResult, {
-          sendId,
-          ok: false,
-          error: err instanceof Error ? err.message : "Unknown send error",
-        });
-      }
+      const result = await sendEmail({
+        apiKey,
+        to: [recipient.email],
+        subject: args.subject,
+        html: chaseHtml(args.body, `${siteUrl}/s/${recipient.token}`),
+      });
+      await ctx.runMutation(internal.distribution.recordSendResult, {
+        sendId,
+        ok: result.ok,
+        providerId: result.ok ? result.id : undefined,
+        error: result.ok ? undefined : result.error,
+      });
     }
     return null;
   },

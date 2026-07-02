@@ -278,6 +278,21 @@ Stop and report back (do not improvise) if:
 - Convex schema push rejects the new optional field (it should not; optional
   additions are backward-compatible).
 
+## Execution notes (2026-07-02)
+
+Executed same day by the plan author, as written, with two small notes:
+
+- convex-test does not auto-run scheduled actions, so the outcome tests invoke
+  `internal.documents.deliverInvite` directly via `t.action` rather than
+  relying on `send`'s scheduler call. Behaviour in production is unchanged.
+- The failed-invite UI (subtext + "Retry email" button in
+  `src/components/documents/documents-section.tsx`) is exercised by types and
+  the mutation tests; a visual check in the live app is left to the owner
+  since a real failure requires Resend to reject a send.
+
+Verified: 96/96 tests (5 new), typecheck and lint clean, and exactly one
+Resend call site remains (`convex/lib/email.ts`).
+
 ## Maintenance notes
 
 - Every future email path must use `sendEmail`; the done-criterion grep is the

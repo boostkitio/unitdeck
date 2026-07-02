@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -171,6 +171,46 @@ test("getSignedPdfUrl returns null before storage and a URL after", async () => 
   const url = await t.query(api.documents.getSignedPdfUrl, { token });
   expect(typeof url).toBe("string");
   expect(await t.query(api.documents.getSignedPdfUrl, { token: "nope" })).toBeNull();
+});
+
+test("deliverInvite records a delivered outcome and the doc stays sent", async () => {
+  const { t, asA, id } = await sentDoc();
+  // vitest.setup.ts stubs api.resend.com with a 200, so the send succeeds.
+  await t.action(internal.documents.deliverInvite, { id });
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.inviteDelivery?.status).toBe("delivered");
+  expect(doc?.status).toBe("sent");
+});
+
+test("deliverInvite records a failure without reverting the doc status", async () => {
+  const { t, asA, id } = await sentDoc();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+  try {
+    await t.action(internal.documents.deliverInvite, { id });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.inviteDelivery?.status).toBe("failed");
+  expect(doc?.inviteDelivery?.error).toContain("Resend 500");
+  expect(doc?.status).toBe("sent");
+});
+
+test("resendInvite requeues only after a failed delivery", async () => {
+  const { t, asA, id } = await sentDoc();
+  // No failure recorded yet: retry is refused.
+  await expect(asA.mutation(api.documents.resendInvite, { id })).rejects.toThrow(
+    "The invite email has not failed"
+  );
+  await t.run(async (ctx) => {
+    await ctx.db.patch(id, {
+      inviteDelivery: { status: "failed" as const, error: "Resend 500", at: Date.now() },
+    });
+  });
+  await asA.mutation(api.documents.resendInvite, { id });
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.inviteDelivery).toBeUndefined();
 });
 
 test("markViewed sets viewedAt once and is idempotent", async () => {

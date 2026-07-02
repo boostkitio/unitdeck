@@ -2,11 +2,10 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
-import { callSheetEmail } from "./lib/email";
+import { callSheetEmail, sendEmail } from "./lib/email";
 import { Id } from "./_generated/dataModel";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
 
 function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
@@ -178,34 +177,13 @@ export const deliverEmails = internalAction({
         setModeUrl: `${siteUrl}/s/${recipient.token}`,
         isUpdate: args.isUpdate,
       });
-      try {
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: FROM, to: [recipient.email], subject, html }),
-        });
-        if (res.ok) {
-          const json = (await res.json()) as { id: string };
-          await ctx.runMutation(internal.distribution.recordSendResult, {
-            sendId,
-            ok: true,
-            providerId: json.id,
-          });
-        } else {
-          const text = await res.text();
-          await ctx.runMutation(internal.distribution.recordSendResult, {
-            sendId,
-            ok: false,
-            error: `Resend ${res.status}: ${text.slice(0, 500)}`,
-          });
-        }
-      } catch (err) {
-        await ctx.runMutation(internal.distribution.recordSendResult, {
-          sendId,
-          ok: false,
-          error: err instanceof Error ? err.message : "Unknown send error",
-        });
-      }
+      const result = await sendEmail({ apiKey, to: [recipient.email], subject, html });
+      await ctx.runMutation(internal.distribution.recordSendResult, {
+        sendId,
+        ok: result.ok,
+        providerId: result.ok ? result.id : undefined,
+        error: result.ok ? undefined : result.error,
+      });
     }
     return null;
   },

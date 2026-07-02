@@ -2,7 +2,7 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
-import { escapeHtml } from "./lib/email";
+import { escapeHtml, sendEmail } from "./lib/email";
 import { Doc, Id } from "./_generated/dataModel";
 
 // ---------------------------------------------------------------------------
@@ -138,27 +138,18 @@ export const notify = internalAction({
 <blockquote style="margin:12px 0;padding:12px 16px;background:#f5f5f5;border-left:3px solid #171717;font-size:14px;white-space:pre-line;">${escapeHtml(row.message)}</blockquote>
 </body></html>`;
 
-    let emailStatus: string;
-    try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: "UnitDeck <callsheets@mail.unitdeck.app>",
-          to: ["matt@boostkit.io"],
-          subject: `UnitDeck feedback from ${row.orgName}`,
-          html,
-        }),
-      });
-      emailStatus = res.ok ? "sent" : `Resend ${res.status}: ${(await res.text()).slice(0, 300)}`;
-    } catch (err) {
-      emailStatus = err instanceof Error ? err.message : "Unknown send error";
-    }
-    const result: null = await ctx.runMutation(internal.feedback.recordNotifyResult, {
+    const sendResult = await sendEmail({
+      apiKey,
+      to: ["matt@boostkit.io"],
+      subject: `UnitDeck feedback from ${row.orgName}`,
+      html,
+    });
+    const emailStatus = sendResult.ok ? "sent" : sendResult.error;
+    const recorded: null = await ctx.runMutation(internal.feedback.recordNotifyResult, {
       feedbackId: args.feedbackId,
       emailStatus,
     });
-    return result;
+    return recorded;
   },
 });
 

@@ -1,5 +1,41 @@
 import type { CallSheetData } from "./callSheetData";
 
+export const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
+
+export type SendEmailResult =
+  | { ok: true; id: string }
+  | { ok: false; error: string };
+
+/** One Resend call. Never throws: callers decide what a failure means. */
+export async function sendEmail(args: {
+  apiKey: string;
+  to: string[];
+  subject: string;
+  html: string;
+  from?: string;
+}): Promise<SendEmailResult> {
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${args.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: args.from ?? FROM,
+        to: args.to,
+        subject: args.subject,
+        html: args.html,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return { ok: false, error: `Resend ${res.status}: ${text.slice(0, 500)}` };
+    }
+    const json = (await res.json()) as { id: string };
+    return { ok: true, id: json.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Unknown send error" };
+  }
+}
+
 export function escapeHtml(s: string): string {
   return s
     .replaceAll("&", "&amp;")

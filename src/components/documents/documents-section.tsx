@@ -91,7 +91,9 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
                           ? `Declined: ${doc.declineReason}`
                           : "Declined"
                         : doc.status === "sent"
-                          ? "Awaiting signature"
+                          ? doc.inviteDelivery?.status === "failed"
+                            ? "Email failed to send"
+                            : "Awaiting signature"
                           : doc.status === "signed" && doc.signature
                             ? `Signed ${new Date(doc.signature.signedAt).toLocaleDateString("en-GB")}`
                             : doc.status === "voided"
@@ -111,6 +113,9 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
                         </Button>
                         <SendReleaseButton id={doc._id} />
                       </>
+                    )}
+                    {doc.status === "sent" && doc.inviteDelivery?.status === "failed" && (
+                      <RetryInviteButton id={doc._id} />
                     )}
                     {doc.status === "signed" && (
                       <Button
@@ -147,6 +152,31 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
         <PreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
       )}
     </section>
+  );
+}
+
+function RetryInviteButton({ id }: { id: Id<"documents"> }) {
+  const resend = useMutation(api.documents.resendInvite);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await resend({ id });
+          toast.success("Invite email queued again.");
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "Could not re-send the invite.");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {busy ? "Re-sending…" : "Retry email"}
+    </Button>
   );
 }
 

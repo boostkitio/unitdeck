@@ -1,12 +1,10 @@
-import { mutation, query, internalAction, internalQuery, MutationCtx, QueryCtx } from "./_generated/server";
+import { mutation, query, internalAction, internalMutation, internalQuery, MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { talentReleaseDataValidator } from "./lib/documentData";
-import { talentReleaseInviteEmail, signedCopyEmail } from "./lib/email";
+import { talentReleaseInviteEmail, signedCopyEmail, sendEmail } from "./lib/email";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-
-const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
 
 function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
@@ -109,6 +107,22 @@ export const getForInvite = internalQuery({
   handler: async (ctx, args) => await ctx.db.get(args.id),
 });
 
+export const recordInviteResult = internalMutation({
+  args: { id: v.id("documents"), ok: v.boolean(), error: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.id);
+    if (!doc) return null;
+    await ctx.db.patch(args.id, {
+      inviteDelivery: {
+        status: args.ok ? ("delivered" as const) : ("failed" as const),
+        error: args.error,
+        at: Date.now(),
+      },
+    });
+    return null;
+  },
+});
+
 export const deliverInvite = internalAction({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
@@ -124,16 +138,26 @@ export const deliverInvite = internalAction({
       productionCompany: doc.data.productionCompany,
       signUrl: `${siteUrl}/sign/${doc.signToken}`,
     });
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: [doc.signer.email], subject, html }),
+    const result = await sendEmail({ apiKey, to: [doc.signer.email], subject, html });
+    if (!result.ok) console.error("Talent release invite send failed", result.error);
+    await ctx.runMutation(internal.documents.recordInviteResult, {
+      id: args.id,
+      ok: result.ok,
+      error: result.ok ? undefined : result.error,
     });
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("Resend send failed", res.status, text.slice(0, 500));
-      throw new Error(`Resend ${res.status}`);
-    }
+  },
+});
+
+/** Re-send the invite after a failed delivery. Org-scoped. */
+export const resendInvite = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const { doc } = await requireOwnedDoc(ctx, args.id);
+    if (doc.status !== "sent") throw new Error("Only a sent document can be re-sent");
+    if (doc.inviteDelivery?.status !== "failed") throw new Error("The invite email has not failed");
+    await ctx.db.patch(args.id, { inviteDelivery: undefined });
+    await ctx.scheduler.runAfter(0, internal.documents.deliverInvite, { id: args.id });
+    return null;
   },
 });
 
@@ -279,15 +303,8 @@ export const deliverSignedCopy = internalAction({
       viewUrl: `${siteUrl}/sign/${doc.signToken}`,
     });
     const to = [doc.signer.email].filter(Boolean) as string[];
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to, subject, html }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("Resend send failed", res.status, text.slice(0, 500));
-      throw new Error(`Resend ${res.status}`);
-    }
+    const result = await sendEmail({ apiKey, to, subject, html });
+    // The signed copy is a courtesy email; log failures without failing the flow.
+    if (!result.ok) console.error("Signed copy send failed", result.error);
   },
 });
