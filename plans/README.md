@@ -16,7 +16,7 @@ are listed below and can be promoted to plans on request.
 |------|-------|----------|--------|------------|--------|
 | 001  | Make the test suite green and deterministic | P1 | S | — | DONE (see execution notes: all 5 failures were the date bomb; lint has 2 pre-existing errors, handed to 002) |
 | 002  | Add a CI gate (lint, typecheck, tests) | P1 | S | 001 | DONE (required fixing 2 pre-existing react-hooks/set-state-in-effect lint errors first; first run green) |
-| 003  | Close the geocode tenancy gap and middleware route gaps | P1 | S | — | TODO |
+| 003  | Close the geocode tenancy gap and middleware route gaps | P1 | S | — | DONE |
 | 004  | Make the stored signed PDF tamper-proof, serve it directly | P2 | M | — | TODO |
 | 005  | Record and surface document email delivery outcomes | P2 | M | 001 | TODO |
 

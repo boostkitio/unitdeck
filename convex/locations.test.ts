@@ -40,6 +40,18 @@ test("update rejects cross-org access", async () => {
   ).rejects.toThrow("Location not found");
 });
 
+test("geocode rejects cross-org access", async () => {
+  const { asA, asB } = await setup();
+  const id = await asA.mutation(api.locations.create, {
+    name: "Studio 1",
+    address: "1 High St, Tunbridge Wells",
+  });
+  // Tenancy fails inside getForGeocode before any network call happens.
+  await expect(asB.action(api.locations.geocode, { id })).rejects.toThrow(
+    "Location not found"
+  );
+});
+
 test("archive hides from list", async () => {
   const { asA } = await setup();
   const id = await asA.mutation(api.locations.create, { name: "S1", address: "A" });

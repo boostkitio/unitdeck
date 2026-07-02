@@ -104,13 +104,21 @@ export const archive = mutation({
 export const getForGeocode = internalQuery({
   args: { id: v.id("locations") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    // Auth propagates from the calling action, so the tenancy rule applies
+    // here too: never hand back another org's location.
+    const { org } = await requireOrg(ctx);
+    const location = await ctx.db.get(args.id);
+    if (!location || location.orgId !== org._id) return null;
+    return location;
   },
 });
 
 export const saveCoordinates = internalMutation({
   args: { id: v.id("locations"), lat: v.number(), lng: v.number() },
   handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const location = await ctx.db.get(args.id);
+    if (!location || location.orgId !== org._id) throw new Error("Location not found");
     await ctx.db.patch(args.id, { lat: args.lat, lng: args.lng });
     return null;
   },
