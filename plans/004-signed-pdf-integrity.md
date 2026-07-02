@@ -235,6 +235,17 @@ Stop and report back (do not improvise) if:
   way that moved these functions (re-read, and only proceed if the mutations
   are recognisably the same).
 
+## Execution notes (2026-07-02)
+
+Executed same day by the plan author. Steps 1–4 done as written and verified
+(91/91 tests, typecheck, lint). One deviation: step 5's interactive
+end-to-end pass (create → send → sign → download twice in the live app) needs
+a signed-in Clerk session and was not run in the autonomous session; the
+Convex-side behaviour is covered by the three new tests, and the route change
+is the short-circuit branch only. Owner should sanity-check the flow on the
+next real talent release: sign one, download the PDF twice, confirm the
+second download is instant and identical.
+
 ## Maintenance notes
 
 - If a release ever legitimately needs re-issuing after signing, the intended

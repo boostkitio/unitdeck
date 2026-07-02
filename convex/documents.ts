@@ -226,11 +226,16 @@ export const getForPrint = query({
   },
 });
 
+/**
+ * Public by token, one-shot: once a signed PDF is stored it is the canonical
+ * legal artifact, so no further upload URLs can be minted for the document.
+ */
 export const generateSignedUploadUrl = mutation({
   args: { token: v.string() },
   handler: async (ctx, args) => {
     const doc = await docByToken(ctx, args.token);
     if (!doc || doc.status !== "signed") throw new Error("Not signable");
+    if (doc.signedPdfFileId) throw new Error("Signed PDF already stored");
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -240,12 +245,22 @@ export const attachSignedPdf = mutation({
   handler: async (ctx, args) => {
     const doc = await docByToken(ctx, args.token);
     if (!doc || doc.status !== "signed") throw new Error("Not signable");
-    const firstAttach = !doc.signedPdfFileId;
+    if (doc.signedPdfFileId) return null; // first stored PDF is canonical
     await ctx.db.patch(doc._id, { signedPdfFileId: args.fileId });
-    if (firstAttach && doc.signer.email) {
+    if (doc.signer.email) {
       await ctx.scheduler.runAfter(0, internal.documents.deliverSignedCopy, { id: doc._id });
     }
     return null;
+  },
+});
+
+/** Public by token: the stored signed PDF's URL, or null before it exists. */
+export const getSignedPdfUrl = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await docByToken(ctx, args.token);
+    if (!doc || doc.status !== "signed" || !doc.signedPdfFileId) return null;
+    return await ctx.storage.getUrl(doc.signedPdfFileId);
   },
 });
 

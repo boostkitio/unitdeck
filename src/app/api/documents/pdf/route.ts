@@ -7,11 +7,17 @@ import { launchBrowser } from "@/lib/pdf-browser";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+const PDF_HEADERS = {
+  "Content-Type": "application/pdf",
+  "Content-Disposition": `attachment; filename="talent-release.pdf"`,
+};
+
 /**
  * Public PDF endpoint for a signed talent release. The token is the
- * document's signToken, so no auth is required here. Renders the print
- * page to PDF, stores the bytes on the document via Convex storage, then
- * returns the PDF to the caller.
+ * document's signToken, so no auth is required here. Serves the stored
+ * signed PDF when one exists; otherwise renders the print page to PDF,
+ * stores the bytes on the document via Convex storage (first write wins),
+ * then returns the PDF to the caller.
  */
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as { token?: string };
@@ -19,8 +25,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "token required" }, { status: 400 });
   }
 
-  // Fail fast on unknown/expired tokens before paying for a browser launch
   const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+
+  // The stored signed PDF is canonical: serve it without launching a browser.
+  const storedUrl = await convex.query(api.documents.getSignedPdfUrl, { token: body.token });
+  if (storedUrl) {
+    const stored = await fetch(storedUrl);
+    if (stored.ok) {
+      return new NextResponse(await stored.arrayBuffer(), { headers: PDF_HEADERS });
+    }
+    console.error("Stored signed PDF fetch failed", stored.status);
+    // fall through to a fresh render rather than failing the download
+  }
+
+  // Fail fast on unknown/expired tokens before paying for a browser launch
   const render = await convex.query(api.documents.getForPrint, { token: body.token });
   if (!render) {
     return NextResponse.json({ error: "Document link expired" }, { status: 410 });
@@ -54,10 +72,5 @@ export async function POST(req: NextRequest) {
     console.error("Signed talent release PDF storage failed", err);
   }
 
-  return new NextResponse(Buffer.from(pdf), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="talent-release.pdf"`,
-    },
-  });
+  return new NextResponse(Buffer.from(pdf), { headers: PDF_HEADERS });
 }

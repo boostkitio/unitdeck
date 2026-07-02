@@ -140,6 +140,39 @@ test("attachSignedPdf stores the file id on a signed doc", async () => {
   expect((await asA.query(api.documents.get, { id }))?.signedPdfFileId).toBe(fileId);
 });
 
+async function signedDocWithFiles() {
+  const { t, asA, id, token } = await sentDoc();
+  await t.mutation(api.documents.sign, { token, typedName: "Claire Francis", consent: true });
+  const fileA = await t.run(async (ctx) => await ctx.storage.store(new Blob([new Uint8Array([1, 2, 3])], { type: "application/pdf" })));
+  const fileB = await t.run(async (ctx) => await ctx.storage.store(new Blob([new Uint8Array([9, 9, 9])], { type: "application/pdf" })));
+  return { t, asA, id, token, fileA, fileB };
+}
+
+test("attachSignedPdf is first-write-wins: the stored PDF cannot be replaced", async () => {
+  const { t, asA, id, token, fileA, fileB } = await signedDocWithFiles();
+  await t.mutation(api.documents.attachSignedPdf, { token, fileId: fileA });
+  await t.mutation(api.documents.attachSignedPdf, { token, fileId: fileB });
+  expect((await asA.query(api.documents.get, { id }))?.signedPdfFileId).toBe(fileA);
+});
+
+test("generateSignedUploadUrl refuses once a signed PDF is stored", async () => {
+  const { t, token, fileA } = await signedDocWithFiles();
+  await expect(t.mutation(api.documents.generateSignedUploadUrl, { token })).resolves.toBeTruthy();
+  await t.mutation(api.documents.attachSignedPdf, { token, fileId: fileA });
+  await expect(t.mutation(api.documents.generateSignedUploadUrl, { token })).rejects.toThrow(
+    "Signed PDF already stored"
+  );
+});
+
+test("getSignedPdfUrl returns null before storage and a URL after", async () => {
+  const { t, token, fileA } = await signedDocWithFiles();
+  expect(await t.query(api.documents.getSignedPdfUrl, { token })).toBeNull();
+  await t.mutation(api.documents.attachSignedPdf, { token, fileId: fileA });
+  const url = await t.query(api.documents.getSignedPdfUrl, { token });
+  expect(typeof url).toBe("string");
+  expect(await t.query(api.documents.getSignedPdfUrl, { token: "nope" })).toBeNull();
+});
+
 test("markViewed sets viewedAt once and is idempotent", async () => {
   const { t, asA, id, token } = await sentDoc();
   expect((await asA.query(api.documents.get, { id }))?.viewedAt).toBeUndefined();
