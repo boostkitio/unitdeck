@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { CallSheetData } from "./lib/callSheetData";
 
@@ -56,4 +56,16 @@ test("oversized payloads are rejected", async () => {
   await expect(t.mutation(api.tools.createRender, { data: big, website: "" })).rejects.toThrow(
     "too large"
   );
+});
+
+test("cleanupExpired deletes only expired render rows", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("toolRenders", { token: "tok_old", data: DATA, expiresAt: Date.now() - 1000 });
+    await ctx.db.insert("toolRenders", { token: "tok_live", data: DATA, expiresAt: Date.now() + 60_000 });
+  });
+  await t.mutation(internal.tools.cleanupExpired, {});
+  const remaining = await t.run(async (ctx) => await ctx.db.query("toolRenders").collect());
+  expect(remaining).toHaveLength(1);
+  expect(remaining[0].token).toBe("tok_live");
 });

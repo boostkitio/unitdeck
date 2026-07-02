@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { callSheetDataValidator, CallSheetData } from "./lib/callSheetData";
@@ -220,6 +220,25 @@ export const getByRenderToken = query({
     const sheet = await ctx.db.get(row.callSheetId);
     if (!sheet) return null;
     return { data: sheet.data, version: sheet.version };
+  },
+});
+
+/**
+ * Delete expired render tokens (reads already treat them as gone). Called by
+ * the daily cron; the batch bound keeps a single run cheap and any backlog
+ * drains across consecutive days.
+ */
+export const cleanupExpiredRenderTokens = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const expired = await ctx.db
+      .query("renderTokens")
+      .withIndex("by_expires", (q) => q.lt("expiresAt", Date.now()))
+      .take(500);
+    for (const row of expired) {
+      await ctx.db.delete(row._id);
+    }
+    return null;
   },
 });
 

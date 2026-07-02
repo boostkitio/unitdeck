@@ -114,7 +114,10 @@ export default defineSchema({
     callSheetId: v.id("callSheets"),
     token: v.string(),
     expiresAt: v.number(),
-  }).index("by_token", ["token"]),
+  })
+    .index("by_token", ["token"])
+    // Powers the daily cleanup cron (convex/crons.ts)
+    .index("by_expires", ["expiresAt"]),
 
   recipients: defineTable({
     orgId: v.id("organisations"),
@@ -191,7 +194,10 @@ export default defineSchema({
     token: v.string(),
     data: callSheetDataValidator,
     expiresAt: v.number(),
-  }).index("by_token", ["token"]),
+  })
+    .index("by_token", ["token"])
+    // Powers the daily cleanup cron (convex/crons.ts)
+    .index("by_expires", ["expiresAt"]),
 
   feedback: defineTable({
     orgId: v.id("organisations"),

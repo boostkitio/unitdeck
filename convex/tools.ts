@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { callSheetDataValidator } from "./lib/callSheetData";
 
@@ -44,5 +44,24 @@ export const getRender = query({
       .unique();
     if (!row || row.expiresAt < Date.now()) return null;
     return { data: row.data };
+  },
+});
+
+/**
+ * Delete expired tool renders (reads already treat them as gone). Called by
+ * the daily cron; the batch bound keeps a single run cheap and any backlog
+ * drains across consecutive days.
+ */
+export const cleanupExpired = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const expired = await ctx.db
+      .query("toolRenders")
+      .withIndex("by_expires", (q) => q.lt("expiresAt", Date.now()))
+      .take(500);
+    for (const row of expired) {
+      await ctx.db.delete(row._id);
+    }
+    return null;
   },
 });

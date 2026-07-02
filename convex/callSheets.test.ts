@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -252,4 +252,17 @@ test("ensure copies org defaults, seeds call times, and carries location fields"
   expect(draft?.data.callTimes?.[0]).toMatchObject({ label: "Crew call", time: "08:00" });
   expect(draft?.data.locations[0].satNav).toBe("SE1 3JT");
   expect(draft?.data.locations[0].nearestPoliceStation).toBe("Southwark Police Station");
+});
+
+test("cleanupExpiredRenderTokens deletes only expired token rows", async () => {
+  const { t, asA, ids } = await setup();
+  const sheetId = await asA.mutation(api.callSheets.ensure, { shootDayId: ids.dayA });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("renderTokens", { callSheetId: sheetId, token: "tok_old", expiresAt: Date.now() - 1000 });
+    await ctx.db.insert("renderTokens", { callSheetId: sheetId, token: "tok_live", expiresAt: Date.now() + 60_000 });
+  });
+  await t.mutation(internal.callSheets.cleanupExpiredRenderTokens, {});
+  const remaining = await t.run(async (ctx) => await ctx.db.query("renderTokens").collect());
+  expect(remaining).toHaveLength(1);
+  expect(remaining[0].token).toBe("tok_live");
 });
