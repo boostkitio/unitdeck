@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type {
@@ -19,6 +19,17 @@ function newId(prefix: string) {
 }
 
 const UNLOCK_KEY = "unitdeck-tool-unlocked";
+
+// Reads the unlock flag without a setState-in-effect: the server snapshot is
+// locked, and React re-checks the client snapshot after hydration.
+const emptySubscribe = () => () => {};
+function useStoredUnlock(): boolean {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => window.localStorage.getItem(UNLOCK_KEY) === "1",
+    () => false
+  );
+}
 
 function emptyData(): CallSheetData {
   return {
@@ -43,15 +54,11 @@ const removeButtonClass = "text-xs font-medium text-red-600 hover:underline";
 export function CallSheetMaker() {
   const createRender = useMutation(api.tools.createRender);
   const [data, setData] = useState<CallSheetData>(emptyData);
-  const [unlocked, setUnlocked] = useState(false);
+  const storedUnlock = useStoredUnlock();
+  const [justUnlocked, setJustUnlocked] = useState(false);
+  const unlocked = storedUnlock || justUnlocked;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.localStorage.getItem(UNLOCK_KEY) === "1") {
-      setUnlocked(true);
-    }
-  }, []);
 
   const set = (patch: Partial<CallSheetData>) => setData((d) => ({ ...d, ...patch }));
   const location = data.locations[0];
@@ -489,7 +496,7 @@ export function CallSheetMaker() {
                 buttonLabel="Unlock download"
                 onJoined={() => {
                   window.localStorage.setItem(UNLOCK_KEY, "1");
-                  setUnlocked(true);
+                  setJustUnlocked(true);
                 }}
               />
             </div>

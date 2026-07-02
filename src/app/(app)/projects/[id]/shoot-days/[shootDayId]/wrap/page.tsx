@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
@@ -34,15 +34,11 @@ export default function WrapPage({
   const { organization } = useOrganization();
   const report = useQuery(api.wrap.report, organization ? { shootDayId: dayId } : "skip");
   const saveNotes = useMutation(api.wrap.saveNotes);
+  // null = untouched this session; the textarea derives its value from the
+  // server document until the first local edit, so no init effect is needed.
   const [notes, setNotes] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "saving">("saved");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Initialise notes once from the server document
-  useEffect(() => {
-    if (report && notes === null) setNotes(report.wrapNotes);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [report]);
 
   if (!organization || report === undefined) {
     return (
@@ -116,7 +112,7 @@ export default function WrapPage({
           className="mt-2 print:border-0 print:p-0"
           rows={6}
           placeholder="Overruns, pickups needed, kit issues, anything for the post team…"
-          value={notes ?? ""}
+          value={notes ?? report.wrapNotes}
           onChange={(e) => {
             setNotes(e.target.value);
             setSaveState("saving");
