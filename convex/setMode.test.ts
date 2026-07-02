@@ -6,7 +6,13 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
-async function setupSent(date = "2026-06-18") {
+// Set-mode links expire 7 days after the shoot date, so fixtures must use a
+// relative date; a hardcoded literal rots into "This link has expired".
+const NEAR_FUTURE = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
+async function setupSent(date = NEAR_FUTURE) {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
     const orgA = await ctx.db.insert("organisations", { name: "Org A", clerkOrgId: "org_a" });

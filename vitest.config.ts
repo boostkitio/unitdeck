@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "edge-runtime",
     include: ["convex/**/*.test.ts", "src/**/*.test.ts"],
+    setupFiles: ["./vitest.setup.ts"],
     server: { deps: { inline: ["convex-test"] } },
   },
 });

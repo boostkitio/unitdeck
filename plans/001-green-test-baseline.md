@@ -241,6 +241,29 @@ Stop and report back (do not improvise) if:
   fetch behaviour). Do not widen or narrow the stub on your own.
 - You find yourself wanting to edit any file in the out-of-scope list.
 
+## Execution notes (2026-07-02)
+
+Executed same day by the plan author; three deviations from the text above,
+all verified:
+
+1. **Root cause correction**: all five failures were the date time bomb, not
+   just three. `convex/messageDrafter.test.ts:21` hardcoded the same
+   `"2026-06-18"` date, and its failures surfaced as `This link has expired`
+   too. The `SITE_URL` mechanism recorded in project memory was never the
+   failure path (convex-test does not execute the scheduled email actions).
+   `convex/messageDrafter.test.ts` was therefore added to scope and given the
+   same relative-date fix.
+2. **The setup file is insurance, not the fix**: the suite passes without it
+   once dates are relative (verified by unregistering it and re-running).
+   Kept regardless: it makes the suite hermetic if scheduled actions ever run
+   under test, and plan 005's new tests rely on its Resend fetch stub.
+3. **Lint done-criterion**: `npm run lint` fails with 2 pre-existing errors
+   (`react-hooks/set-state-in-effect` in
+   `src/app/(app)/projects/[id]/shoot-days/[shootDayId]/wrap/page.tsx:43` and
+   `src/components/marketing/call-sheet-maker.tsx:52`) plus 6 pre-existing
+   warnings, none in files this plan touched. Tracked as a prerequisite fix
+   for plan 002 (CI would be red otherwise).
+
 ## Maintenance notes
 
 - Any new test fixture that inserts a `shootDays` row must use a relative
