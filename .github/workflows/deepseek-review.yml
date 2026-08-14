@@ -1,0 +1,26 @@
+name: DeepSeek Review
+
+# Runs alongside Claude Code, so the project gets two independent LLM reviews.
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  deepseek-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Review with DeepSeek
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/deepseek-review.mjs
