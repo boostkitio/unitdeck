@@ -1,6 +1,7 @@
 import { query, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
+import { needsAttention } from "./lib/projectStatus";
 import { Doc, Id } from "./_generated/dataModel";
 
 export type AttentionItem = {
@@ -20,7 +21,11 @@ export type AttentionItem = {
   label: string;
 };
 
-const ACTIVE = new Set(["brief", "pre_production", "shooting", "post"]);
+// Only unconfirmed work is chased: a confirmed booking is not "needing
+// attention" just because its call sheet has not gone out yet.
+function chases(status: string): boolean {
+  return needsAttention(status);
+}
 
 export const attention = query({
   args: {},
@@ -31,7 +36,7 @@ export const attention = query({
       .query("projects")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(200);
-    const byId = new Map(projects.filter((p) => ACTIVE.has(p.status)).map((p) => [p._id, p]));
+    const byId = new Map(projects.filter((p) => chases(p.status)).map((p) => [p._id, p]));
 
     // Range on the composite index: only rows from today onwards are read,
     // so a long shoot-day history can never crowd out upcoming days. Index
@@ -130,9 +135,11 @@ export type UpcomingShootDay = {
   total: number;
 };
 
-// Projects in these statuses do not surface on the dashboard schedule even if
-// a stray future shoot day exists.
-const EXCLUDED_FROM_WEEK = new Set(["archived"]);
+// Archived projects do not surface on the dashboard schedule even if a stray
+// future shoot day exists. Legacy rows are still archived via their status.
+function isArchived(project: Doc<"projects">): boolean {
+  return project.archived === true || project.status === "archived";
+}
 
 /**
  * Shoot days between two "YYYY-MM-DD" dates (both inclusive) for non-archived
@@ -160,7 +167,7 @@ async function shootDaysBetween(
 
   const visible = days.filter((d) => {
     const project = projectById.get(d.projectId);
-    return project !== undefined && !EXCLUDED_FROM_WEEK.has(project.status);
+    return project !== undefined && !isArchived(project);
   });
 
   const result: UpcomingShootDay[] = [];

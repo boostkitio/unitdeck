@@ -141,7 +141,7 @@ export const approve = mutation({
       orgId: org._id,
       clientId,
       name: args.projectName.trim(),
-      status: "brief",
+      status: "not_booked",
       briefSummary: args.briefSummary,
     });
     for (const d of args.shootDays) {

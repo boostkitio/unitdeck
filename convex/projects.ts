@@ -1,19 +1,28 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
+import { LEGACY_STATUSES, normaliseStatus } from "./lib/projectStatus";
 
+// Only current statuses are settable; legacy values remain readable but can
+// no longer be written.
 const statusValidator = v.union(
-  v.literal("brief"),
-  v.literal("pre_production"),
-  v.literal("shooting"),
-  v.literal("post"),
-  v.literal("delivered"),
-  v.literal("archived")
+  v.literal("not_booked"),
+  v.literal("pencilled"),
+  v.literal("confirmed")
 );
 
+/** Archived either by the flag, or by a legacy row still using the old status. */
+function isArchived(project: Doc<"projects">): boolean {
+  return project.archived === true || project.status === "archived";
+}
+
 export const list = query({
-  args: { includeArchived: v.optional(v.boolean()) },
+  args: {
+    includeArchived: v.optional(v.boolean()),
+    // Show only archived projects, for the archive view.
+    archivedOnly: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const projects = await ctx.db
@@ -21,9 +30,11 @@ export const list = query({
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .order("desc")
       .take(200);
-    const visible = args.includeArchived
-      ? projects
-      : projects.filter((p) => p.status !== "archived");
+    const visible = args.archivedOnly
+      ? projects.filter(isArchived)
+      : args.includeArchived
+        ? projects
+        : projects.filter((p) => !isArchived(p));
 
     // One pass over the org's shoot days, grouped in memory, rather than a
     // per-project query: the table shows a date for every row at once.
@@ -47,6 +58,8 @@ export const list = query({
         return {
           ...p,
           clientName: p.clientId ? ((await ctx.db.get(p.clientId))?.name ?? null) : null,
+          status: normaliseStatus(p.status),
+          archived: isArchived(p),
           // Earliest shoot day still to come, and the last one on the books.
           // The table shows the former and falls back to the latter.
           nextShootDate: dates.find((d) => d >= today) ?? null,
@@ -70,6 +83,8 @@ export const get = query({
       clientName: project.clientId
         ? ((await ctx.db.get(project.clientId))?.name ?? null)
         : null,
+      status: normaliseStatus(project.status),
+      archived: isArchived(project),
       location,
     };
   },
@@ -92,7 +107,7 @@ export const create = mutation({
       orgId: org._id,
       name: args.name.trim(),
       clientId: args.clientId,
-      status: "brief",
+      status: "not_booked",
       briefSummary: args.briefSummary,
     });
   },
@@ -143,13 +158,62 @@ export const update = mutation({
   },
 });
 
-export const archive = mutation({
-  args: { id: v.id("projects") },
+/**
+ * Archiving hides a project from active lists without touching its booking
+ * status, so an archived production still shows who was on it and where.
+ */
+export const setArchived = mutation({
+  args: { id: v.id("projects"), archived: v.boolean() },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.id);
     if (!project || project.orgId !== org._id) throw new Error("Project not found");
-    await ctx.db.patch(args.id, { status: "archived" });
+
+    const patch: Record<string, unknown> = { archived: args.archived };
+    // A legacy row archived via its status needs a real status back, or it
+    // would still read as archived once the flag is cleared.
+    if (project.status === "archived") patch.status = normaliseStatus(project.status);
+    await ctx.db.patch(args.id, patch);
     return null;
+  },
+});
+
+/** How many projects still carry a pre-booking-model status. */
+export const legacyStatusCount = query({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const { org } = await requireOrg(ctx);
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(500);
+    return projects.filter((p) => LEGACY_STATUSES.includes(p.status)).length;
+  },
+});
+
+/**
+ * Rewrites legacy statuses to the booking model and moves status-based
+ * archiving onto the flag. Idempotent: rows already migrated are skipped, so
+ * running it twice is harmless.
+ */
+export const migrateStatuses = mutation({
+  args: {},
+  handler: async (ctx): Promise<{ migrated: number }> => {
+    const { org } = await requireOrg(ctx);
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(500);
+
+    let migrated = 0;
+    for (const project of projects) {
+      if (!LEGACY_STATUSES.includes(project.status)) continue;
+      await ctx.db.patch(project._id, {
+        status: normaliseStatus(project.status),
+        archived: project.archived === true || project.status === "archived",
+      });
+      migrated++;
+    }
+    return { migrated };
   },
 });

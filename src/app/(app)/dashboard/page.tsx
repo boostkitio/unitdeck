@@ -13,8 +13,6 @@ import { statusBadgeClass, statusLabel } from "@/lib/project-status";
 import { ShootCalendar } from "@/components/dashboard/shoot-calendar";
 import { cn } from "@/lib/utils";
 
-const ACTIVE_STATUSES = ["brief", "pre_production", "shooting", "post"] as const;
-
 // ── Inline sub-components ────────────────────────────────────────────────────
 
 function StatTile({
@@ -104,9 +102,9 @@ export default function DashboardPage() {
     );
   }
 
-  const active = projects?.filter((p) =>
-    ACTIVE_STATUSES.includes(p.status as (typeof ACTIVE_STATUSES)[number]),
-  );
+  // projects.list already excludes archived, and the booking model has no
+  // "finished" status, so everything it returns is active work.
+  const active = projects;
 
   // Hero summary line
   const weekCount = week?.length ?? 0;
@@ -187,8 +185,8 @@ export default function DashboardPage() {
               </p>
             ) : attention.length === 0 ? (
               <p className="text-muted-foreground">
-                Nothing needs attention. Upcoming shoot days with unsent call sheets, unconfirmed
-                crew or weather risk will appear here.
+                Nothing needs attention. Unbooked and pencilled shoot days with unsent call
+                sheets, unconfirmed crew or weather risk will appear here.
               </p>
             ) : (
               <ul className="divide-y divide-border">

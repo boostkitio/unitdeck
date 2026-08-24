@@ -6,6 +6,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Doc, Id } from "../../../convex/_generated/dataModel";
+import { type AddressSuggestion } from "../../../convex/locations";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -178,6 +179,39 @@ function LocationPickerDialog({
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [parkingNotes, setParkingNotes] = useState("");
+  const [nearestHospital, setNearestHospital] = useState<string | undefined>();
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Address lookup, the same one the locations page calls "Smart find".
+  const suggestAddress = useAction(api.locations.suggestAddress);
+  const [lookup, setLookup] = useState("");
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  async function runLookup() {
+    if (lookup.trim().length < 3) return;
+    setSearching(true);
+    try {
+      const result = await suggestAddress({ query: lookup });
+      setSuggestions(result.suggestions);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not fetch suggestions.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function applySuggestion(suggestion: AddressSuggestion) {
+    setName(suggestion.name);
+    setAddress(suggestion.address);
+    setNearestHospital(suggestion.nearestHospital);
+    setCoords(
+      suggestion.lat !== undefined && suggestion.lng !== undefined
+        ? { lat: suggestion.lat, lng: suggestion.lng }
+        : null,
+    );
+    setSuggestions(null);
+  }
 
   const matches = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -217,12 +251,16 @@ function LocationPickerDialog({
         name,
         address,
         parkingNotes: parkingNotes.trim() || undefined,
+        nearestHospital,
+        lat: coords?.lat,
+        lng: coords?.lng,
       });
       await updateProject({ id: projectId, locationId });
       toast.success("Location added and set.");
-      // Coordinates make the map pin exact; a failure here is not fatal, the
-      // map falls back to the address.
-      void geocode({ id: locationId }).catch(() => undefined);
+      // Coordinates make the map pin exact. The lookup usually supplies them;
+      // geocode fills the gap when it did not. Failure is not fatal — the map
+      // falls back to the address.
+      if (!coords) void geocode({ id: locationId }).catch(() => undefined);
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add the location.");
@@ -302,13 +340,67 @@ function LocationPickerDialog({
         ) : (
           <div className="space-y-4 py-2">
             <div className="space-y-2">
+              <Label htmlFor="new-loc-lookup">Search for a place</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="new-loc-lookup"
+                  placeholder="Venue, place or address…"
+                  value={lookup}
+                  onChange={(e) => setLookup(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void runLookup();
+                    }
+                  }}
+                  disabled={searching}
+                  autoFocus
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={searching || lookup.trim().length < 3}
+                  onClick={() => void runLookup()}
+                >
+                  {searching ? "Finding…" : "Find"}
+                </Button>
+              </div>
+              {suggestions !== null && suggestions.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No matches. Fill the fields in below instead.
+                </p>
+              )}
+              {suggestions !== null && suggestions.length > 0 && (
+                <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
+                  {suggestions.map((suggestion, i) => (
+                    <li key={i}>
+                      <button
+                        type="button"
+                        onClick={() => applySuggestion(suggestion)}
+                        className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2 text-left transition-colors hover:bg-muted/60"
+                      >
+                        <span className="truncate text-sm font-medium">{suggestion.name}</span>
+                        <span className="block w-full truncate text-xs text-muted-foreground">
+                          {suggestion.address}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Picking a result fills the fields below. You can edit them, or skip the search
+                and type a custom location yourself.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="new-loc-name">Name</Label>
               <Input
                 id="new-loc-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Warehouse studio"
-                autoFocus
               />
             </div>
             <div className="space-y-2">

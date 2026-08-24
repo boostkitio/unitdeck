@@ -49,7 +49,9 @@ test("a long shoot-day history cannot crowd upcoming days out of the dashboard",
   const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   await t.run(async (ctx) => {
     const org = await ctx.db.insert("organisations", { name: "Org C", clerkOrgId: "org_c" });
-    const project = await ctx.db.insert("projects", { orgId: org, name: "Series", status: "shooting" });
+    // Pencilled, not confirmed: the attention feed only chases unconfirmed
+    // work, and this test is about the take() bound, not about status.
+    const project = await ctx.db.insert("projects", { orgId: org, name: "Series", status: "pencilled" });
     // More history rows than the query's take() bound; the old by_org scan
     // read the oldest 500 first and silently dropped the upcoming day.
     for (let i = 0; i < 501; i++) {

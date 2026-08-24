@@ -58,7 +58,15 @@ export default defineSchema({
     orgId: v.id("organisations"),
     clientId: v.optional(v.id("clients")),
     name: v.string(),
+    // Booking status. The first three are current; the rest are the old
+    // pipeline statuses, kept valid so existing documents still pass schema
+    // validation. Reads normalise them (convex/lib/projectStatus.ts) and
+    // `projects.migrateStatuses` rewrites them, after which the legacy
+    // literals can be dropped from this union.
     status: v.union(
+      v.literal("not_booked"),
+      v.literal("pencilled"),
+      v.literal("confirmed"),
       v.literal("brief"),
       v.literal("pre_production"),
       v.literal("shooting"),
@@ -66,6 +74,9 @@ export default defineSchema({
       v.literal("delivered"),
       v.literal("archived")
     ),
+    // Archiving used to be a status, which made it impossible to know what a
+    // project's booking state had been. It is its own flag now.
+    archived: v.optional(v.boolean()),
     briefSummary: v.optional(v.string()),
     // Where the production is based. Individual shoot days can still carry
     // their own locations for call sheets; this is the project-level one.

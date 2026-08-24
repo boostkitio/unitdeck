@@ -65,7 +65,7 @@ export async function seedDemoDataForOrg(
     orgId,
     clientId,
     name: DEMO_PROJECT,
-    status: "pre_production",
+    status: "pencilled",
     briefSummary: "4x 15sec talking-head videos, versioned for 16:9, 1:1 and 9:16.",
   });
 

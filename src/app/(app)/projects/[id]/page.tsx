@@ -3,6 +3,7 @@
 import { use, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
+import { type FunctionReturnType } from "convex/server";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
@@ -35,10 +36,9 @@ import { CrewSection } from "@/components/projects/crew-section";
 import { EquipmentSection } from "@/components/projects/equipment-section";
 import { DocumentsSection } from "@/components/documents/documents-section";
 
-type ProjectWithRelations = Doc<"projects"> & {
-  clientName: string | null;
-  location: Doc<"locations"> | null;
-};
+// Inferred from the query so the normalised status and resolved archived flag
+// stay accurate rather than drifting from a hand-written shape.
+type ProjectWithRelations = NonNullable<FunctionReturnType<typeof api.projects.get>>;
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -72,7 +72,7 @@ function ProjectEditor({
 }) {
   const router = useRouter();
   const updateProject = useMutation(api.projects.update);
-  const archiveProject = useMutation(api.projects.archive);
+  const setArchived = useMutation(api.projects.setArchived);
 
   const [name, setName] = useState(project.name);
   const [briefSummary, setBriefSummary] = useState(project.briefSummary ?? "");
@@ -107,6 +107,11 @@ function ProjectEditor({
 
   return (
     <div className="pb-8">
+      {project.archived && (
+        <div className="mb-4 rounded-lg border border-amber-400/40 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200">
+          Archived project — kept for reference. Restore it at the bottom of this page.
+        </div>
+      )}
       {/* The title is the name field — editing it here is the only place it is set */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
@@ -209,13 +214,35 @@ function ProjectEditor({
 
       {/* Destructive action, deliberately last */}
       <div className="mt-16 border-t border-border pt-6">
-        <ArchiveDialog
-          onArchive={async () => {
-            await archiveProject({ id: project._id });
-            toast.success("Project archived.");
-            router.push("/projects");
-          }}
-        />
+        {project.archived ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-muted-foreground">
+              This project is archived. Its crew, location and documents are all still here.
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={async () => {
+                try {
+                  await setArchived({ id: project._id, archived: false });
+                  toast.success("Project restored.");
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Could not restore it.");
+                }
+              }}
+            >
+              Restore project
+            </Button>
+          </div>
+        ) : (
+          <ArchiveDialog
+            onArchive={async () => {
+              await setArchived({ id: project._id, archived: true });
+              toast.success("Project archived.");
+              router.push("/projects");
+            }}
+          />
+        )}
       </div>
     </div>
   );

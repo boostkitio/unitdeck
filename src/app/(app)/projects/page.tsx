@@ -79,8 +79,28 @@ function sortValue(p: SortableProject, key: SortKey): string | number | null {
 export default function ProjectsPage() {
   const router = useRouter();
   const { organization } = useOrganization();
-  const projects = useQuery(api.projects.list, organization ? {} : "skip");
+  const [showArchived, setShowArchived] = useState(false);
+  const projects = useQuery(
+    api.projects.list,
+    organization ? (showArchived ? { archivedOnly: true } : {}) : "skip",
+  );
+  const archived = useQuery(api.projects.list, organization ? { archivedOnly: true } : "skip");
+  const legacyCount = useQuery(api.projects.legacyStatusCount, organization ? {} : "skip");
+  const migrateStatuses = useMutation(api.projects.migrateStatuses);
+  const [migrating, setMigrating] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
+
+  async function handleMigrate() {
+    setMigrating(true);
+    try {
+      const result = await migrateStatuses({});
+      toast.success(`Updated ${result.migrated} project${result.migrated === 1 ? "" : "s"}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update them.");
+    } finally {
+      setMigrating(false);
+    }
+  }
   const { sort, toggle } = useTableSort<SortKey>({ key: "date", dir: "asc" });
 
   const sorted = useMemo(
@@ -92,8 +112,14 @@ export default function ProjectsPage() {
     <div>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">Projects</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Every production, from brief to delivery.</p>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
+            {showArchived ? "Archived projects" : "Projects"}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {showArchived
+              ? "Kept for reference — crew, location and documents are all still there."
+              : "Every production, from brief to delivery."}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={() => setBriefOpen(true)}>
@@ -104,6 +130,19 @@ export default function ProjectsPage() {
       </div>
       {briefOpen && <BriefDialog onClose={() => setBriefOpen(false)} />}
 
+      {legacyCount !== undefined && legacyCount > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{legacyCount} project
+            {legacyCount === 1 ? "" : "s"}</span> still store the old pipeline status. They already
+            display as Not booked, Pencilled or Confirmed — this writes that across for good.
+          </p>
+          <Button size="sm" variant="secondary" onClick={handleMigrate} disabled={migrating}>
+            {migrating ? "Updating…" : "Update them"}
+          </Button>
+        </div>
+      )}
+
       <div className="mt-6">
         {sorted === undefined ? (
           <div className="space-y-2">
@@ -113,7 +152,7 @@ export default function ProjectsPage() {
           </div>
         ) : sorted.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
-            No projects yet. Create your first one.
+            {showArchived ? "Nothing archived yet." : "No projects yet. Create your first one."}
           </p>
         ) : (
           <Table>
@@ -173,6 +212,14 @@ export default function ProjectsPage() {
             </TableBody>
           </Table>
         )}
+
+        <div className="mt-6 flex justify-end">
+          <Button variant="ghost" size="sm" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived
+              ? "← Back to active projects"
+              : `View archived${archived !== undefined && archived.length > 0 ? ` (${archived.length})` : ""}`}
+          </Button>
+        </div>
       </div>
     </div>
   );

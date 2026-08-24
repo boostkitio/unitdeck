@@ -1,27 +1,27 @@
-export const PROJECT_STATUSES = [
-  { value: "brief", label: "Brief" },
-  { value: "pre_production", label: "Pre-production" },
-  { value: "shooting", label: "Shooting" },
-  { value: "post", label: "Post" },
-  { value: "delivered", label: "Delivered" },
-  { value: "archived", label: "Archived" },
-] as const;
+export {
+  PROJECT_STATUSES,
+  LEGACY_STATUSES,
+  NEEDS_ATTENTION_STATUSES,
+  needsAttention,
+  normaliseStatus,
+  type ProjectStatus,
+} from "../../convex/lib/projectStatus";
 
-export type ProjectStatus = (typeof PROJECT_STATUSES)[number]["value"];
+import { PROJECT_STATUSES, normaliseStatus, type ProjectStatus } from "../../convex/lib/projectStatus";
 
+/** Human label for a stored status, including legacy values. */
 export function statusLabel(value: string): string {
-  return PROJECT_STATUSES.find((s) => s.value === value)?.label ?? value;
+  const normalised = normaliseStatus(value);
+  return PROJECT_STATUSES.find((s) => s.value === normalised)?.label ?? value;
 }
 
 // Canonical status colours. Each works on both light and dark surfaces.
-// brief=slate, pre-pro=amber, shooting=emerald (rolling), post=violet, delivered=blue, archived=muted.
+// not booked = slate (nothing held), pencilled = amber (provisional),
+// confirmed = emerald (locked in).
 const STATUS_BADGE_CLASSES: Record<ProjectStatus, string> = {
-  brief: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300",
-  pre_production: "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  shooting: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  post: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300",
-  delivered: "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300",
-  archived: "bg-neutral-100 text-neutral-500 dark:bg-neutral-900 dark:text-neutral-500",
+  not_booked: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300",
+  pencilled: "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  confirmed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
 };
 
 const FALLBACK_BADGE =
@@ -29,5 +29,5 @@ const FALLBACK_BADGE =
 
 /** Badge classes for a status value, with a neutral fallback for unknown values. */
 export function statusBadgeClass(value: string): string {
-  return STATUS_BADGE_CLASSES[value as ProjectStatus] ?? FALLBACK_BADGE;
+  return STATUS_BADGE_CLASSES[normaliseStatus(value)] ?? FALLBACK_BADGE;
 }
