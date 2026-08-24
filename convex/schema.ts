@@ -159,6 +159,30 @@ export default defineSchema({
     archived: v.optional(v.boolean()),
   }).index("by_org", ["orgId"]),
 
+  // A named bundle of kit — "Standard camera package" — so a production can
+  // pull in a whole setup instead of listing every item by hand.
+  equipmentPackages: defineTable({
+    orgId: v.id("organisations"),
+    name: v.string(),
+    notes: v.optional(v.string()),
+    archived: v.optional(v.boolean()),
+  }).index("by_org", ["orgId"]),
+
+  // A package's contents live in their own table rather than an array on the
+  // package: the list is unbounded, and every edit would otherwise rewrite the
+  // whole document.
+  equipmentPackageItems: defineTable({
+    orgId: v.id("organisations"),
+    packageId: v.id("equipmentPackages"),
+    // Set when the line came from the inventory; absent for free-text entries
+    // covering kit that is hired in rather than owned.
+    equipmentId: v.optional(v.id("equipment")),
+    item: v.string(),
+    quantity: v.optional(v.number()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_package", ["packageId"]),
+
   locations: defineTable({
     orgId: v.id("organisations"),
     name: v.string(),

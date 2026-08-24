@@ -29,6 +29,7 @@ import { CsvImportDialog, type CsvColumnSpec } from "@/components/csv-import-dia
 import { SearchInput } from "@/components/search-input";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { matchesSearch } from "@/lib/search";
+import { PackagesView } from "@/components/equipment/packages-view";
 
 type EquipmentSortKey =
   | "dept"
@@ -125,6 +126,7 @@ export default function EquipmentPage() {
   const [form, setForm] = useState<EquipmentForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<"items" | "packages">("items");
   const { sort, toggle } = useTableSort<EquipmentSortKey>({ key: "item", dir: "asc" });
 
   const visible = useMemo(
@@ -226,16 +228,44 @@ export default function EquipmentPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">Equipment</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Your kit, department by department.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {view === "packages"
+              ? "Bundles of kit you can drop onto a project in one go."
+              : "Your kit, department by department."}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setImportOpen(true)}>
-            Import CSV
-          </Button>
-          <Button onClick={openCreate}>Add equipment</Button>
-        </div>
+        {view === "items" && (
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => setImportOpen(true)}>
+              Import CSV
+            </Button>
+            <Button onClick={openCreate}>Add equipment</Button>
+          </div>
+        )}
       </div>
 
+      <div className="mt-6 flex gap-2 border-b border-border pb-3">
+        <Button
+          size="sm"
+          variant={view === "items" ? "secondary" : "ghost"}
+          onClick={() => setView("items")}
+        >
+          Items
+        </Button>
+        <Button
+          size="sm"
+          variant={view === "packages" ? "secondary" : "ghost"}
+          onClick={() => setView("packages")}
+        >
+          Packages
+        </Button>
+      </div>
+
+      {view === "packages" ? (
+        <div className="mt-6">
+          <PackagesView />
+        </div>
+      ) : (
       <div className="mt-6">
         {equipment !== undefined && equipment.length > 0 && (
           <SearchInput
@@ -325,6 +355,7 @@ export default function EquipmentPage() {
           </Table>
         )}
       </div>
+      )}
 
       {importOpen && (
         <CsvImportDialog

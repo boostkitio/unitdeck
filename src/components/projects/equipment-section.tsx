@@ -28,6 +28,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 type EquipmentRow = Doc<"projectEquipment">;
 
@@ -54,6 +55,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
 
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<EquipmentRow | null>(null);
+  const [applying, setApplying] = useState(false);
 
   async function toggleStatus(row: EquipmentRow) {
     try {
@@ -87,9 +89,14 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
       <CardHeader>
         <CardTitle>Additional equipment</CardTitle>
         <CardAction>
-          <Button size="sm" onClick={() => setAdding(true)}>
-            Add equipment
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setApplying(true)}>
+              Add from package
+            </Button>
+            <Button size="sm" onClick={() => setAdding(true)}>
+              Add equipment
+            </Button>
+          </div>
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -100,7 +107,8 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
           </div>
         ) : equipment.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            Nothing listed. Add anything this production needs beyond the standard kit.
+            Nothing listed. Add a package, or anything this production needs beyond the
+            standard kit.
           </p>
         ) : (
           <>
@@ -175,6 +183,9 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
         )}
       </CardContent>
 
+      {applying && (
+        <ApplyPackageDialog projectId={projectId} onClose={() => setApplying(false)} />
+      )}
       {adding && <EquipmentDialog projectId={projectId} onClose={() => setAdding(false)} />}
       {editing && (
         <EquipmentDialog
@@ -287,6 +298,89 @@ function EquipmentDialog({
           </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? "Saving…" : row ? "Save" : "Add"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ApplyPackageDialog({
+  projectId,
+  onClose,
+}: {
+  projectId: Id<"projects">;
+  onClose: () => void;
+}) {
+  const packages = useQuery(api.equipmentPackages.list, {});
+  const applyToProject = useMutation(api.equipmentPackages.applyToProject);
+  const [busy, setBusy] = useState(false);
+
+  async function apply(packageId: Id<"equipmentPackages">) {
+    setBusy(true);
+    try {
+      const result = await applyToProject({ packageId, projectId });
+      if (result.added === 0 && result.skipped > 0) {
+        toast.info(`Everything in ${result.packageName} is already on this project.`);
+      } else {
+        const skipped = result.skipped > 0 ? `, ${result.skipped} already listed` : "";
+        toast.success(
+          `Added ${result.added} item${result.added === 1 ? "" : "s"} from ${result.packageName}${skipped}.`,
+        );
+      }
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add the package.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
+      <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-y-auto sm:p-5">
+        <DialogHeader>
+          <DialogTitle>Add a package</DialogTitle>
+        </DialogHeader>
+        <div className="py-2">
+          {packages === undefined ? (
+            <div className="space-y-2">
+              <Skeleton className="h-14 w-full" />
+              <Skeleton className="h-14 w-full" />
+            </div>
+          ) : packages.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No packages yet. Build one on the{" "}
+              <Link href="/equipment" className="underline underline-offset-2 text-foreground">
+                Equipment
+              </Link>{" "}
+              tab and it will show up here.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border rounded-md border border-border">
+              {packages.map((pkg) => (
+                <li key={pkg._id}>
+                  <button
+                    type="button"
+                    disabled={busy || pkg.items.length === 0}
+                    onClick={() => void apply(pkg._id)}
+                    className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
+                  >
+                    <span className="truncate text-sm font-medium">{pkg.name}</span>
+                    <span className="block w-full truncate text-xs text-muted-foreground">
+                      {pkg.items.length === 0
+                        ? "Empty — nothing to add"
+                        : pkg.items.map((i) => i.item).join(", ")}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
           </Button>
         </DialogFooter>
       </DialogContent>
