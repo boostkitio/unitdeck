@@ -164,6 +164,7 @@ function LocationDialog({
   const [accessNotes, setAccessNotes] = useState(location?.accessNotes ?? "");
   const [nearestHospital, setNearestHospital] = useState(location?.nearestHospital ?? "");
   const [satNav, setSatNav] = useState(location?.satNav ?? "");
+  const [nearestStation, setNearestStation] = useState(location?.nearestStation ?? "");
   const [publicTransport, setPublicTransport] = useState(location?.publicTransport ?? "");
   const [nearestPoliceStation, setNearestPoliceStation] = useState(
     location?.nearestPoliceStation ?? ""
@@ -221,6 +222,7 @@ function LocationDialog({
         accessNotes: accessNotes || undefined,
         nearestHospital: nearestHospital || undefined,
         satNav: satNav || undefined,
+        nearestStation: nearestStation || undefined,
         publicTransport: publicTransport || undefined,
         nearestPoliceStation: nearestPoliceStation || undefined,
         lat,
@@ -243,6 +245,7 @@ function LocationDialog({
           const filled = [
             r.nearestHospital && "nearest A&E",
             r.nearestPoliceStation && "police station",
+            r.nearestStation && "nearest station",
             r.publicTransport && "public transport",
             r.w3w && "what3words",
           ].filter(Boolean);
@@ -467,11 +470,21 @@ function LocationDialog({
             </div>
           </div>
           <div className="space-y-2">
+            <Label htmlFor="loc-station">Nearest station</Label>
+            <Input
+              id="loc-station"
+              value={nearestStation}
+              onChange={(e) => setNearestStation(e.target.value)}
+              placeholder="White City (Central line), 6 min walk"
+            />
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="loc-transport">Public transport</Label>
             <Input
               id="loc-transport"
               value={publicTransport}
               onChange={(e) => setPublicTransport(e.target.value)}
+              placeholder="Buses 72 and 272 stop on Wood Lane"
             />
           </div>
         </div>

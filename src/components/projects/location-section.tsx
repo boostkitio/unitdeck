@@ -51,6 +51,7 @@ export function LocationSection({
     ? [
         !location.nearestHospital && "nearest A&E",
         !location.nearestPoliceStation && "police station",
+        !location.nearestStation && "nearest station",
         !location.publicTransport && "public transport",
         !location.w3w && "what3words",
       ].filter((v): v is string => typeof v === "string")
@@ -137,6 +138,12 @@ export function LocationSection({
                   {location.nearestPoliceStation}
                 </p>
               )}
+              {location.nearestStation && (
+                <p className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Nearest station:</span>{" "}
+                  {location.nearestStation}
+                </p>
+              )}
               {location.publicTransport && (
                 <p className="text-muted-foreground">
                   <span className="font-medium text-foreground">Public transport:</span>{" "}
@@ -159,6 +166,7 @@ export function LocationSection({
                         const filled = [
                           result.nearestHospital && "nearest A&E",
                           result.nearestPoliceStation && "police station",
+                          result.nearestStation && "nearest station",
                           result.publicTransport && "public transport",
                           result.w3w && "what3words",
                         ].filter(Boolean);

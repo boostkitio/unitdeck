@@ -14,6 +14,7 @@ const locationFields = {
   nearestHospital: v.optional(v.string()),
   notes: v.optional(v.string()),
   satNav: v.optional(v.string()),
+  nearestStation: v.optional(v.string()),
   publicTransport: v.optional(v.string()),
   nearestPoliceStation: v.optional(v.string()),
 };
@@ -57,6 +58,7 @@ export const create = mutation({
 export const update = mutation({
   args: {
     id: v.id("locations"),
+    nearestStation: v.optional(v.string()),
     name: v.optional(v.string()),
     address: v.optional(v.string()),
     w3w: v.optional(v.string()),
@@ -155,6 +157,7 @@ export const saveEnrichment = internalMutation({
     id: v.id("locations"),
     nearestHospital: v.optional(v.string()),
     nearestPoliceStation: v.optional(v.string()),
+    nearestStation: v.optional(v.string()),
     publicTransport: v.optional(v.string()),
     w3w: v.optional(v.string()),
     lat: v.optional(v.number()),
@@ -167,12 +170,20 @@ export const saveEnrichment = internalMutation({
 
     // Never overwrite something a human typed: only fill what is blank.
     const patch: Record<string, unknown> = {};
-    const fill = (key: "nearestHospital" | "nearestPoliceStation" | "publicTransport" | "w3w") => {
+    const fill = (
+      key:
+        | "nearestHospital"
+        | "nearestPoliceStation"
+        | "nearestStation"
+        | "publicTransport"
+        | "w3w"
+    ) => {
       const value = args[key];
       if (value && !location[key]?.trim()) patch[key] = value;
     };
     fill("nearestHospital");
     fill("nearestPoliceStation");
+    fill("nearestStation");
     fill("publicTransport");
     fill("w3w");
     if (args.lat !== undefined && args.lng !== undefined && location.lat === undefined) {
@@ -231,6 +242,7 @@ export const enrichLocation = action({
   ): Promise<{
     nearestHospital?: string;
     nearestPoliceStation?: string;
+    nearestStation?: string;
     publicTransport?: string;
     w3w?: string;
     w3wUnavailable?: boolean;
@@ -249,18 +261,26 @@ export const enrichLocation = action({
     if (!coords) coords = await geocodeAddress(location.address).catch(() => null);
 
     const system = `You are a UK location assistant for a film and TV production management tool.
-Given a UK address, name the nearest NHS A&E or major hospital, the nearest police station, and how a crew member would reach the location on public transport.
+Given a UK address, name the nearest NHS A&E or major hospital, the nearest police station, the nearest rail or Underground station, and how a crew member would travel in.
 
 Reply with ONLY a JSON object in exactly this shape, no prose, no code fences:
 {
   "nearestHospital": "Name of nearest A&E or hospital, or null",
   "nearestPoliceStation": "Name of nearest police station, or null",
-  "publicTransport": "One or two sentences naming the nearest station(s) and useful bus routes, or null"
+  "nearestStation": "Nearest rail/Underground/tram station with line and walking time, or null",
+  "publicTransport": "One or two sentences on getting there, or null"
 }
 
 Rules:
 - Give commonly used names, e.g. "Wexham Park Hospital", "Slough Police Station".
-- "publicTransport" should be practical, e.g. "Nearest station: Slough (10 min walk). Buses 3 and 7 stop on Wellington Street."
+- "nearestStation" MUST name a specific station, and where it applies the line and
+  approximate walking time, e.g. "White City (Central line), 6 min walk" or
+  "Slough rail station, 12 min walk". Never answer with a generic phrase like
+  "good transport links" or "various stations nearby" — return null instead.
+- In London prefer the nearest Underground, Overground or DLR station; elsewhere
+  prefer the nearest National Rail station.
+- "publicTransport" adds what the station line does not cover: useful bus routes,
+  a second station worth knowing, or the last train back.
 - Use null when you are not confident. Never invent a name.`;
 
     const raw = await chatJson({
@@ -277,6 +297,7 @@ Rules:
 
     const nearestHospital = text(obj?.nearestHospital);
     const nearestPoliceStation = text(obj?.nearestPoliceStation);
+    const nearestStation = text(obj?.nearestStation);
     const publicTransport = text(obj?.publicTransport);
 
     const w3w = coords ? await whatThreeWords(coords.lat, coords.lng).catch(() => null) : null;
@@ -285,6 +306,7 @@ Rules:
       id: args.id,
       nearestHospital,
       nearestPoliceStation,
+      nearestStation,
       publicTransport,
       w3w: w3w ?? undefined,
       lat: coords?.lat,
@@ -294,6 +316,7 @@ Rules:
     return {
       nearestHospital,
       nearestPoliceStation,
+      nearestStation,
       publicTransport,
       w3w: w3w ?? undefined,
       // Lets the UI say why w3w is blank rather than leaving it a mystery.

@@ -154,6 +154,9 @@ export default defineSchema({
     notes: v.optional(v.string()),
     archived: v.optional(v.boolean()),
     satNav: v.optional(v.string()),
+    // The nearest tube/rail station, named on its own rather than buried in a
+    // paragraph — it is the single thing crew look for when travelling in.
+    nearestStation: v.optional(v.string()),
     publicTransport: v.optional(v.string()),
     nearestPoliceStation: v.optional(v.string()),
   }).index("by_org", ["orgId"]),
