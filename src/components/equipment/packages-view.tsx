@@ -217,20 +217,23 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
 
   return (
     <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
-      <DialogContent className="max-h-[85vh] w-full max-w-2xl overflow-y-auto sm:p-5">
+      {/* Wide and tall: this is a two-column working view, and at 2xl the kit
+          lists were too cramped to scan. Each column scrolls on its own so the
+          dialog itself stays put. */}
+      <DialogContent className="grid-rows-[auto_1fr_auto] h-[88vh] w-[95vw] max-w-6xl overflow-hidden sm:p-6">
         <DialogHeader>
           <DialogTitle>{pkg.name}</DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-5 py-2 md:grid-cols-2">
-          <div className="space-y-2">
+        <div className="grid min-h-0 gap-6 overflow-hidden py-2 md:grid-cols-2">
+          <div className="flex min-h-0 flex-col space-y-2">
             <Label>In this package</Label>
             {pkg.items.length === 0 ? (
-              <p className="rounded-md border border-border px-3 py-6 text-center text-sm text-muted-foreground">
+              <p className="flex-1 rounded-md border border-border px-3 py-6 text-center text-sm text-muted-foreground">
                 Nothing in it yet.
               </p>
             ) : (
-              <ul className="divide-y divide-border rounded-md border border-border">
+              <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto rounded-md border border-border">
                 {pkg.items.map((item) => (
                   <li
                     key={item._id}
@@ -257,7 +260,7 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
             )}
           </div>
 
-          <div className="space-y-2">
+          <div className="flex min-h-0 flex-col space-y-2">
             <Label htmlFor="pkg-search">Add from your equipment</Label>
             <Input
               id="pkg-search"
@@ -274,7 +277,7 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
                   : "Everything matching is already in the package."}
               </p>
             ) : (
-              <ul className="max-h-48 divide-y divide-border overflow-y-auto rounded-md border border-border">
+              <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto rounded-md border border-border">
                 {matches.map((row) => (
                   <li key={row._id}>
                     <button
@@ -294,7 +297,7 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
               </ul>
             )}
 
-            <div className="space-y-2 pt-2">
+            <div className="shrink-0 space-y-2 pt-2">
               <Label htmlFor="pkg-free">Or add something you hire in</Label>
               <div className="flex gap-2">
                 <Input
