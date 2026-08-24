@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { matchesSearch } from "@/lib/search";
+import { saveStateLabel, useDebouncedSave } from "@/lib/use-debounced-save";
 
 export function PackagesView() {
   const packages = useQuery(api.equipmentPackages.list, {});
@@ -180,10 +181,32 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
   const equipment = useQuery(api.equipment.list, {});
   const addItem = useMutation(api.equipmentPackages.addItem);
   const removeItem = useMutation(api.equipmentPackages.removeItem);
+  const updatePackage = useMutation(api.equipmentPackages.update);
+  const createEquipment = useMutation(api.equipment.create);
 
+  const [name, setName] = useState(pkg.name);
   const [search, setSearch] = useState("");
   const [freeText, setFreeText] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // New inventory item, created here and dropped straight into the package.
+  const [addingNew, setAddingNew] = useState(false);
+  const [newItem, setNewItem] = useState("");
+  const [newDept, setNewDept] = useState("");
+  const [newSerial, setNewSerial] = useState("");
+
+  const saveName = useCallback(
+    async (value: string) => {
+      await updatePackage({ id: pkg._id, name: value });
+    },
+    [updatePackage, pkg._id],
+  );
+
+  // A blank name is rejected server-side, so hold the stored value until there
+  // is something worth saving rather than firing a doomed request per keypress.
+  const nameToSave = name.trim().length === 0 ? pkg.name : name;
+  const nameState = useDebouncedSave(nameToSave, pkg.name, saveName);
+  const nameStatus = saveStateLabel(nameState);
 
   const inPackage = useMemo(
     () =>
@@ -215,14 +238,60 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
     }
   }
 
+  /**
+   * Adds a piece of kit you own: it goes into the main equipment list as well
+   * as this package, so it is there next time without a trip to the Items tab.
+   */
+  async function createAndAdd() {
+    const item = newItem.trim();
+    if (item.length === 0) {
+      toast.error("Name the item.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const equipmentId = await createEquipment({
+        item,
+        dept: newDept.trim() || undefined,
+        serialNumber: newSerial.trim() || undefined,
+      });
+      await addItem({ packageId: pkg._id, equipmentId });
+      toast.success(`${item} added to your equipment list and this package.`);
+      setNewItem("");
+      setNewDept("");
+      setNewSerial("");
+      setAddingNew(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add it.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
       {/* Wide and tall: this is a two-column working view, and at 2xl the kit
           lists were too cramped to scan. Each column scrolls on its own so the
           dialog itself stays put. */}
       <DialogContent className="grid-rows-[auto_1fr_auto] h-[88vh] w-[95vw] max-w-6xl overflow-hidden sm:p-6">
-        <DialogHeader>
-          <DialogTitle>{pkg.name}</DialogTitle>
+        {/* The heading is the name field. pr-10 keeps it clear of the close button. */}
+        <DialogHeader className="pr-10">
+          <DialogTitle className="sr-only">{pkg.name}</DialogTitle>
+          <label htmlFor="pkg-editor-name" className="sr-only">
+            Package name
+          </label>
+          <div className="flex min-w-0 items-center gap-3">
+            <input
+              id="pkg-editor-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Untitled package"
+              className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-heading text-xl font-semibold tracking-tight outline-none transition-colors hover:border-border focus:border-border focus:bg-background"
+            />
+            {nameStatus && (
+              <span className="shrink-0 text-xs text-muted-foreground">{nameStatus}</span>
+            )}
+          </div>
         </DialogHeader>
 
         <div className="grid min-h-0 gap-6 overflow-hidden py-2 md:grid-cols-2">
@@ -297,28 +366,84 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
               </ul>
             )}
 
-            <div className="shrink-0 space-y-2 pt-2">
-              <Label htmlFor="pkg-free">Or add something you hire in</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="pkg-free"
-                  value={freeText}
-                  onChange={(e) => setFreeText(e.target.value)}
-                  placeholder="2x 1.2k HMI"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && freeText.trim()) {
-                      e.preventDefault();
-                      void add(undefined, freeText);
-                    }
-                  }}
-                />
-                <Button
-                  variant="secondary"
-                  disabled={busy || freeText.trim().length === 0}
-                  onClick={() => void add(undefined, freeText)}
-                >
-                  Add
+            <div className="shrink-0 space-y-3 pt-2">
+              {addingNew ? (
+                <div className="space-y-2 rounded-md border border-border p-3">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <Label htmlFor="pkg-new-item">New piece of equipment</Label>
+                    <span className="text-xs text-muted-foreground">
+                      Goes on your equipment list too
+                    </span>
+                  </div>
+                  <Input
+                    id="pkg-new-item"
+                    value={newItem}
+                    onChange={(e) => setNewItem(e.target.value)}
+                    placeholder="Sony FX6"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newItem.trim()) {
+                        e.preventDefault();
+                        void createAndAdd();
+                      }
+                    }}
+                  />
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      value={newDept}
+                      onChange={(e) => setNewDept(e.target.value)}
+                      placeholder="Dept (optional)"
+                      aria-label="Department"
+                    />
+                    <Input
+                      value={newSerial}
+                      onChange={(e) => setNewSerial(e.target.value)}
+                      placeholder="Serial number (optional)"
+                      aria-label="Serial number"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => setAddingNew(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy || newItem.trim().length === 0}
+                      onClick={() => void createAndAdd()}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setAddingNew(true)}>
+                  Add new equipment
                 </Button>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="pkg-free">Or add something you hire in</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="pkg-free"
+                    value={freeText}
+                    onChange={(e) => setFreeText(e.target.value)}
+                    placeholder="2x 1.2k HMI"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && freeText.trim()) {
+                        e.preventDefault();
+                        void add(undefined, freeText);
+                      }
+                    }}
+                  />
+                  <Button
+                    variant="secondary"
+                    disabled={busy || freeText.trim().length === 0}
+                    onClick={() => void add(undefined, freeText)}
+                  >
+                    Add
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
