@@ -4,6 +4,7 @@ import {
   UsersIcon,
   Building2Icon,
   MapPinIcon,
+  PackageIcon,
   MessageSquareIcon,
   SettingsIcon,
   type LucideIcon,
@@ -24,6 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/people", label: "People", icon: UsersIcon },
   { href: "/clients", label: "Clients", icon: Building2Icon },
   { href: "/locations", label: "Locations", icon: MapPinIcon },
+  { href: "/equipment", label: "Equipment", icon: PackageIcon },
   { href: "/feedback", label: "Feedback", icon: MessageSquareIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];

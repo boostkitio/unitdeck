@@ -24,6 +24,18 @@ describe("isActive", () => {
 });
 
 describe("NAV_ITEMS", () => {
+  it("includes an Equipment entry pointing at /equipment", () => {
+    expect(NAV_ITEMS).toContainEqual(
+      expect.objectContaining({ href: "/equipment", label: "Equipment" }),
+    );
+  });
+
+  it("puts Equipment in the More sheet, not the primary tabs", () => {
+    expect(MORE_ITEMS).toContainEqual(
+      expect.objectContaining({ href: "/equipment", label: "Equipment" }),
+    );
+  });
+
   it("includes a Settings entry pointing at /settings", () => {
     expect(NAV_ITEMS).toContainEqual(expect.objectContaining({ href: "/settings", label: "Settings" }));
   });

@@ -143,6 +143,22 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"]),
 
+  // The org's own kit inventory. Distinct from projectEquipment, which is what
+  // a given production still needs to source.
+  equipment: defineTable({
+    orgId: v.id("organisations"),
+    // Department the kit belongs to: Camera, Lighting, Sound, Grip…
+    dept: v.optional(v.string()),
+    item: v.string(),
+    serialNumber: v.optional(v.string()),
+    weightKg: v.optional(v.number()),
+    valueNew: v.optional(v.number()),
+    valueCurrent: v.optional(v.number()),
+    countryOfManufacture: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    archived: v.optional(v.boolean()),
+  }).index("by_org", ["orgId"]),
+
   locations: defineTable({
     orgId: v.id("organisations"),
     name: v.string(),

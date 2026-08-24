@@ -17,6 +17,7 @@ import type * as dashboard from "../dashboard.js";
 import type * as demoData from "../demoData.js";
 import type * as distribution from "../distribution.js";
 import type * as documents from "../documents.js";
+import type * as equipment from "../equipment.js";
 import type * as feedback from "../feedback.js";
 import type * as lib_agentProposals from "../lib/agentProposals.js";
 import type * as lib_ai from "../lib/ai.js";
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   demoData: typeof demoData;
   distribution: typeof distribution;
   documents: typeof documents;
+  equipment: typeof equipment;
   feedback: typeof feedback;
   "lib/agentProposals": typeof lib_agentProposals;
   "lib/ai": typeof lib_ai;
