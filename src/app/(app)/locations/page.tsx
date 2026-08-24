@@ -154,8 +154,7 @@ function LocationDialog({
   const createLocation = useMutation(api.locations.create);
   const updateLocation = useMutation(api.locations.update);
   const archiveLocation = useMutation(api.locations.archive);
-  const geocode = useAction(api.locations.geocode);
-  const lookupSafetyInfo = useAction(api.locations.lookupSafetyInfo);
+  const enrichLocation = useAction(api.locations.enrichLocation);
   const suggestAddress = useAction(api.locations.suggestAddress);
 
   const [name, setName] = useState(location?.name ?? "");
@@ -236,26 +235,28 @@ function LocationDialog({
       }
       toast.success("Location saved.");
       onClose();
-      // Geocode in the background via OpenStreetMap to refine/fill coords;
-      // only patches if it finds a result, so existing good coords survive
-      void geocode({ id }).then((r) => {
-        if (r && !r.found) toast.info("Could not find coordinates for that address.");
-      });
-      // Fill the nearest A&E and police station from the address when either
-      // is still blank. The action only patches blank fields, so anything
-      // typed here is safe.
-      if (!nearestHospital.trim() || !nearestPoliceStation.trim()) {
-        void lookupSafetyInfo({ id })
-          .then((r) => {
-            // Say so either way: a silent no-op looks identical to a failure.
-            if (r.nearestHospital || r.nearestPoliceStation) {
-              toast.success("Filled in the nearest A&E and police station.");
-            } else {
-              toast.info("Could not find the nearest A&E or police station for that address.");
-            }
-          })
-          .catch(() => undefined);
-      }
+      // Fill everything derivable from the address — coordinates, nearest A&E
+      // and police station, public transport and what3words. Only blank fields
+      // are written, so anything typed here survives.
+      void enrichLocation({ id })
+        .then((r) => {
+          const filled = [
+            r.nearestHospital && "nearest A&E",
+            r.nearestPoliceStation && "police station",
+            r.publicTransport && "public transport",
+            r.w3w && "what3words",
+          ].filter(Boolean);
+          // Say so either way: a silent no-op looks identical to a failure.
+          if (filled.length > 0) {
+            toast.success(`Filled in ${filled.join(", ")}.`);
+          } else {
+            toast.info("Could not fill anything in from that address.");
+          }
+          if (r.w3wUnavailable) {
+            toast.info("what3words needs a W3W_API_KEY in the Convex environment.");
+          }
+        })
+        .catch(() => undefined);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save.");
     } finally {

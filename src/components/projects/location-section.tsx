@@ -45,8 +45,18 @@ export function LocationSection({
 }) {
   const [picking, setPicking] = useState(false);
   const [looking, setLooking] = useState(false);
+
+  // Everything the address should have filled in on its own.
+  const missing = location
+    ? [
+        !location.nearestHospital && "nearest A&E",
+        !location.nearestPoliceStation && "police station",
+        !location.publicTransport && "public transport",
+        !location.w3w && "what3words",
+      ].filter((v): v is string => typeof v === "string")
+    : [];
   const updateProject = useMutation(api.projects.update);
-  const lookupSafetyInfo = useAction(api.locations.lookupSafetyInfo);
+  const enrichLocation = useAction(api.locations.enrichLocation);
 
   // Prefer coordinates when the location has been geocoded: a lat/lng drops the
   // pin exactly, where a free-text address can land on the wrong side of town.
@@ -127,14 +137,16 @@ export function LocationSection({
                   {location.nearestPoliceStation}
                 </p>
               )}
-              {(!location.nearestHospital || !location.nearestPoliceStation) && (
+              {location.publicTransport && (
+                <p className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Public transport:</span>{" "}
+                  {location.publicTransport}
+                </p>
+              )}
+              {missing.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">
-                    {!location.nearestHospital && !location.nearestPoliceStation
-                      ? "No nearest A&E or police station recorded yet."
-                      : !location.nearestHospital
-                        ? "No nearest A&E recorded yet."
-                        : "No nearest police station recorded yet."}
+                    Not filled in yet: {missing.join(", ")}.
                   </p>
                   <Button
                     size="sm"
@@ -143,11 +155,22 @@ export function LocationSection({
                     onClick={async () => {
                       setLooking(true);
                       try {
-                        const result = await lookupSafetyInfo({ id: location._id });
-                        if (result.nearestHospital || result.nearestPoliceStation) {
-                          toast.success("Looked up the nearest A&E and police station.");
+                        const result = await enrichLocation({ id: location._id });
+                        const filled = [
+                          result.nearestHospital && "nearest A&E",
+                          result.nearestPoliceStation && "police station",
+                          result.publicTransport && "public transport",
+                          result.w3w && "what3words",
+                        ].filter(Boolean);
+                        if (filled.length > 0) {
+                          toast.success(`Filled in ${filled.join(", ")}.`);
                         } else {
-                          toast.info("Could not find them for that address — add them by hand.");
+                          toast.info("Could not fill anything in from that address.");
+                        }
+                        if (result.w3wUnavailable) {
+                          toast.info(
+                            "what3words needs a W3W_API_KEY in the Convex environment.",
+                          );
                         }
                       } catch (err) {
                         toast.error(
@@ -158,7 +181,7 @@ export function LocationSection({
                       }
                     }}
                   >
-                    {looking ? "Looking up…" : "Look up nearest A&E and police station"}
+                    {looking ? "Filling in…" : "Try again"}
                   </Button>
                 </div>
               )}
@@ -213,8 +236,7 @@ function LocationPickerDialog({
   const locations = useQuery(api.locations.list, {});
   const updateProject = useMutation(api.projects.update);
   const createLocation = useMutation(api.locations.create);
-  const geocode = useAction(api.locations.geocode);
-  const lookupSafetyInfo = useAction(api.locations.lookupSafetyInfo);
+  const enrichLocation = useAction(api.locations.enrichLocation);
 
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const [search, setSearch] = useState("");
@@ -307,10 +329,10 @@ function LocationPickerDialog({
       // Coordinates make the map pin exact. The lookup usually supplies them;
       // geocode fills the gap when it did not. Failure is not fatal — the map
       // falls back to the address.
-      if (!coords) void geocode({ id: locationId }).catch(() => undefined);
-      // Fills the nearest A&E and police station from the address. Only blank
-      // fields are touched, so a picked suggestion's values survive.
-      void lookupSafetyInfo({ id: locationId }).catch(() => undefined);
+      // Fills coordinates, nearest A&E and police station, public transport
+      // and what3words. Only blank fields are touched, so a picked
+      // suggestion's values survive.
+      void enrichLocation({ id: locationId }).catch(() => undefined);
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add the location.");

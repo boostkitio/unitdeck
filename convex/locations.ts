@@ -150,11 +150,15 @@ export const geocode = action({
   },
 });
 
-export const saveSafetyInfo = internalMutation({
+export const saveEnrichment = internalMutation({
   args: {
     id: v.id("locations"),
     nearestHospital: v.optional(v.string()),
     nearestPoliceStation: v.optional(v.string()),
+    publicTransport: v.optional(v.string()),
+    w3w: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -163,54 +167,108 @@ export const saveSafetyInfo = internalMutation({
 
     // Never overwrite something a human typed: only fill what is blank.
     const patch: Record<string, unknown> = {};
-    if (args.nearestHospital && !location.nearestHospital?.trim()) {
-      patch.nearestHospital = args.nearestHospital;
+    const fill = (key: "nearestHospital" | "nearestPoliceStation" | "publicTransport" | "w3w") => {
+      const value = args[key];
+      if (value && !location[key]?.trim()) patch[key] = value;
+    };
+    fill("nearestHospital");
+    fill("nearestPoliceStation");
+    fill("publicTransport");
+    fill("w3w");
+    if (args.lat !== undefined && args.lng !== undefined && location.lat === undefined) {
+      patch.lat = args.lat;
+      patch.lng = args.lng;
     }
-    if (args.nearestPoliceStation && !location.nearestPoliceStation?.trim()) {
-      patch.nearestPoliceStation = args.nearestPoliceStation;
-    }
+
     if (Object.keys(patch).length > 0) await ctx.db.patch(args.id, patch);
     return null;
   },
 });
 
+/** Nominatim lookup for an address. Null when nothing matches. */
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Unit production OS (matt@boostkit.io)" },
+  });
+  if (!res.ok) return null;
+  const results = (await res.json()) as Array<{ lat: string; lon: string }>;
+  if (results.length === 0) return null;
+  return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+}
+
 /**
- * Fills in the nearest A&E and police station for a location's address.
+ * The real what3words address for a set of coordinates.
  *
- * Run automatically after a location is saved, and available as an explicit
- * action from the UI. Only blank fields are filled, so a hand-typed entry is
- * never overwritten.
+ * This deliberately calls what3words rather than asking the model: a w3w
+ * address is an arbitrary grid reference, so a generated one would look
+ * plausible and point somewhere else entirely — worse than blank for an
+ * address someone drives to. Returns null when W3W_API_KEY is unset, leaving
+ * the field empty rather than wrong.
  */
-export const lookupSafetyInfo = action({
+async function whatThreeWords(lat: number, lng: number): Promise<string | null> {
+  const key = process.env.W3W_API_KEY;
+  if (!key) return null;
+  const url = `https://api.what3words.com/v3/convert-to-3wa?coordinates=${lat},${lng}&key=${key}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const body = (await res.json()) as { words?: unknown };
+  return typeof body.words === "string" && body.words.trim() !== "" ? body.words.trim() : null;
+}
+
+/**
+ * Fills in everything derivable from a location's address: coordinates, the
+ * nearest A&E and police station, public transport, and the what3words
+ * address. Runs automatically when a location is saved.
+ *
+ * Only blank fields are written, so anything typed by hand survives.
+ */
+export const enrichLocation = action({
   args: { id: v.id("locations") },
   handler: async (
     ctx,
     args
-  ): Promise<{ nearestHospital?: string; nearestPoliceStation?: string }> => {
+  ): Promise<{
+    nearestHospital?: string;
+    nearestPoliceStation?: string;
+    publicTransport?: string;
+    w3w?: string;
+    w3wUnavailable?: boolean;
+  }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
     const location = await ctx.runQuery(internal.locations.getForGeocode, { id: args.id });
     if (!location) throw new Error("Location not found");
     if (location.address.trim().length === 0) return {};
 
+    // Coordinates first: what3words is derived from them.
+    let coords =
+      location.lat !== undefined && location.lng !== undefined
+        ? { lat: location.lat, lng: location.lng }
+        : null;
+    if (!coords) coords = await geocodeAddress(location.address).catch(() => null);
+
     const system = `You are a UK location assistant for a film and TV production management tool.
-Given a UK address, name the nearest NHS A&E or major hospital and the nearest police station.
+Given a UK address, name the nearest NHS A&E or major hospital, the nearest police station, and how a crew member would reach the location on public transport.
 
 Reply with ONLY a JSON object in exactly this shape, no prose, no code fences:
 {
   "nearestHospital": "Name of nearest A&E or hospital, or null",
-  "nearestPoliceStation": "Name of nearest police station, or null"
+  "nearestPoliceStation": "Name of nearest police station, or null",
+  "publicTransport": "One or two sentences naming the nearest station(s) and useful bus routes, or null"
 }
 
 Rules:
-- Give the commonly used name, e.g. "Wexham Park Hospital", "Slough Police Station".
+- Give commonly used names, e.g. "Wexham Park Hospital", "Slough Police Station".
+- "publicTransport" should be practical, e.g. "Nearest station: Slough (10 min walk). Buses 3 and 7 stop on Wellington Street."
 - Use null when you are not confident. Never invent a name.`;
 
     const raw = await chatJson({
       system,
       user: `${location.name}\n${location.address}`,
       model: AI_MODEL_FAST,
-    });
+    }).catch(() => ({}) as unknown);
+
     const obj = raw as Record<string, unknown>;
     const text = (value: unknown): string | undefined =>
       typeof value === "string" && value.trim() !== "" && value.trim().toLowerCase() !== "null"
@@ -219,14 +277,28 @@ Rules:
 
     const nearestHospital = text(obj?.nearestHospital);
     const nearestPoliceStation = text(obj?.nearestPoliceStation);
-    if (nearestHospital || nearestPoliceStation) {
-      await ctx.runMutation(internal.locations.saveSafetyInfo, {
-        id: args.id,
-        nearestHospital,
-        nearestPoliceStation,
-      });
-    }
-    return { nearestHospital, nearestPoliceStation };
+    const publicTransport = text(obj?.publicTransport);
+
+    const w3w = coords ? await whatThreeWords(coords.lat, coords.lng).catch(() => null) : null;
+
+    await ctx.runMutation(internal.locations.saveEnrichment, {
+      id: args.id,
+      nearestHospital,
+      nearestPoliceStation,
+      publicTransport,
+      w3w: w3w ?? undefined,
+      lat: coords?.lat,
+      lng: coords?.lng,
+    });
+
+    return {
+      nearestHospital,
+      nearestPoliceStation,
+      publicTransport,
+      w3w: w3w ?? undefined,
+      // Lets the UI say why w3w is blank rather than leaving it a mystery.
+      w3wUnavailable: !process.env.W3W_API_KEY,
+    };
   },
 });
 
