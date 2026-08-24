@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
+import { Id } from "./_generated/dataModel";
 
 const statusValidator = v.union(
   v.literal("brief"),
@@ -23,12 +24,36 @@ export const list = query({
     const visible = args.includeArchived
       ? projects
       : projects.filter((p) => p.status !== "archived");
+
+    // One pass over the org's shoot days, grouped in memory, rather than a
+    // per-project query: the table shows a date for every row at once.
+    const today = new Date().toISOString().slice(0, 10);
+    const shootDays = await ctx.db
+      .query("shootDays")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(2000);
+    const datesByProject = new Map<Id<"projects">, string[]>();
+    for (const day of shootDays) {
+      const dates = datesByProject.get(day.projectId);
+      if (dates) dates.push(day.date);
+      else datesByProject.set(day.projectId, [day.date]);
+    }
+    for (const dates of datesByProject.values()) dates.sort();
+
     // Resolve client names for the table view
     return await Promise.all(
-      visible.map(async (p) => ({
-        ...p,
-        clientName: p.clientId ? ((await ctx.db.get(p.clientId))?.name ?? null) : null,
-      }))
+      visible.map(async (p) => {
+        const dates = datesByProject.get(p._id) ?? [];
+        return {
+          ...p,
+          clientName: p.clientId ? ((await ctx.db.get(p.clientId))?.name ?? null) : null,
+          // Earliest shoot day still to come, and the last one on the books.
+          // The table shows the former and falls back to the latter.
+          nextShootDate: dates.find((d) => d >= today) ?? null,
+          lastShootDate: dates.length > 0 ? dates[dates.length - 1] : null,
+          shootDayCount: dates.length,
+        };
+      })
     );
   },
 });

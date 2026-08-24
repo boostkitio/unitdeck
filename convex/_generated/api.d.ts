@@ -28,6 +28,7 @@ import type * as lib_llm from "../lib/llm.js";
 import type * as locations from "../locations.js";
 import type * as organisations from "../organisations.js";
 import type * as people from "../people.js";
+import type * as projectCrew from "../projectCrew.js";
 import type * as projects from "../projects.js";
 import type * as setMode from "../setMode.js";
 import type * as shootDays from "../shootDays.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   locations: typeof locations;
   organisations: typeof organisations;
   people: typeof people;
+  projectCrew: typeof projectCrew;
   projects: typeof projects;
   setMode: typeof setMode;
   shootDays: typeof shootDays;

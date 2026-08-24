@@ -1,4 +1,5 @@
-import { query } from "./_generated/server";
+import { query, QueryCtx } from "./_generated/server";
+import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { Doc, Id } from "./_generated/dataModel";
 
@@ -129,13 +130,66 @@ export type UpcomingShootDay = {
   total: number;
 };
 
-// Projects in these statuses do not surface on the "this week" panel even if a
-// stray future shoot day exists.
+// Projects in these statuses do not surface on the dashboard schedule even if
+// a stray future shoot day exists.
 const EXCLUDED_FROM_WEEK = new Set(["archived"]);
 
 /**
- * Shoot days in the next 7 days (today inclusive) for non-archived projects,
- * with per-day crew confirmation counts. Powers the dashboard "This week" panel.
+ * Shoot days between two "YYYY-MM-DD" dates (both inclusive) for non-archived
+ * projects, with per-day crew confirmation counts. Shared by the 7-day panel
+ * and the month calendar.
+ */
+async function shootDaysBetween(
+  ctx: QueryCtx,
+  orgId: Id<"organisations">,
+  from: string,
+  to: string
+): Promise<UpcomingShootDay[]> {
+  const projects = await ctx.db
+    .query("projects")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .take(500);
+  const projectById = new Map(projects.map((p) => [p._id, p]));
+
+  const days = await ctx.db
+    .query("shootDays")
+    .withIndex("by_org_and_date", (q) =>
+      q.eq("orgId", orgId).gte("date", from).lte("date", to)
+    )
+    .take(500);
+
+  const visible = days.filter((d) => {
+    const project = projectById.get(d.projectId);
+    return project !== undefined && !EXCLUDED_FROM_WEEK.has(project.status);
+  });
+
+  const result: UpcomingShootDay[] = [];
+  for (const day of visible) {
+    const project = projectById.get(day.projectId)!;
+    const recipients = await ctx.db
+      .query("recipients")
+      .withIndex("by_shoot_day", (q) => q.eq("shootDayId", day._id))
+      .take(300);
+    const confirmed = recipients.filter((r) => r.status === "confirmed").length;
+    const firstLocation =
+      day.locationIds.length > 0 ? await ctx.db.get(day.locationIds[0]) : null;
+    result.push({
+      shootDayId: day._id,
+      projectId: project._id,
+      projectName: project.name,
+      date: day.date,
+      label: day.label,
+      locationName: firstLocation?.name ?? null,
+      confirmed,
+      total: recipients.length,
+    });
+  }
+  return result;
+}
+
+/**
+ * Shoot days in the next 7 days (today inclusive). Powers the dashboard stat
+ * tile and hero summary line.
  */
 export const upcomingShootDays = query({
   args: {},
@@ -143,46 +197,19 @@ export const upcomingShootDays = query({
     const { org } = await requireOrg(ctx);
     const today = new Date().toISOString().slice(0, 10);
     const horizon = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return await shootDaysBetween(ctx, org._id, today, horizon);
+  },
+});
 
-    const projects = await ctx.db
-      .query("projects")
-      .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .take(500);
-    const projectById = new Map(projects.map((p) => [p._id, p]));
-
-    const days = await ctx.db
-      .query("shootDays")
-      .withIndex("by_org_and_date", (q) =>
-        q.eq("orgId", org._id).gte("date", today).lte("date", horizon)
-      )
-      .take(500);
-
-    const upcoming = days.filter((d) => {
-      const project = projectById.get(d.projectId);
-      return project !== undefined && !EXCLUDED_FROM_WEEK.has(project.status);
-    });
-
-    const result: UpcomingShootDay[] = [];
-    for (const day of upcoming) {
-      const project = projectById.get(day.projectId)!;
-      const recipients = await ctx.db
-        .query("recipients")
-        .withIndex("by_shoot_day", (q) => q.eq("shootDayId", day._id))
-        .take(300);
-      const confirmed = recipients.filter((r) => r.status === "confirmed").length;
-      const firstLocation =
-        day.locationIds.length > 0 ? await ctx.db.get(day.locationIds[0]) : null;
-      result.push({
-        shootDayId: day._id,
-        projectId: project._id,
-        projectName: project.name,
-        date: day.date,
-        label: day.label,
-        locationName: firstLocation?.name ?? null,
-        confirmed,
-        total: recipients.length,
-      });
-    }
-    return result;
+/**
+ * Shoot days in an arbitrary date window. Powers the month calendar, which
+ * fetches one month at a time as the user navigates.
+ */
+export const shootDaysInRange = query({
+  args: { from: v.string(), to: v.string() },
+  handler: async (ctx, args): Promise<UpcomingShootDay[]> => {
+    const { org } = await requireOrg(ctx);
+    if (args.from > args.to) throw new Error("`from` must not be after `to`");
+    return await shootDaysBetween(ctx, org._id, args.from, args.to);
   },
 });

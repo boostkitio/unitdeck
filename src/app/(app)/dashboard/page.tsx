@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
-import { type UpcomingShootDay } from "../../../../convex/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useOrganization } from "@clerk/nextjs";
 import { statusBadgeClass, statusLabel } from "@/lib/project-status";
+import { ShootCalendar } from "@/components/dashboard/shoot-calendar";
 import { cn } from "@/lib/utils";
 
 const ACTIVE_STATUSES = ["brief", "pre_production", "shooting", "post"] as const;
@@ -64,48 +64,6 @@ function StatTile({
   );
 
   return href ? <Link href={href}>{inner}</Link> : inner;
-}
-
-function ProgressBar({ value, max }: { value: number; max: number }) {
-  const pct = max === 0 ? 0 : Math.round((value / max) * 100);
-  return (
-    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-      <div
-        className="h-full rounded-full bg-[linear-gradient(90deg,#34406B,#6B7FBE)]"
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  );
-}
-
-function ShootDayRow({ day }: { day: UpcomingShootDay }) {
-  return (
-    <li>
-      <Link
-        href={`/projects/${day.projectId}/shoot-days/${day.shootDayId}/call-sheet`}
-        className="flex flex-col gap-0.5 rounded-lg px-1 py-2.5 transition-colors hover:bg-muted/50"
-      >
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate font-medium text-foreground">{day.projectName}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">{day.date}</span>
-        </div>
-        {day.label && (
-          <p className="truncate text-xs text-muted-foreground">{day.label}</p>
-        )}
-        {day.locationName && (
-          <p className="truncate text-xs text-muted-foreground">{day.locationName}</p>
-        )}
-        {day.total > 0 && (
-          <>
-            <ProgressBar value={day.confirmed} max={day.total} />
-            <p className="text-xs text-muted-foreground">
-              {day.confirmed} of {day.total} confirmed
-            </p>
-          </>
-        )}
-      </Link>
-    </li>
-  );
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -206,8 +164,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Two-column row: attention + this week */}
-      <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+      {/* Two-column row: attention + schedule */}
+      <div className="grid gap-4 lg:grid-cols-2">
         {/* Needs attention */}
         <Card>
           <CardHeader>
@@ -255,28 +213,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* This week */}
-        <Card>
-          <CardHeader>
-            <CardTitle>This week</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm">
-            {week === undefined ? (
-              <div className="space-y-2">
-                <Skeleton className="h-5 w-3/4" />
-                <Skeleton className="h-5 w-1/2" />
-              </div>
-            ) : week.length === 0 ? (
-              <p className="text-muted-foreground">No shoot days in the next 7 days.</p>
-            ) : (
-              <ul className="divide-y divide-border -mx-1">
-                {week.map((day) => (
-                  <ShootDayRow key={day.shootDayId} day={day} />
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+        <ShootCalendar />
       </div>
 
       {/* Active productions */}

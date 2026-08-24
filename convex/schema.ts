@@ -66,6 +66,21 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_org_and_status", ["orgId", "status"]),
 
+  // Crew booked onto a production. `people` is the org-wide contact book; this
+  // is the per-project booking, so one person can sit on several productions.
+  // Contact details deliberately live on `people` and are not copied here.
+  projectCrew: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.id("projects"),
+    personId: v.id("people"),
+    // Role on this production. Absent means "use the person's default role".
+    role: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"])
+    .index("by_project_and_person", ["projectId", "personId"]),
+
   locations: defineTable({
     orgId: v.id("organisations"),
     name: v.string(),

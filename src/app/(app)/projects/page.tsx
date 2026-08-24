@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
@@ -36,13 +37,108 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { statusLabel, statusBadgeClass } from "@/lib/project-status";
+import { PROJECT_STATUSES, statusLabel, statusBadgeClass } from "@/lib/project-status";
+import { formatShootDate } from "@/lib/format-date";
+import { cn } from "@/lib/utils";
 import { BriefDialog } from "@/components/agents/brief-dialog";
 
+type SortKey = "name" | "client" | "date" | "status";
+type SortDir = "asc" | "desc";
+type Sort = { key: SortKey; dir: SortDir };
+
+/** The shape the table sorts on; the query returns a superset of this. */
+type SortableProject = {
+  name: string;
+  clientName: string | null;
+  status: string;
+  nextShootDate: string | null;
+  lastShootDate: string | null;
+};
+
+const STATUS_ORDER = new Map(PROJECT_STATUSES.map((s, i) => [s.value as string, i]));
+
+/**
+ * The date shown for a project: its next shoot day, falling back to the last
+ * one on the books once the whole production is behind us.
+ */
+function rowDate(p: SortableProject): string | null {
+  return p.nextShootDate ?? p.lastShootDate;
+}
+
+function SortableHead({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: SortKey;
+  sort: Sort;
+  onSort: (key: SortKey) => void;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <TableHead
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 hover:text-foreground"
+      >
+        {label}
+        <span aria-hidden className={cn("text-xs", active ? "opacity-100" : "opacity-30")}>
+          {active && sort.dir === "desc" ? "\u2193" : "\u2191"}
+        </span>
+      </button>
+    </TableHead>
+  );
+}
+
 export default function ProjectsPage() {
+  const router = useRouter();
   const { organization } = useOrganization();
   const projects = useQuery(api.projects.list, organization ? {} : "skip");
   const [briefOpen, setBriefOpen] = useState(false);
+  const [sort, setSort] = useState<Sort>({ key: "date", dir: "asc" });
+
+  function handleSort(key: SortKey) {
+    // Same column toggles direction; a new column starts ascending.
+    setSort((current) =>
+      current.key === key
+        ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" },
+    );
+  }
+
+  const sorted = useMemo(() => {
+    if (projects === undefined) return undefined;
+    const rows = [...projects];
+    rows.sort((a, b) => {
+      if (sort.key === "date") {
+        const dateA = rowDate(a);
+        const dateB = rowDate(b);
+        // Projects with no shoot days sit at the bottom in both directions.
+        if (dateA === null || dateB === null) {
+          if (dateA === null && dateB === null) return a.name.localeCompare(b.name);
+          return dateA === null ? 1 : -1;
+        }
+        const cmp = dateA.localeCompare(dateB);
+        return sort.dir === "asc" ? cmp : -cmp;
+      }
+
+      let cmp: number;
+      if (sort.key === "name") {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sort.key === "client") {
+        cmp = (a.clientName ?? "").localeCompare(b.clientName ?? "");
+      } else {
+        cmp = (STATUS_ORDER.get(a.status) ?? 99) - (STATUS_ORDER.get(b.status) ?? 99);
+      }
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+    return rows;
+  }, [projects, sort]);
 
   return (
     <div>
@@ -61,13 +157,13 @@ export default function ProjectsPage() {
       {briefOpen && <BriefDialog onClose={() => setBriefOpen(false)} />}
 
       <div className="mt-6">
-        {projects === undefined ? (
+        {sorted === undefined ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
           </div>
-        ) : projects.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
             No projects yet. Create your first one.
           </p>
@@ -75,30 +171,57 @@ export default function ProjectsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Client</TableHead>
-                <TableHead>Status</TableHead>
+                <SortableHead label="Name" sortKey="name" sort={sort} onSort={handleSort} />
+                <SortableHead label="Client" sortKey="client" sort={sort} onSort={handleSort} />
+                <SortableHead label="Shoot date" sortKey="date" sort={sort} onSort={handleSort} />
+                <SortableHead label="Status" sortKey="status" sort={sort} onSort={handleSort} />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {projects.map((p) => (
-                <TableRow key={p._id}>
-                  <TableCell>
-                    <Link href={`/projects/${p._id}`} className="font-medium hover:underline">
-                      {p.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{p.clientName ?? "·"}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="secondary"
-                      className={statusBadgeClass(p.status)}
+              {sorted.map((p) => {
+                const date = rowDate(p);
+                const isPast = p.nextShootDate === null && p.lastShootDate !== null;
+                return (
+                  <TableRow
+                    key={p._id}
+                    onClick={() => router.push(`/projects/${p._id}`)}
+                    className="cursor-pointer"
+                  >
+                    <TableCell>
+                      {/* Kept as a real link so the row is reachable by keyboard */}
+                      <Link
+                        href={`/projects/${p._id}`}
+                        className="font-medium hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {p.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{p.clientName ?? "\u00b7"}</TableCell>
+                    <TableCell
+                      className={cn("tabular-nums", (isPast || date === null) && "text-muted-foreground")}
                     >
-                      {statusLabel(p.status)}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
+                      {date === null ? (
+                        "\u00b7"
+                      ) : (
+                        <>
+                          {formatShootDate(date)}
+                          {p.shootDayCount > 1 && (
+                            <span className="ml-1.5 text-xs text-muted-foreground">
+                              {"\u00b7"} {p.shootDayCount} days
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className={statusBadgeClass(p.status)}>
+                        {statusLabel(p.status)}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
