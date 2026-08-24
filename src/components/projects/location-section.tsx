@@ -233,7 +233,7 @@ function LocationPickerDialog({
 
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-x-hidden overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Project location</DialogTitle>
         </DialogHeader>
@@ -282,9 +282,9 @@ function LocationPickerDialog({
                       type="button"
                       disabled={saving}
                       onClick={() => void choose(l._id)}
-                      className="flex w-full flex-col gap-0.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
+                      className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
                     >
-                      <span className="flex items-center gap-2 text-sm font-medium">
+                      <span className="flex min-w-0 items-center gap-2 truncate text-sm font-medium">
                         {l.name}
                         {l._id === currentId && (
                           <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -292,7 +292,7 @@ function LocationPickerDialog({
                           </span>
                         )}
                       </span>
-                      <span className="truncate text-xs text-muted-foreground">{l.address}</span>
+                      <span className="block w-full truncate text-xs text-muted-foreground">{l.address}</span>
                     </button>
                   </li>
                 ))}

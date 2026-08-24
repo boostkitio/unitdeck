@@ -28,6 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
 
 export function CrewSection({
@@ -103,22 +104,10 @@ export function CrewSection({
                   <TableCell className="font-medium">{member.name}</TableCell>
                   <TableCell className="text-muted-foreground">{member.role}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {member.email ? (
-                      <a href={`mailto:${member.email}`} className="hover:underline">
-                        {member.email}
-                      </a>
-                    ) : (
-                      "·"
-                    )}
+                    <EmailLink email={member.email} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {member.phone ? (
-                      <a href={`tel:${member.phone}`} className="hover:underline">
-                        {member.phone}
-                      </a>
-                    ) : (
-                      "·"
-                    )}
+                    <PhoneLink phone={member.phone} />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
@@ -249,7 +238,7 @@ function AddCrewDialog({
 
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-x-hidden overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add crew to this project</DialogTitle>
         </DialogHeader>
@@ -298,20 +287,22 @@ function AddCrewDialog({
                       type="button"
                       disabled={saving}
                       onClick={() => void choose(person._id)}
-                      className="flex w-full flex-col gap-0.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
+                      className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
                     >
-                      <span className="flex items-baseline justify-between gap-2">
+                      {/* min-w-0 on every flex level, or a long name or email
+                          stretches the row and the dialog scrolls sideways. */}
+                      <span className="flex min-w-0 items-baseline justify-between gap-2">
                         <span className="truncate text-sm font-medium">{person.name}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
+                        <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
                           {person.role}
                         </span>
                       </span>
-                      <span className="truncate text-xs text-muted-foreground">
+                      <span className="block w-full truncate text-xs text-muted-foreground">
                         {[person.email, person.phone].filter(Boolean).join(" \u00b7 ") ||
                           "No contact details"}
                       </span>
                       {person.notes && (
-                        <span className="truncate text-xs text-muted-foreground">
+                        <span className="block w-full truncate text-xs text-muted-foreground">
                           {person.notes}
                         </span>
                       )}

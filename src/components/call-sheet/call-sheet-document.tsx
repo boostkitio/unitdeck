@@ -1,5 +1,6 @@
 import type { CallSheetData } from "../../../convex/lib/callSheetData";
 import { groupEquipmentBySupplier, callStrip } from "./format";
+import { EmailLink, PhoneLink } from "@/components/contact-link";
 
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -195,8 +196,14 @@ export function CallSheetDocument({
                   <td className="py-1.5 pr-2">{r.role}</td>
                   <td className="py-1.5 pr-2 font-medium">{r.name}</td>
                   <td className="py-1.5 pr-2 text-neutral-600">{r.reportsTo ?? ""}</td>
-                  <td className="py-1.5 pr-2 whitespace-nowrap">{r.phone ?? ""}</td>
-                  <td className="py-1.5 pr-2">{r.email ?? ""}</td>
+                  <td className="py-1.5 pr-2 whitespace-nowrap">
+                    {/* Blank fallback: this also renders to PDF, where a
+                        placeholder dot would be noise on the printed sheet. */}
+                    <PhoneLink phone={r.phone} fallback="" />
+                  </td>
+                  <td className="py-1.5 pr-2">
+                    <EmailLink email={r.email} fallback="" />
+                  </td>
                   <td className="py-1.5 font-semibold">{r.callTime ?? ""}</td>
                 </tr>
               ))}
@@ -214,7 +221,8 @@ export function CallSheetDocument({
           <div className="mt-2 flex flex-wrap gap-x-8 gap-y-1">
             {data.contacts.map((c) => (
               <p key={c.id}>
-                <span className="font-semibold">{c.name}</span> ({c.role}) {c.phone}
+                <span className="font-semibold">{c.name}</span> ({c.role}){" "}
+                <PhoneLink phone={c.phone} fallback="" />
               </p>
             ))}
           </div>

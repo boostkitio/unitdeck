@@ -138,8 +138,8 @@ export function CsvImportDialog({
           {parseError && <p className="text-sm text-destructive">{parseError}</p>}
 
           {rows !== null && (
-            <div className="space-y-2">
-              <p className="text-sm">
+            <div className="min-w-0 space-y-2">
+              <p className="break-words text-sm">
                 <span className="font-medium">{usableRows.length}</span> row
                 {usableRows.length === 1 ? "" : "s"} ready to import from{" "}
                 <span className="font-medium">{fileName}</span>
@@ -156,12 +156,15 @@ export function CsvImportDialog({
               </p>
 
               {usableRows.length > 0 && (
-                <div className="max-h-48 overflow-auto rounded-md border border-border">
-                  <table className="w-full text-left text-xs">
+                <div className="max-h-48 overflow-y-auto rounded-md border border-border">
+                  {/* table-fixed: cells share the width evenly and truncate.
+                      Auto layout ignores a max-width on a cell and lets long
+                      values push the table past the dialog. */}
+                  <table className="w-full table-fixed text-left text-xs">
                     <thead className="bg-muted/50">
                       <tr>
                         {columns.map((column) => (
-                          <th key={column.key} className="px-2 py-1.5 font-medium">
+                          <th key={column.key} className="truncate px-2 py-1.5 font-medium">
                             {column.label}
                           </th>
                         ))}
@@ -171,11 +174,10 @@ export function CsvImportDialog({
                       {usableRows.slice(0, 5).map((row, i) => (
                         <tr key={i} className="border-t border-border">
                           {columns.map((column) => (
-                            <td
-                              key={column.key}
-                              className="max-w-40 truncate px-2 py-1.5 text-muted-foreground"
-                            >
-                              {row[column.key] ?? "·"}
+                            <td key={column.key} className="px-2 py-1.5 text-muted-foreground">
+                              <span className="block truncate" title={row[column.key] ?? ""}>
+                                {row[column.key] ?? "·"}
+                              </span>
                             </td>
                           ))}
                         </tr>

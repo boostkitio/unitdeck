@@ -31,7 +31,6 @@ import { Textarea } from "@/components/ui/textarea";
 
 export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
   const docs = useQuery(api.documents.listForProject, { projectId });
-  const [picking, setPicking] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [composerId, setComposerId] = useState<Id<"documents"> | null>(null);
   const [previewDoc, setPreviewDoc] = useState<Doc<"documents"> | null>(null);
@@ -66,14 +65,9 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
         <CardHeader>
           <CardTitle>Documents</CardTitle>
           <CardAction>
-            <div className="flex items-center gap-2">
-              <Button size="sm" onClick={() => setUploading(true)}>
-                Upload document
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => setPicking(true)}>
-                New talent release
-              </Button>
-            </div>
+            <Button size="sm" onClick={() => setUploading(true)}>
+              Upload document
+            </Button>
           </CardAction>
         </CardHeader>
         <CardContent className="text-sm">
@@ -84,8 +78,8 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
             </div>
           ) : docs.length === 0 ? (
             <p className="text-muted-foreground">
-              Nothing to sign yet. Upload releases, risk assessments or creative above, or start a
-              talent release to collect a signed consent from someone on this project.
+              No documents yet. Upload releases, risk assessments, creative or anything else
+              this production needs.
             </p>
           ) : (
             <ul className="divide-y divide-border -mx-1">
@@ -149,17 +143,6 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
         <UploadDocumentDialog projectId={projectId} onClose={() => setUploading(false)} />
       )}
 
-      {picking && (
-        <NewReleaseDialog
-          projectId={projectId}
-          onClose={() => setPicking(false)}
-          onCreated={(id) => {
-            setPicking(false);
-            setComposerId(id);
-          }}
-        />
-      )}
-
       {composerId && <ReleaseComposer id={composerId} onClose={() => setComposerId(null)} />}
 
       {previewDoc && (
@@ -191,77 +174,6 @@ function RetryInviteButton({ id }: { id: Id<"documents"> }) {
     >
       {busy ? "Re-sending…" : "Retry email"}
     </Button>
-  );
-}
-
-function NewReleaseDialog({
-  projectId,
-  onClose,
-  onCreated,
-}: {
-  projectId: Id<"projects">;
-  onClose: () => void;
-  onCreated: (id: Id<"documents">) => void;
-}) {
-  const people = useQuery(api.people.list, {});
-  const create = useMutation(api.documents.create);
-  const [personId, setPersonId] = useState<Id<"people"> | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New talent release</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2">
-          <Label>Talent</Label>
-          <Select
-            value={personId}
-            onValueChange={(value) => setPersonId(value as Id<"people"> | null)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Choose from people…" />
-            </SelectTrigger>
-            <SelectContent>
-              {(people ?? []).map((p) => (
-                <SelectItem key={p._id} value={p._id}>
-                  {p.name} ({p.role})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {people !== undefined && people.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              No people yet. You can still create a blank release and fill in the talent&apos;s
-              details by hand.
-            </p>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const id = await create({ projectId, personId: personId ?? undefined });
-                toast.success("Talent release created.");
-                onCreated(id);
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : "Could not create the release.");
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? "Creating…" : "Create release"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

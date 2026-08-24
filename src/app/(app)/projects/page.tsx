@@ -31,7 +31,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
@@ -40,11 +39,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PROJECT_STATUSES, statusLabel, statusBadgeClass } from "@/lib/project-status";
 import { formatShootDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
+import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { BriefDialog } from "@/components/agents/brief-dialog";
 
 type SortKey = "name" | "client" | "date" | "status";
-type SortDir = "asc" | "desc";
-type Sort = { key: SortKey; dir: SortDir };
 
 /** The shape the table sorts on; the query returns a superset of this. */
 type SortableProject = {
@@ -65,34 +63,17 @@ function rowDate(p: SortableProject): string | null {
   return p.nextShootDate ?? p.lastShootDate;
 }
 
-function SortableHead({
-  label,
-  sortKey,
-  sort,
-  onSort,
-}: {
-  label: string;
-  sortKey: SortKey;
-  sort: Sort;
-  onSort: (key: SortKey) => void;
-}) {
-  const active = sort.key === sortKey;
-  return (
-    <TableHead
-      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className="inline-flex items-center gap-1 hover:text-foreground"
-      >
-        {label}
-        <span aria-hidden className={cn("text-xs", active ? "opacity-100" : "opacity-30")}>
-          {active && sort.dir === "desc" ? "\u2193" : "\u2191"}
-        </span>
-      </button>
-    </TableHead>
-  );
+function sortValue(p: SortableProject, key: SortKey): string | number | null {
+  switch (key) {
+    case "name":
+      return p.name;
+    case "client":
+      return p.clientName;
+    case "date":
+      return rowDate(p);
+    case "status":
+      return STATUS_ORDER.get(p.status) ?? 99;
+  }
 }
 
 export default function ProjectsPage() {
@@ -100,45 +81,12 @@ export default function ProjectsPage() {
   const { organization } = useOrganization();
   const projects = useQuery(api.projects.list, organization ? {} : "skip");
   const [briefOpen, setBriefOpen] = useState(false);
-  const [sort, setSort] = useState<Sort>({ key: "date", dir: "asc" });
+  const { sort, toggle } = useTableSort<SortKey>({ key: "date", dir: "asc" });
 
-  function handleSort(key: SortKey) {
-    // Same column toggles direction; a new column starts ascending.
-    setSort((current) =>
-      current.key === key
-        ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: "asc" },
-    );
-  }
-
-  const sorted = useMemo(() => {
-    if (projects === undefined) return undefined;
-    const rows = [...projects];
-    rows.sort((a, b) => {
-      if (sort.key === "date") {
-        const dateA = rowDate(a);
-        const dateB = rowDate(b);
-        // Projects with no shoot days sit at the bottom in both directions.
-        if (dateA === null || dateB === null) {
-          if (dateA === null && dateB === null) return a.name.localeCompare(b.name);
-          return dateA === null ? 1 : -1;
-        }
-        const cmp = dateA.localeCompare(dateB);
-        return sort.dir === "asc" ? cmp : -cmp;
-      }
-
-      let cmp: number;
-      if (sort.key === "name") {
-        cmp = a.name.localeCompare(b.name);
-      } else if (sort.key === "client") {
-        cmp = (a.clientName ?? "").localeCompare(b.clientName ?? "");
-      } else {
-        cmp = (STATUS_ORDER.get(a.status) ?? 99) - (STATUS_ORDER.get(b.status) ?? 99);
-      }
-      return sort.dir === "asc" ? cmp : -cmp;
-    });
-    return rows;
-  }, [projects, sort]);
+  const sorted = useMemo(
+    () => (projects === undefined ? undefined : sortRows(projects, sort, sortValue)),
+    [projects, sort],
+  );
 
   return (
     <div>
@@ -171,10 +119,10 @@ export default function ProjectsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <SortableHead label="Name" sortKey="name" sort={sort} onSort={handleSort} />
-                <SortableHead label="Client" sortKey="client" sort={sort} onSort={handleSort} />
-                <SortableHead label="Shoot date" sortKey="date" sort={sort} onSort={handleSort} />
-                <SortableHead label="Status" sortKey="status" sort={sort} onSort={handleSort} />
+                <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
+                <SortableHead label="Client" sortKey="client" sort={sort} onSort={toggle} />
+                <SortableHead label="Shoot date" sortKey="date" sort={sort} onSort={toggle} />
+                <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggle} />
               </TableRow>
             </TableHeader>
             <TableBody>

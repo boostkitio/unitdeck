@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
@@ -21,12 +21,30 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvImportDialog, type CsvColumnSpec } from "@/components/csv-import-dialog";
+import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
+import { EmailLink, PhoneLink } from "@/components/contact-link";
+
+type ClientSortKey = "name" | "contactName" | "phone" | "email" | "notes";
+
+function clientSortValue(client: Doc<"clients">, key: ClientSortKey): string | null {
+  switch (key) {
+    case "name":
+      return client.name;
+    case "contactName":
+      return client.contactName ?? null;
+    case "phone":
+      return client.phone ?? null;
+    case "email":
+      return client.email ?? null;
+    case "notes":
+      return client.notes ?? null;
+  }
+}
 
 const IMPORT_COLUMNS: CsvColumnSpec[] = [
   { key: "name", label: "Company", aliases: ["Client", "Organisation", "Organization"], required: true },
@@ -53,6 +71,12 @@ export default function ClientsPage() {
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const { sort, toggle } = useTableSort<ClientSortKey>({ key: "name", dir: "asc" });
+
+  const sortedClients = useMemo(
+    () => sortRows(clients ?? [], sort, clientSortValue),
+    [clients, sort],
+  );
 
   function openCreate() {
     setEditing(null);
@@ -146,43 +170,23 @@ export default function ClientsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Company</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Number</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Notes</TableHead>
+                <SortableHead label="Company" sortKey="name" sort={sort} onSort={toggle} />
+                <SortableHead label="Name" sortKey="contactName" sort={sort} onSort={toggle} />
+                <SortableHead label="Number" sortKey="phone" sort={sort} onSort={toggle} />
+                <SortableHead label="Email" sortKey="email" sort={sort} onSort={toggle} />
+                <SortableHead label="Notes" sortKey="notes" sort={sort} onSort={toggle} />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {clients.map((c) => (
+              {sortedClients.map((c) => (
                 <TableRow key={c._id} className="cursor-pointer" onClick={() => openEdit(c)}>
                   <TableCell className="font-medium">{c.name}</TableCell>
                   <TableCell className="text-muted-foreground">{c.contactName ?? "·"}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {c.phone ? (
-                      <a
-                        href={`tel:${c.phone}`}
-                        className="hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {c.phone}
-                      </a>
-                    ) : (
-                      "·"
-                    )}
+                    <PhoneLink phone={c.phone} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {c.email ? (
-                      <a
-                        href={`mailto:${c.email}`}
-                        className="hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {c.email}
-                      </a>
-                    ) : (
-                      "·"
-                    )}
+                    <EmailLink email={c.email} />
                   </TableCell>
                   <TableCell className="max-w-md truncate text-muted-foreground">
                     {c.notes ?? ""}

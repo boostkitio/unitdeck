@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
@@ -9,7 +9,6 @@ import { api } from "../../../../../convex/_generated/api";
 import { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -29,11 +28,12 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PROJECT_STATUSES, ProjectStatus } from "@/lib/project-status";
+import { saveStateLabel, useDebouncedSave } from "@/lib/use-debounced-save";
 import { ShootDatesEditor } from "@/components/projects/shoot-dates-editor";
 import { LocationSection } from "@/components/projects/location-section";
 import { CrewSection } from "@/components/projects/crew-section";
+import { EquipmentSection } from "@/components/projects/equipment-section";
 import { DocumentsSection } from "@/components/documents/documents-section";
-import { CallSheetSection } from "@/components/projects/call-sheet-section";
 
 type ProjectWithRelations = Doc<"projects"> & {
   clientName: string | null;
@@ -77,12 +77,26 @@ function ProjectEditor({
   const [name, setName] = useState(project.name);
   const [briefSummary, setBriefSummary] = useState(project.briefSummary ?? "");
 
-  async function save(patch: {
-    name?: string;
-    clientId?: Id<"clients"> | null;
-    status?: ProjectStatus;
-    briefSummary?: string;
-  }) {
+  const saveName = useCallback(
+    async (value: string) => {
+      await updateProject({ id: project._id, name: value });
+    },
+    [updateProject, project._id],
+  );
+  const saveBrief = useCallback(
+    async (value: string) => {
+      await updateProject({ id: project._id, briefSummary: value });
+    },
+    [updateProject, project._id],
+  );
+
+  // A blank name is rejected server-side, so hold the last stored value until
+  // there is something to save rather than firing a doomed request per keypress.
+  const nameToSave = name.trim().length === 0 ? project.name : name;
+  const nameState = useDebouncedSave(nameToSave, project.name, saveName);
+  const briefState = useDebouncedSave(briefSummary, project.briefSummary ?? "", saveBrief);
+
+  async function save(patch: { clientId?: Id<"clients"> | null; status?: ProjectStatus }) {
     try {
       await updateProject({ id: project._id, ...patch });
       toast.success("Saved.");
@@ -93,39 +107,33 @@ function ProjectEditor({
 
   return (
     <div className="pb-8">
-      {/* Title with the shoot dates alongside it */}
+      {/* The title is the name field — editing it here is the only place it is set */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
-          {project.name}
-        </h1>
+        <div className="min-w-0 flex-1">
+          <label htmlFor="project-name" className="sr-only">
+            Project name
+          </label>
+          <input
+            id="project-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Untitled project"
+            className="w-full max-w-xl rounded-md border border-transparent bg-transparent px-2 py-1 font-heading text-2xl font-semibold tracking-tight outline-none transition-colors hover:border-border focus:border-border focus:bg-background sm:text-3xl"
+          />
+          <p className="h-4 px-2 text-xs text-muted-foreground">
+            {name.trim().length === 0
+              ? "A project needs a name"
+              : (saveStateLabel(nameState) ?? "")}
+          </p>
+        </div>
         <ShootDatesEditor projectId={project._id} />
       </div>
 
-      {/* Everything editable in place — no disclosure to open first */}
       <Card className="mt-6">
         <CardHeader>
           <CardTitle>Details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
-            <div className="flex gap-2">
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="max-w-md"
-              />
-              <Button
-                variant="secondary"
-                onClick={() => save({ name })}
-                disabled={name.trim() === project.name}
-              >
-                Save
-              </Button>
-            </div>
-          </div>
-
           <div className="space-y-2">
             <Label>Client</Label>
             <Select
@@ -156,7 +164,12 @@ function ProjectEditor({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="brief">Brief summary</Label>
+            <div className="flex items-baseline justify-between gap-2">
+              <Label htmlFor="brief">Brief summary</Label>
+              <span className="text-xs text-muted-foreground">
+                {saveStateLabel(briefState) ?? ""}
+              </span>
+            </div>
             <Textarea
               id="brief"
               value={briefSummary}
@@ -164,13 +177,6 @@ function ProjectEditor({
               rows={5}
               className="max-w-2xl"
             />
-            <Button
-              variant="secondary"
-              onClick={() => save({ briefSummary })}
-              disabled={briefSummary === (project.briefSummary ?? "")}
-            >
-              Save brief
-            </Button>
           </div>
 
           <div className="space-y-2">
@@ -198,8 +204,8 @@ function ProjectEditor({
 
       <LocationSection projectId={project._id} location={project.location} />
       <CrewSection projectId={project._id} projectName={project.name} />
+      <EquipmentSection projectId={project._id} />
       <DocumentsSection projectId={project._id} />
-      <CallSheetSection projectId={project._id} />
 
       {/* Destructive action, deliberately last */}
       <div className="mt-16 border-t border-border pt-6">

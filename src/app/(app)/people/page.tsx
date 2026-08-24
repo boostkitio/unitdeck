@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
@@ -20,13 +20,14 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvImportDialog, type CsvColumnSpec } from "@/components/csv-import-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
+import { EmailLink, PhoneLink } from "@/components/contact-link";
 
 type PersonForm = {
   name: string;
@@ -48,6 +49,25 @@ const EMPTY_FORM: PersonForm = {
   notes: "",
 };
 
+type PersonSortKey = "name" | "role" | "email" | "phone" | "notes" | "dayRate";
+
+function personSortValue(person: Doc<"people">, key: PersonSortKey): string | number | null {
+  switch (key) {
+    case "name":
+      return person.name;
+    case "role":
+      return person.role;
+    case "email":
+      return person.email ?? null;
+    case "phone":
+      return person.phone ?? null;
+    case "notes":
+      return person.notes ?? null;
+    case "dayRate":
+      return person.dayRate ?? null;
+  }
+}
+
 const IMPORT_COLUMNS: CsvColumnSpec[] = [
   { key: "name", label: "Name", aliases: ["Full Name", "Contact"], required: true },
   { key: "role", label: "Role", aliases: ["Job", "Job Role", "Position", "Department"] },
@@ -66,6 +86,12 @@ export default function PeoplePage() {
   const importRows = useMutation(api.people.importRows);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const { sort, toggle } = useTableSort<PersonSortKey>({ key: "name", dir: "asc" });
+
+  const sortedPeople = useMemo(
+    () => sortRows(people ?? [], sort, personSortValue),
+    [people, sort],
+  );
   const [editing, setEditing] = useState<Doc<"people"> | null>(null);
   const [form, setForm] = useState<PersonForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -178,16 +204,22 @@ export default function PeoplePage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Notes</TableHead>
-                    <TableHead className="text-right">Day rate</TableHead>
+                    <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
+                    <SortableHead label="Role" sortKey="role" sort={sort} onSort={toggle} />
+                    <SortableHead label="Email" sortKey="email" sort={sort} onSort={toggle} />
+                    <SortableHead label="Phone" sortKey="phone" sort={sort} onSort={toggle} />
+                    <SortableHead label="Notes" sortKey="notes" sort={sort} onSort={toggle} />
+                    <SortableHead
+                      label="Day rate"
+                      sortKey="dayRate"
+                      sort={sort}
+                      onSort={toggle}
+                      className="text-right"
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {people.map((p) => (
+                  {sortedPeople.map((p) => (
                     <TableRow
                       key={p._id}
                       className="cursor-pointer"
@@ -195,8 +227,12 @@ export default function PeoplePage() {
                     >
                       <TableCell className="font-medium">{p.name}</TableCell>
                       <TableCell className="text-muted-foreground">{p.role}</TableCell>
-                      <TableCell className="text-muted-foreground">{p.email ?? ""}</TableCell>
-                      <TableCell className="text-muted-foreground">{p.phone ?? ""}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        <EmailLink email={p.email} />
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        <PhoneLink phone={p.phone} />
+                      </TableCell>
                       <TableCell className="max-w-xs truncate text-muted-foreground">
                         {p.notes ?? ""}
                       </TableCell>
@@ -210,7 +246,7 @@ export default function PeoplePage() {
             </div>
             {/* Mobile card list */}
             <ul className="space-y-2 md:hidden">
-              {people.map((p) => (
+              {sortedPeople.map((p) => (
                 <li
                   key={p._id}
                   role="button"

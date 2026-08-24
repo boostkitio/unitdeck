@@ -113,6 +113,19 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"]),
 
+  // Kit a production needs beyond the standard package: a line per item, so
+  // each can be tracked from "needed" to "confirmed" independently.
+  projectEquipment: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.id("projects"),
+    item: v.string(),
+    quantity: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    status: v.union(v.literal("needed"), v.literal("confirmed")),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"]),
+
   locations: defineTable({
     orgId: v.id("organisations"),
     name: v.string(),
