@@ -7,8 +7,9 @@ export type CrewStatus = "pencilled" | "confirmed";
 
 export type ProjectCrewMember = {
   _id: Id<"projectCrew">;
-  personId: Id<"people">;
-  name: string;
+  // Null on a role nobody has been booked into yet.
+  personId: Id<"people"> | null;
+  name: string | null;
   // The project role when one was set, otherwise the person's default role.
   role: string;
   email: string | null;
@@ -39,6 +40,20 @@ export const listForProject = query({
 
     const members: ProjectCrewMember[] = [];
     for (const booking of bookings) {
+      // An unfilled role has no person to resolve.
+      if (booking.personId === undefined) {
+        members.push({
+          _id: booking._id,
+          personId: null,
+          name: null,
+          role: booking.role ?? "Crew",
+          email: null,
+          phone: null,
+          notes: booking.notes ?? null,
+          status: booking.status ?? "pencilled",
+        });
+        continue;
+      }
       const person: Doc<"people"> | null = await ctx.db.get(booking.personId);
       if (!person || person.orgId !== org._id) continue;
       members.push({
@@ -53,15 +68,23 @@ export const listForProject = query({
         status: booking.status ?? "pencilled",
       });
     }
-    members.sort((a, b) => a.name.localeCompare(b.name));
+    // Roles still to fill sort to the top: they are the outstanding work.
+    members.sort((a, b) => {
+      if ((a.name === null) !== (b.name === null)) return a.name === null ? -1 : 1;
+      return (a.name ?? a.role).localeCompare(b.name ?? b.role);
+    });
     return members;
   },
 });
 
+/**
+ * Books someone onto a project, or adds a role with nobody in it yet so the
+ * gap is visible until it is filled.
+ */
 export const add = mutation({
   args: {
     projectId: v.id("projects"),
-    personId: v.id("people"),
+    personId: v.optional(v.id("people")),
     role: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
@@ -69,6 +92,19 @@ export const add = mutation({
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== org._id) throw new Error("Project not found");
+
+    if (args.personId === undefined) {
+      // Nothing else names the row, so the role has to be there.
+      if (!args.role?.trim()) throw new Error("Name the role you need to fill");
+      return await ctx.db.insert("projectCrew", {
+        orgId: org._id,
+        projectId: args.projectId,
+        role: args.role.trim(),
+        notes: args.notes?.trim() || undefined,
+        status: "pencilled",
+      });
+    }
+
     const person = await ctx.db.get(args.personId);
     if (!person || person.orgId !== org._id) throw new Error("Person not found");
 
@@ -89,6 +125,30 @@ export const add = mutation({
       notes: args.notes?.trim() || undefined,
       status: "pencilled",
     });
+  },
+});
+
+/** Puts someone into a role that was waiting to be filled. */
+export const assign = mutation({
+  args: { id: v.id("projectCrew"), personId: v.id("people") },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const booking = await ctx.db.get(args.id);
+    if (!booking || booking.orgId !== org._id) throw new Error("Role not found");
+    const person = await ctx.db.get(args.personId);
+    if (!person || person.orgId !== org._id) throw new Error("Person not found");
+
+    const clash = await ctx.db
+      .query("projectCrew")
+      .withIndex("by_project_and_person", (q) =>
+        q.eq("projectId", booking.projectId).eq("personId", args.personId)
+      )
+      .unique();
+    if (clash) throw new Error(`${person.name} is already on this project`);
+
+    // The role stays as typed — that is what the slot was created for.
+    await ctx.db.patch(args.id, { personId: args.personId });
+    return null;
   },
 });
 

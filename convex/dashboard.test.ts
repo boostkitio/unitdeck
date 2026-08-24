@@ -167,3 +167,33 @@ test("upcoming shoot days lists this week's days with confirmation counts", asyn
   expect(week[0].total).toBe(2);
   expect(week[0].confirmed).toBe(1);
 });
+
+test("an unfilled role is chased separately from unconfirmed crew", async () => {
+  const t = convexTest(schema, modules);
+  const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const ids = await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org E", clerkOrgId: "org_e" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "pencilled",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: future, locationIds: [] });
+    const person = await ctx.db.insert("people", { orgId: org, name: "Sam", role: "Sound" });
+    return { project, person };
+  });
+  const asE = t.withIdentity({ subject: "user_e", org_id: "org_e" });
+
+  // One booked and confirmed, one role nobody is in.
+  const bookingId = await asE.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    personId: ids.person,
+  });
+  await asE.mutation(api.projectCrew.update, { id: bookingId, status: "confirmed" });
+  await asE.mutation(api.projectCrew.add, { projectId: ids.project, role: "Gaffer" });
+
+  const items = await asE.query(api.dashboard.attention, {});
+  // The confirmed person is settled; the empty role is not.
+  expect(items.map((i) => i.kind)).toEqual(["unfilled_roles"]);
+  expect(items[0].label).toBe("1 role still to book");
+});

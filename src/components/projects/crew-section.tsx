@@ -62,8 +62,12 @@ export function CrewSection({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ProjectCrewMember | null>(null);
   const [forwarding, setForwarding] = useState(false);
+  const [filling, setFilling] = useState<ProjectCrewMember | null>(null);
 
-  const outstanding = (crew ?? []).filter((m) => m.status !== "confirmed").length;
+  const unfilled = (crew ?? []).filter((m) => m.personId === null).length;
+  const outstanding = (crew ?? []).filter(
+    (m) => m.personId !== null && m.status !== "confirmed",
+  ).length;
   const { sort, toggle } = useTableSort<CrewSortKey>({ key: "name", dir: "asc" });
   const sortedCrew = useMemo(() => sortRows(crew ?? [], sort, crewSortValue), [crew, sort]);
   const removeCrew = useMutation(api.projectCrew.remove);
@@ -144,22 +148,33 @@ export function CrewSection({
             <TableBody>
               {sortedCrew.map((member) => (
                 <TableRow key={member._id}>
-                  <TableCell className="font-medium">{member.name}</TableCell>
+                  <TableCell className="font-medium">
+                    {member.name ?? (
+                      <span className="text-muted-foreground italic">Nobody booked</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{member.role}</TableCell>
                   <TableCell>
-                    <button
-                      type="button"
-                      onClick={() => void toggleStatus(member)}
-                      title="Click to change"
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
-                        member.status === "confirmed"
-                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
-                          : "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-300",
-                      )}
-                    >
-                      {member.status === "confirmed" ? "Confirmed" : "Pencilled"}
-                    </button>
+                    {member.personId === null ? (
+                      // Nothing to confirm until somebody is in the role.
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-950/60 dark:text-red-300">
+                        To book
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void toggleStatus(member)}
+                        title="Click to change"
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
+                          member.status === "confirmed"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                            : "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-300",
+                        )}
+                      >
+                        {member.status === "confirmed" ? "Confirmed" : "Pencilled"}
+                      </button>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <EmailLink email={member.email} />
@@ -182,9 +197,15 @@ export function CrewSection({
             </TableBody>
           </Table>
         )}
-        {crew !== undefined && crew.length > 0 && outstanding > 0 && (
+        {crew !== undefined && crew.length > 0 && (unfilled > 0 || outstanding > 0) && (
           <p className="mt-3 text-xs text-muted-foreground">
-            {outstanding} still to confirm — click a status to change it.
+            {[
+              unfilled > 0 && `${unfilled} role${unfilled === 1 ? "" : "s"} still to book`,
+              outstanding > 0 && `${outstanding} still to confirm`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            .
           </p>
         )}
         {crew !== undefined && crew.length > 0 && (
@@ -208,6 +229,13 @@ export function CrewSection({
       {editing && (
         <EditCrewDialog member={editing} onClose={() => setEditing(null)} />
       )}
+      {filling && (
+        <FillRoleDialog
+          role={filling}
+          existing={crew ?? []}
+          onClose={() => setFilling(null)}
+        />
+      )}
       {forwarding && crew !== undefined && (
         <ForwardCrewDialog
           projectId={projectId}
@@ -220,34 +248,26 @@ export function CrewSection({
   );
 }
 
-function AddCrewDialog({
-  projectId,
-  existing,
-  onClose,
+/**
+ * Searchable list of people not already on the project. Shared by adding crew
+ * and by filling a role that was left open.
+ */
+function PersonPicker({
+  taken,
+  disabled,
+  onPick,
 }: {
-  projectId: Id<"projects">;
-  existing: ProjectCrewMember[];
-  onClose: () => void;
+  taken: (Id<"people"> | null)[];
+  disabled: boolean;
+  onPick: (personId: Id<"people">) => void;
 }) {
   const people = useQuery(api.people.list, {});
-  const addCrew = useMutation(api.projectCrew.add);
-  const createPerson = useMutation(api.people.create);
-
-  const [mode, setMode] = useState<"existing" | "new">("existing");
   const [search, setSearch] = useState("");
-  const [saving, setSaving] = useState(false);
 
-  // New-person fields, so someone can be added without leaving the dialog.
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-
-  // Someone already booked cannot be booked twice.
   const available = useMemo(() => {
-    const taken = new Set(existing.map((m) => m.personId as string));
-    return (people ?? []).filter((p) => !taken.has(p._id));
-  }, [people, existing]);
+    const used = new Set(taken.filter((id): id is Id<"people"> => id !== null).map(String));
+    return (people ?? []).filter((p) => !used.has(p._id));
+  }, [people, taken]);
 
   const matches = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -258,6 +278,82 @@ function AddCrewDialog({
       ),
     );
   }, [available, search]);
+
+  if (people === undefined) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <Input
+        placeholder="Search by name, role, email or phone…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        autoFocus
+      />
+      {matches.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {available.length === 0
+            ? "Everyone in your people list is already on this project."
+            : "Nothing matches that search."}
+        </p>
+      ) : (
+        <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
+          {matches.map((person) => (
+            <li key={person._id}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onPick(person._id)}
+                className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
+              >
+                <span className="flex min-w-0 items-baseline justify-between gap-2">
+                  <span className="truncate text-sm font-medium">{person.name}</span>
+                  <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
+                    {person.role}
+                  </span>
+                </span>
+                <span className="block w-full truncate text-xs text-muted-foreground">
+                  {[person.email, person.phone].filter(Boolean).join(" \u00b7 ") ||
+                    "No contact details"}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AddCrewDialog({
+  projectId,
+  existing,
+  onClose,
+}: {
+  projectId: Id<"projects">;
+  existing: ProjectCrewMember[];
+  onClose: () => void;
+}) {
+  const addCrew = useMutation(api.projectCrew.add);
+  const createPerson = useMutation(api.people.create);
+
+  const [mode, setMode] = useState<"existing" | "new" | "role">("existing");
+  const [saving, setSaving] = useState(false);
+
+  // New-person fields, so someone can be added without leaving the dialog.
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+
+  // Role-only slot.
+  const [openRole, setOpenRole] = useState("");
 
   async function choose(personId: Id<"people">) {
     setSaving(true);
@@ -299,6 +395,23 @@ function AddCrewDialog({
     }
   }
 
+  async function addOpenRole() {
+    if (openRole.trim().length === 0) {
+      toast.error("Name the role you need to fill.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await addCrew({ projectId, role: openRole });
+      toast.success(`${openRole.trim()} added — nobody booked into it yet.`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add the role.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
       <DialogContent className="max-h-[85vh] w-full max-w-xl overflow-y-auto sm:p-5">
@@ -306,7 +419,7 @@ function AddCrewDialog({
           <DialogTitle>Add crew to this project</DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-2 border-b border-border pb-3">
+        <div className="flex flex-wrap gap-2 border-b border-border pb-3">
           <Button
             size="sm"
             variant={mode === "existing" ? "secondary" : "ghost"}
@@ -321,61 +434,26 @@ function AddCrewDialog({
           >
             Add a new person
           </Button>
+          <Button
+            size="sm"
+            variant={mode === "role" ? "secondary" : "ghost"}
+            onClick={() => setMode("role")}
+          >
+            Role to fill later
+          </Button>
         </div>
 
-        {mode === "existing" ? (
-          <div className="space-y-3 py-2">
-            <Input
-              placeholder="Search by name, role, email or phone…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
+        {mode === "existing" && (
+          <div className="py-2">
+            <PersonPicker
+              taken={existing.map((m) => m.personId)}
+              disabled={saving}
+              onPick={(personId) => void choose(personId)}
             />
-            {people === undefined ? (
-              <div className="space-y-2">
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
-              </div>
-            ) : matches.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                {available.length === 0
-                  ? "Everyone in your people list is already on this project."
-                  : "Nothing matches that search."}
-              </p>
-            ) : (
-              <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
-                {matches.map((person) => (
-                  <li key={person._id}>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void choose(person._id)}
-                      className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
-                    >
-                      {/* min-w-0 on every flex level, or a long name or email
-                          stretches the row and the dialog scrolls sideways. */}
-                      <span className="flex min-w-0 items-baseline justify-between gap-2">
-                        <span className="truncate text-sm font-medium">{person.name}</span>
-                        <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
-                          {person.role}
-                        </span>
-                      </span>
-                      <span className="block w-full truncate text-xs text-muted-foreground">
-                        {[person.email, person.phone].filter(Boolean).join(" \u00b7 ") ||
-                          "No contact details"}
-                      </span>
-                      {person.notes && (
-                        <span className="block w-full truncate text-xs text-muted-foreground">
-                          {person.notes}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
-        ) : (
+        )}
+
+        {mode === "new" && (
           <div className="space-y-4 py-2">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -422,6 +500,25 @@ function AddCrewDialog({
           </div>
         )}
 
+        {mode === "role" && (
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="open-role">Role</Label>
+              <Input
+                id="open-role"
+                value={openRole}
+                onChange={(e) => setOpenRole(e.target.value)}
+                placeholder="Gaffer, Runner, Makeup artist…"
+                autoFocus
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Adds the role with nobody in it, so the gap stays visible until you book
+              someone. It counts as still to book on the dashboard.
+            </p>
+          </div>
+        )}
+
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Cancel
@@ -431,6 +528,59 @@ function AddCrewDialog({
               {saving ? "Adding…" : "Add to project"}
             </Button>
           )}
+          {mode === "role" && (
+            <Button onClick={addOpenRole} disabled={saving}>
+              {saving ? "Adding…" : "Add role"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FillRoleDialog({
+  role,
+  existing,
+  onClose,
+}: {
+  role: ProjectCrewMember;
+  existing: ProjectCrewMember[];
+  onClose: () => void;
+}) {
+  const assign = useMutation(api.projectCrew.assign);
+  const [saving, setSaving] = useState(false);
+
+  async function pick(personId: Id<"people">) {
+    setSaving(true);
+    try {
+      await assign({ id: role._id, personId });
+      toast.success(`${role.role} filled.`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not book them.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <DialogContent className="max-h-[85vh] w-full max-w-xl overflow-y-auto sm:p-5">
+        <DialogHeader>
+          <DialogTitle>Book someone as {role.role}</DialogTitle>
+        </DialogHeader>
+        <div className="py-2">
+          <PersonPicker
+            taken={existing.map((m) => m.personId)}
+            disabled={saving}
+            onPick={(personId) => void pick(personId)}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -524,6 +674,7 @@ function crewEmailBody(
   const lines = [`Crew for ${projectName}`];
   if (dateLine) lines.push(dateLine);
   lines.push("", ...crew.map((m) => {
+    if (m.name === null) return `- ${m.role} — STILL TO BOOK`;
     const contact = [m.email, m.phone].filter(Boolean).join(" · ");
     return `- ${m.name} — ${m.role}${contact ? `\n  ${contact}` : ""}`;
   }));

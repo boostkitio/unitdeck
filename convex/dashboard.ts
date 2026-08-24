@@ -8,7 +8,7 @@ export type AttentionItem = {
   // Call-sheet-derived kinds are gone: call sheets are not in use, so an
   // unsent one is not something to chase. What matters before a shoot is
   // whether the crew is confirmed.
-  kind: "no_crew" | "unconfirmed_crew" | "weather_risk";
+  kind: "no_crew" | "unfilled_roles" | "unconfirmed_crew" | "weather_risk";
   projectId: Id<"projects">;
   projectName: string;
   shootDayId: Id<"shootDays">;
@@ -50,7 +50,10 @@ export const attention = query({
 
     // Crew is booked per project rather than per day, so it is resolved once
     // per project and reused across that project's shoot days.
-    const crewByProject = new Map<Id<"projects">, { total: number; confirmed: number }>();
+    const crewByProject = new Map<
+      Id<"projects">,
+      { total: number; unfilled: number; filled: number; confirmed: number }
+    >();
     async function crewFor(projectId: Id<"projects">) {
       const cached = crewByProject.get(projectId);
       if (cached) return cached;
@@ -58,10 +61,15 @@ export const attention = query({
         .query("projectCrew")
         .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .take(200);
+      // A role with nobody in it is a different problem from a booked person
+      // who has not confirmed, and only the filled ones can be confirmed.
+      const filledRows = rows.filter((r) => r.personId !== undefined);
       const counts = {
         total: rows.length,
+        unfilled: rows.length - filledRows.length,
+        filled: filledRows.length,
         // Bookings predating the status field read as pencilled.
-        confirmed: rows.filter((r) => r.status === "confirmed").length,
+        confirmed: filledRows.filter((r) => r.status === "confirmed").length,
       };
       crewByProject.set(projectId, counts);
       return counts;
@@ -80,13 +88,22 @@ export const attention = query({
       const crew = await crewFor(project._id);
       if (crew.total === 0) {
         items.push({ ...base, kind: "no_crew", label: "No crew on this project yet" });
-      } else if (crew.confirmed < crew.total) {
-        const outstanding = crew.total - crew.confirmed;
-        items.push({
-          ...base,
-          kind: "unconfirmed_crew",
-          label: `${outstanding} of ${crew.total} crew still to confirm`,
-        });
+      } else {
+        if (crew.unfilled > 0) {
+          items.push({
+            ...base,
+            kind: "unfilled_roles",
+            label: `${crew.unfilled} role${crew.unfilled === 1 ? "" : "s"} still to book`,
+          });
+        }
+        if (crew.filled > 0 && crew.confirmed < crew.filled) {
+          const outstanding = crew.filled - crew.confirmed;
+          items.push({
+            ...base,
+            kind: "unconfirmed_crew",
+            label: `${outstanding} of ${crew.filled} crew still to confirm`,
+          });
+        }
       }
 
       if (

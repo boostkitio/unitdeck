@@ -91,7 +91,9 @@ export default defineSchema({
   projectCrew: defineTable({
     orgId: v.id("organisations"),
     projectId: v.id("projects"),
-    personId: v.id("people"),
+    // Absent means the role is booked but nobody is in it yet — a reminder to
+    // find someone. `role` is then required, since nothing else names the row.
+    personId: v.optional(v.id("people")),
     // Role on this production. Absent means "use the person's default role".
     role: v.optional(v.string()),
     notes: v.optional(v.string()),

@@ -102,3 +102,61 @@ test("another org cannot see or touch a project's crew", async () => {
   expect(await asB.query(api.projectCrew.listForProject, { projectId: ids.project })).toEqual([]);
   await expect(asB.mutation(api.projectCrew.remove, { id: bookingId })).rejects.toThrow();
 });
+
+test("a role can be added with nobody in it, then filled", async () => {
+  const { ids, asA } = await setup();
+
+  const roleId = await asA.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    role: "Gaffer",
+  });
+
+  let crew = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
+  expect(crew).toHaveLength(1);
+  expect(crew[0]).toMatchObject({
+    personId: null,
+    name: null,
+    role: "Gaffer",
+    email: null,
+    phone: null,
+  });
+
+  await asA.mutation(api.projectCrew.assign, { id: roleId, personId: ids.person });
+
+  crew = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
+  expect(crew).toHaveLength(1);
+  // The role survives the booking — it is what the slot was created for.
+  expect(crew[0]).toMatchObject({ name: "Sam Reed", role: "Gaffer", email: "sam@example.test" });
+});
+
+test("a role with nobody in it needs a name", async () => {
+  const { ids, asA } = await setup();
+  await expect(
+    asA.mutation(api.projectCrew.add, { projectId: ids.project, role: "   " }),
+  ).rejects.toThrow(/Name the role/);
+  await expect(
+    asA.mutation(api.projectCrew.add, { projectId: ids.project }),
+  ).rejects.toThrow(/Name the role/);
+});
+
+test("filling a role cannot double-book someone already on the project", async () => {
+  const { ids, asA } = await setup();
+  await asA.mutation(api.projectCrew.add, { projectId: ids.project, personId: ids.person });
+  const roleId = await asA.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    role: "Gaffer",
+  });
+
+  await expect(
+    asA.mutation(api.projectCrew.assign, { id: roleId, personId: ids.person }),
+  ).rejects.toThrow(/already on this project/);
+});
+
+test("unfilled roles sort above booked crew", async () => {
+  const { ids, asA } = await setup();
+  await asA.mutation(api.projectCrew.add, { projectId: ids.project, personId: ids.person });
+  await asA.mutation(api.projectCrew.add, { projectId: ids.project, role: "Gaffer" });
+
+  const crew = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
+  expect(crew.map((m) => m.name)).toEqual([null, "Sam Reed"]);
+});
