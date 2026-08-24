@@ -95,6 +95,10 @@ export default defineSchema({
     // Role on this production. Absent means "use the person's default role".
     role: v.optional(v.string()),
     notes: v.optional(v.string()),
+    // Whether this booking is firm. Optional because bookings predate the
+    // field; absent reads as pencilled, so nothing is silently treated as
+    // confirmed that nobody has confirmed.
+    status: v.optional(v.union(v.literal("pencilled"), v.literal("confirmed"))),
   })
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"])

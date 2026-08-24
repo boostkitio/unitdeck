@@ -169,6 +169,7 @@ function LocationDialog({
     if (!name.trim() || name === location?.name) setName(s.name);
     setAddress(s.address);
     if (s.nearestHospital) setNearestHospital(s.nearestHospital);
+    if (s.nearestPoliceStation) setNearestPoliceStation(s.nearestPoliceStation);
     // The model's coordinates are only a rough estimate (often the town centre),
     // so discard them: the map geocodes the address via Google, and precise
     // lat/lng are resolved by the OpenStreetMap lookup on save.
@@ -312,6 +313,11 @@ function LocationDialog({
                   >
                     <span className="font-medium">{s.name}</span>
                     <span className="ml-1 text-muted-foreground">&mdash; {s.address}</span>
+                    {s.nearestPoliceStation && (
+                      <p className="text-xs text-muted-foreground">
+                        Nearest police station: {s.nearestPoliceStation}
+                      </p>
+                    )}
                     {s.nearestHospital && (
                       <span className="mt-0.5 block text-xs text-muted-foreground">
                         Nearest A&amp;E: {s.nearestHospital}

@@ -158,6 +158,7 @@ export type AddressSuggestion = {
   address: string;
   postcode: string | undefined;
   nearestHospital: string | undefined;
+  nearestPoliceStation: string | undefined;
   lat: number | undefined;
   lng: number | undefined;
 };
@@ -184,6 +185,7 @@ Reply with ONLY a JSON object in exactly this shape, no prose, no code fences:
       "address": "Full single-line or comma-separated UK postal address",
       "postcode": "UK postcode or null",
       "nearestHospital": "Name of nearest A&E or hospital or null",
+      "nearestPoliceStation": "Name of nearest police station or null",
       "lat": 51.5074,
       "lng": -0.1278
     }
@@ -195,6 +197,7 @@ Rules:
 - "address" must be a clean comma-separated address (no newlines), e.g. "1 Sample St, Soho, London W1A 1AA".
 - "name" is the venue or location name a production would use (e.g. "Pinewood Studios", "Twickenham Studios").
 - "nearestHospital" is the name of the nearest NHS A&E or major hospital (e.g. "Wexham Park Hospital"). Null if unknown.
+- "nearestPoliceStation" is the name of the nearest police station (e.g. "Slough Police Station"). Null if unknown.
 - "lat" and "lng" are your best-estimate decimal coordinates. Null if genuinely unsure.
 - "postcode" is the full UK postcode (e.g. "SL0 0NH"). Null if unavailable.
 - Return fewer than 4 results if you are unsure of the others. Never invent addresses.`;
@@ -221,6 +224,11 @@ Rules:
           nearestHospital:
             typeof item?.nearestHospital === "string" && item.nearestHospital.trim() !== ""
               ? item.nearestHospital.trim()
+              : undefined,
+          nearestPoliceStation:
+            typeof item?.nearestPoliceStation === "string" &&
+            item.nearestPoliceStation.trim() !== ""
+              ? item.nearestPoliceStation.trim()
               : undefined,
           lat: typeof item?.lat === "number" && isFinite(item.lat) ? item.lat : undefined,
           lng: typeof item?.lng === "number" && isFinite(item.lng) ? item.lng : undefined,

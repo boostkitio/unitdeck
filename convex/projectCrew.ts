@@ -3,6 +3,8 @@ import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { Doc, Id } from "./_generated/dataModel";
 
+export type CrewStatus = "pencilled" | "confirmed";
+
 export type ProjectCrewMember = {
   _id: Id<"projectCrew">;
   personId: Id<"people">;
@@ -12,7 +14,10 @@ export type ProjectCrewMember = {
   email: string | null;
   phone: string | null;
   notes: string | null;
+  status: CrewStatus;
 };
+
+const crewStatusValidator = v.union(v.literal("pencilled"), v.literal("confirmed"));
 
 /**
  * Crew booked onto a project, with contact details resolved from `people`.
@@ -44,6 +49,8 @@ export const listForProject = query({
         email: person.email ?? null,
         phone: person.phone ?? null,
         notes: booking.notes ?? null,
+        // Bookings made before the field existed are pencilled, not confirmed.
+        status: booking.status ?? "pencilled",
       });
     }
     members.sort((a, b) => a.name.localeCompare(b.name));
@@ -80,6 +87,7 @@ export const add = mutation({
       personId: args.personId,
       role: args.role?.trim() || undefined,
       notes: args.notes?.trim() || undefined,
+      status: "pencilled",
     });
   },
 });
@@ -89,6 +97,7 @@ export const update = mutation({
     id: v.id("projectCrew"),
     role: v.optional(v.union(v.string(), v.null())),
     notes: v.optional(v.union(v.string(), v.null())),
+    status: v.optional(crewStatusValidator),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -99,6 +108,7 @@ export const update = mutation({
     // null clears the override and falls back to the person's default role.
     if (args.role !== undefined) patch.role = args.role?.trim() || undefined;
     if (args.notes !== undefined) patch.notes = args.notes?.trim() || undefined;
+    if (args.status !== undefined) patch.status = args.status;
 
     await ctx.db.patch(args.id, patch);
     return null;

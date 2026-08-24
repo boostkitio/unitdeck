@@ -28,6 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
 
@@ -42,7 +43,21 @@ export function CrewSection({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ProjectCrewMember | null>(null);
   const [forwarding, setForwarding] = useState(false);
+
+  const outstanding = (crew ?? []).filter((m) => m.status !== "confirmed").length;
   const removeCrew = useMutation(api.projectCrew.remove);
+  const updateCrew = useMutation(api.projectCrew.update);
+
+  async function toggleStatus(member: ProjectCrewMember) {
+    try {
+      await updateCrew({
+        id: member._id,
+        status: member.status === "confirmed" ? "pencilled" : "confirmed",
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update them.");
+    }
+  }
 
   async function handleRemove(member: ProjectCrewMember) {
     try {
@@ -93,6 +108,7 @@ export function CrewSection({
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead className="w-32">Status</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead className="w-px" />
@@ -103,6 +119,21 @@ export function CrewSection({
                 <TableRow key={member._id}>
                   <TableCell className="font-medium">{member.name}</TableCell>
                   <TableCell className="text-muted-foreground">{member.role}</TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      onClick={() => void toggleStatus(member)}
+                      title="Click to change"
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
+                        member.status === "confirmed"
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                          : "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-300",
+                      )}
+                    >
+                      {member.status === "confirmed" ? "Confirmed" : "Pencilled"}
+                    </button>
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     <EmailLink email={member.email} />
                   </TableCell>
@@ -124,8 +155,13 @@ export function CrewSection({
             </TableBody>
           </Table>
         )}
-        {crew !== undefined && crew.length > 0 && (
+        {crew !== undefined && crew.length > 0 && outstanding > 0 && (
           <p className="mt-3 text-xs text-muted-foreground">
+            {outstanding} still to confirm — click a status to change it.
+          </p>
+        )}
+        {crew !== undefined && crew.length > 0 && (
+          <p className="mt-1 text-xs text-muted-foreground">
             Contact details come from your{" "}
             <Link href="/people" className="underline underline-offset-2">
               people

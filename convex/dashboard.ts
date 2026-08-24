@@ -5,15 +5,10 @@ import { needsAttention } from "./lib/projectStatus";
 import { Doc, Id } from "./_generated/dataModel";
 
 export type AttentionItem = {
-  kind:
-    | "call_sheet_not_sent"
-    | "unconfirmed_crew"
-    | "declined_crew"
-    | "failed_sends"
-    | "no_crew"
-    | "no_schedule"
-    | "no_locations"
-    | "weather_risk";
+  // Call-sheet-derived kinds are gone: call sheets are not in use, so an
+  // unsent one is not something to chase. What matters before a shoot is
+  // whether the crew is confirmed.
+  kind: "no_crew" | "unconfirmed_crew" | "weather_risk";
   projectId: Id<"projects">;
   projectName: string;
   shootDayId: Id<"shootDays">;
@@ -36,6 +31,7 @@ export const attention = query({
       .query("projects")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(200);
+
     // Archiving keeps the booking status, so an archived project can still be
     // "pencilled" — it must be excluded here or it produces attention items
     // for a production that no longer appears anywhere in the app.
@@ -52,6 +48,25 @@ export const attention = query({
       .take(500);
     const upcoming = days.filter((d) => byId.has(d.projectId));
 
+    // Crew is booked per project rather than per day, so it is resolved once
+    // per project and reused across that project's shoot days.
+    const crewByProject = new Map<Id<"projects">, { total: number; confirmed: number }>();
+    async function crewFor(projectId: Id<"projects">) {
+      const cached = crewByProject.get(projectId);
+      if (cached) return cached;
+      const rows = await ctx.db
+        .query("projectCrew")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .take(200);
+      const counts = {
+        total: rows.length,
+        // Bookings predating the status field read as pencilled.
+        confirmed: rows.filter((r) => r.status === "confirmed").length,
+      };
+      crewByProject.set(projectId, counts);
+      return counts;
+    }
+
     const items: AttentionItem[] = [];
     for (const day of upcoming) {
       const project = byId.get(day.projectId)!;
@@ -62,27 +77,18 @@ export const attention = query({
         date: day.date,
       };
 
-      const versions = await ctx.db
-        .query("callSheets")
-        .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", day._id))
-        .order("desc")
-        .take(20);
-      const sent = versions.find((s) => s.status === "sent") ?? null;
-      const latest = versions[0] ?? null;
-      const data = latest?.data;
+      const crew = await crewFor(project._id);
+      if (crew.total === 0) {
+        items.push({ ...base, kind: "no_crew", label: "No crew on this project yet" });
+      } else if (crew.confirmed < crew.total) {
+        const outstanding = crew.total - crew.confirmed;
+        items.push({
+          ...base,
+          kind: "unconfirmed_crew",
+          label: `${outstanding} of ${crew.total} crew still to confirm`,
+        });
+      }
 
-      if (!sent) {
-        items.push({ ...base, kind: "call_sheet_not_sent", label: "Call sheet not sent yet" });
-      }
-      if (data && data.crew.length === 0) {
-        items.push({ ...base, kind: "no_crew", label: "No crew on the call sheet" });
-      }
-      if (data && data.schedule.length === 0) {
-        items.push({ ...base, kind: "no_schedule", label: "No schedule blocks yet" });
-      }
-      if (data && data.locations.length === 0) {
-        items.push({ ...base, kind: "no_locations", label: "No locations attached" });
-      }
       if (
         day.weather?.precipitationProbability !== undefined &&
         day.weather.precipitationProbability >= 60
@@ -91,37 +97,6 @@ export const attention = query({
           ...base,
           kind: "weather_risk",
           label: `Weather risk: ${day.weather.summary}, ${day.weather.precipitationProbability}% rain`,
-        });
-      }
-
-      const recipients: Doc<"recipients">[] = await ctx.db
-        .query("recipients")
-        .withIndex("by_shoot_day", (q) => q.eq("shootDayId", day._id))
-        .take(200);
-      const unconfirmed = recipients.filter(
-        (r) => r.status === "sent" || r.status === "viewed" || r.status === "pending"
-      );
-      const declined = recipients.filter((r) => r.status === "declined");
-      const failed = recipients.filter((r) => r.status === "failed");
-      if (sent && unconfirmed.length > 0) {
-        items.push({
-          ...base,
-          kind: "unconfirmed_crew",
-          label: `${unconfirmed.length} of ${recipients.length} crew not confirmed`,
-        });
-      }
-      if (declined.length > 0) {
-        items.push({
-          ...base,
-          kind: "declined_crew",
-          label: `${declined.map((r) => r.name).join(", ")} declined`,
-        });
-      }
-      if (failed.length > 0) {
-        items.push({
-          ...base,
-          kind: "failed_sends",
-          label: `Email failed for ${failed.map((r) => r.name).join(", ")}`,
         });
       }
     }

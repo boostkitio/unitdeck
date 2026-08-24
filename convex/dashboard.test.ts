@@ -6,7 +6,7 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
-test("attention feed flags unsent sheets, unconfirmed crew and missing pieces", async () => {
+test("attention feed chases crew confirmation, not call sheets", async () => {
   const t = convexTest(schema, modules);
   const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const ids = await t.run(async (ctx) => {
@@ -14,7 +14,7 @@ test("attention feed flags unsent sheets, unconfirmed crew and missing pieces", 
     const projectA = await ctx.db.insert("projects", {
       orgId: orgA,
       name: "Brand film",
-      status: "pre_production",
+      status: "pencilled",
     });
     const dayA = await ctx.db.insert("shootDays", {
       orgId: orgA,
@@ -22,24 +22,65 @@ test("attention feed flags unsent sheets, unconfirmed crew and missing pieces", 
       date: future,
       locationIds: [],
     });
-    return { orgA, projectA, dayA };
+    const person = await ctx.db.insert("people", {
+      orgId: orgA,
+      name: "Sam Reed",
+      role: "Sound recordist",
+    });
+    return { orgA, projectA, dayA, person };
   });
   const asA = t.withIdentity({ subject: "user_a", org_id: "org_a" });
 
-  // Unsent draft: expect a "not sent" item plus missing-schedule/crew flags
-  await asA.mutation(api.callSheets.ensure, { shootDayId: ids.dayA });
+  // Nobody booked yet.
   let items = await asA.query(api.dashboard.attention, {});
-  expect(items.some((i) => i.kind === "call_sheet_not_sent")).toBe(true);
-  expect(items.some((i) => i.kind === "no_crew")).toBe(true);
+  expect(items.map((i) => i.kind)).toEqual(["no_crew"]);
 
-  // After sending, the unsent flag clears and unconfirmed appears
-  await asA.mutation(api.distribution.send, {
-    shootDayId: ids.dayA,
-    recipients: [{ name: "Sam", role: "Sound", email: "sam@example.test", callTime: "07:30" }],
+  // Booked but not confirmed.
+  const bookingId = await asA.mutation(api.projectCrew.add, {
+    projectId: ids.projectA,
+    personId: ids.person,
   });
   items = await asA.query(api.dashboard.attention, {});
-  expect(items.some((i) => i.kind === "call_sheet_not_sent")).toBe(false);
-  expect(items.some((i) => i.kind === "unconfirmed_crew")).toBe(true);
+  expect(items.map((i) => i.kind)).toEqual(["unconfirmed_crew"]);
+  expect(items[0].label).toBe("1 of 1 crew still to confirm");
+
+  // Confirmed: nothing left to chase.
+  await asA.mutation(api.projectCrew.update, { id: bookingId, status: "confirmed" });
+  items = await asA.query(api.dashboard.attention, {});
+  expect(items).toEqual([]);
+});
+
+test("an unsent call sheet is not something to chase", async () => {
+  const t = convexTest(schema, modules);
+  const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const ids = await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org D", clerkOrgId: "org_d" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "pencilled",
+    });
+    const day = await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: future,
+      locationIds: [],
+    });
+    const person = await ctx.db.insert("people", { orgId: org, name: "Sam", role: "Sound" });
+    return { project, day, person };
+  });
+  const asD = t.withIdentity({ subject: "user_d", org_id: "org_d" });
+
+  const bookingId = await asD.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    personId: ids.person,
+  });
+  await asD.mutation(api.projectCrew.update, { id: bookingId, status: "confirmed" });
+
+  // A draft call sheet exists and has never been sent; that is not a problem.
+  await asD.mutation(api.callSheets.ensure, { shootDayId: ids.day });
+  const items = await asD.query(api.dashboard.attention, {});
+  expect(items).toEqual([]);
 });
 
 test("a long shoot-day history cannot crowd upcoming days out of the dashboard", async () => {
@@ -67,7 +108,7 @@ test("a long shoot-day history cannot crowd upcoming days out of the dashboard",
   const asC = t.withIdentity({ subject: "user_c", org_id: "org_c" });
 
   const items = await asC.query(api.dashboard.attention, {});
-  expect(items.some((i) => i.date === future && i.kind === "call_sheet_not_sent")).toBe(true);
+  expect(items.some((i) => i.date === future && i.kind === "no_crew")).toBe(true);
 
   const week = await asC.query(api.dashboard.upcomingShootDays, {});
   expect(week.length).toBe(1);

@@ -189,9 +189,9 @@ export default function DashboardPage() {
                     </div>
                     <Link
                       className="shrink-0 text-xs text-primary underline underline-offset-2"
-                      href={`/projects/${item.projectId}/shoot-days/${item.shootDayId}/call-sheet`}
+                      href={`/projects/${item.projectId}`}
                     >
-                      Open call sheet
+                      Open project
                     </Link>
                   </li>
                 ))}
@@ -206,8 +206,8 @@ export default function DashboardPage() {
               </p>
             ) : (
               <p className="text-muted-foreground">
-                Nothing needs attention. Unbooked and pencilled shoot days with unsent call
-                sheets, unconfirmed crew or weather risk will appear here.
+                Nothing needs attention. Upcoming shoots with no crew booked, crew still to
+                confirm, or weather risk will appear here.
               </p>
             )}
           </CardContent>

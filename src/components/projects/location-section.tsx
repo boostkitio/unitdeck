@@ -115,8 +115,28 @@ export function LocationSection({
               )}
               {location.nearestHospital && (
                 <p className="text-muted-foreground">
-                  <span className="font-medium text-foreground">Nearest hospital:</span>{" "}
+                  <span className="font-medium text-foreground">Nearest A&amp;E:</span>{" "}
                   {location.nearestHospital}
+                </p>
+              )}
+              {location.nearestPoliceStation && (
+                <p className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Nearest police station:</span>{" "}
+                  {location.nearestPoliceStation}
+                </p>
+              )}
+              {(!location.nearestHospital || !location.nearestPoliceStation) && (
+                <p className="text-xs text-muted-foreground">
+                  {!location.nearestHospital && !location.nearestPoliceStation
+                    ? "No nearest A&E or police station recorded"
+                    : !location.nearestHospital
+                      ? "No nearest A&E recorded"
+                      : "No nearest police station recorded"}{" "}
+                  —{" "}
+                  <Link href="/locations" className="underline underline-offset-2">
+                    add it on the location
+                  </Link>
+                  .
                 </p>
               )}
               {query && (
@@ -180,6 +200,7 @@ function LocationPickerDialog({
   const [address, setAddress] = useState("");
   const [parkingNotes, setParkingNotes] = useState("");
   const [nearestHospital, setNearestHospital] = useState<string | undefined>();
+  const [nearestPoliceStation, setNearestPoliceStation] = useState<string | undefined>();
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   // Address lookup, the same one the locations page calls "Smart find".
@@ -205,6 +226,7 @@ function LocationPickerDialog({
     setName(suggestion.name);
     setAddress(suggestion.address);
     setNearestHospital(suggestion.nearestHospital);
+    setNearestPoliceStation(suggestion.nearestPoliceStation);
     setCoords(
       suggestion.lat !== undefined && suggestion.lng !== undefined
         ? { lat: suggestion.lat, lng: suggestion.lng }
@@ -252,6 +274,7 @@ function LocationPickerDialog({
         address,
         parkingNotes: parkingNotes.trim() || undefined,
         nearestHospital,
+        nearestPoliceStation,
         lat: coords?.lat,
         lng: coords?.lng,
       });
