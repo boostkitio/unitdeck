@@ -12,6 +12,9 @@ const equipmentFields = {
   notes: v.optional(v.string()),
 };
 
+/** Ceiling on how much inventory is read at once, for listing and matching. */
+const MAX_INVENTORY = 5000;
+
 /** Clears a field when null is passed, rather than treating null as a value. */
 const nullableText = v.optional(v.union(v.string(), v.null()));
 const nullableNumber = v.optional(v.union(v.number(), v.null()));
@@ -23,7 +26,7 @@ export const list = query({
     const rows = await ctx.db
       .query("equipment")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .take(1000);
+      .take(MAX_INVENTORY);
     return args.includeArchived ? rows : rows.filter((row) => !row.archived);
   },
 });
@@ -120,13 +123,30 @@ export const remove = mutation({
 const MAX_IMPORT_ROWS = 200;
 
 /**
+ * Placeholders people put in a serial column when there is no serial. Treating
+ * them as real values made every "N/A" row match every other one, so a file of
+ * fifty unserialised items collapsed into a single row that was overwritten
+ * forty-nine times.
+ */
+const SERIAL_PLACEHOLDERS = new Set(["", "-", "--", "n/a", "na", "n.a.", "none", "nil", "tbc", "tba", "unknown", "0"]);
+
+function realSerial(value: string | undefined): string | undefined {
+  const trimmed = value?.trim() ?? "";
+  return SERIAL_PLACEHOLDERS.has(trimmed.toLowerCase()) ? undefined : trimmed;
+}
+
+/**
  * Bulk insert from a parsed CSV. Rows without an item are skipped rather than
- * failing the batch.
+ * failing the batch, and the reasons come back so nothing disappears unsaid.
  *
  * Matching is on serial number when present, since that is what uniquely
  * identifies a physical piece of kit — two identical lenses share an item name
  * but not a serial. Rows without one always insert, because there is nothing
  * to match them on.
+ *
+ * A serial repeated *within one file* is not treated as a match: two lines
+ * someone typed are two pieces of kit, and collapsing them lost items with no
+ * way to tell. Only kit already in the inventory is updated.
  */
 export const importRows = mutation({
   args: {
@@ -142,7 +162,10 @@ export const importRows = mutation({
       })
     ),
   },
-  handler: async (ctx, args): Promise<{ created: number; updated: number; skipped: number }> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ created: number; updated: number; skipped: number; notes: string[] }> => {
     const { org } = await requireOrg(ctx);
     if (args.rows.length > MAX_IMPORT_ROWS) {
       throw new Error(`Import at most ${MAX_IMPORT_ROWS} rows at a time`);
@@ -151,46 +174,70 @@ export const importRows = mutation({
     const existing = await ctx.db
       .query("equipment")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .take(1000);
-    const bySerial = new Map(
-      existing
-        .filter((row) => row.serialNumber?.trim())
-        .map((row) => [row.serialNumber!.trim().toLowerCase(), row])
-    );
+      .take(MAX_INVENTORY);
+    const bySerial = new Map<string, (typeof existing)[number]>();
+    for (const row of existing) {
+      const serial = realSerial(row.serialNumber);
+      // First wins, so an earlier row is never silently replaced as the key.
+      if (serial && !bySerial.has(serial.toLowerCase())) {
+        bySerial.set(serial.toLowerCase(), row);
+      }
+    }
 
     let created = 0;
     let updated = 0;
-    let skipped = 0;
+    let unnamed = 0;
+    let restored = 0;
+    const matchedThisFile = new Set<string>();
 
     for (const row of args.rows) {
       const item = row.item.trim();
       if (item.length === 0) {
-        skipped++;
+        unnamed++;
         continue;
       }
-      const serial = row.serialNumber?.trim();
+      const serial = realSerial(row.serialNumber);
       const fields = {
         item,
         dept: row.dept?.trim() || undefined,
-        serialNumber: serial || undefined,
+        serialNumber: serial,
         weightKg: row.weightKg,
         valueNew: row.valueNew,
         valueCurrent: row.valueCurrent,
         countryOfManufacture: row.countryOfManufacture?.trim() || undefined,
       };
 
-      const match = serial ? bySerial.get(serial.toLowerCase()) : undefined;
+      const key = serial?.toLowerCase();
+      // Only match kit that was already in the inventory before this file, and
+      // only once — a second line with the same serial is a second item.
+      const match = key && !matchedThisFile.has(key) ? bySerial.get(key) : undefined;
       if (match) {
-        await ctx.db.patch(match._id, fields);
+        matchedThisFile.add(key!);
+        // An item that had been deleted comes back rather than being updated
+        // into a row that stays hidden from the list.
+        if (match.archived) restored++;
+        await ctx.db.patch(match._id, { ...fields, archived: false });
         updated++;
       } else {
-        const id = await ctx.db.insert("equipment", { orgId: org._id, ...fields });
-        // Keep the map current so duplicate serials in one file collapse too.
-        if (serial) bySerial.set(serial.toLowerCase(), (await ctx.db.get(id))!);
+        await ctx.db.insert("equipment", { orgId: org._id, ...fields });
         created++;
       }
     }
 
-    return { created, updated, skipped };
+    const notes: string[] = [];
+    if (unnamed > 0) {
+      notes.push(`${unnamed} row${unnamed === 1 ? "" : "s"} had no item name and were not imported.`);
+    }
+    if (updated > 0) {
+      notes.push(`${updated} matched kit already in your inventory by serial number and were updated rather than added.`);
+    }
+    if (restored > 0) {
+      notes.push(`${restored} of those had been deleted and are back on the list.`);
+    }
+    if (existing.length >= MAX_INVENTORY) {
+      notes.push(`Only the first ${MAX_INVENTORY} items were checked for a serial match.`);
+    }
+
+    return { created, updated, skipped: unnamed, notes };
   },
 });

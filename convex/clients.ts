@@ -86,7 +86,10 @@ export const importRows = mutation({
       })
     ),
   },
-  handler: async (ctx, args): Promise<{ created: number; updated: number; skipped: number }> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ created: number; updated: number; skipped: number; notes: string[] }> => {
     const { org } = await requireOrg(ctx);
     if (args.rows.length > MAX_IMPORT_ROWS) {
       throw new Error(`Import at most ${MAX_IMPORT_ROWS} rows at a time`);
@@ -100,12 +103,12 @@ export const importRows = mutation({
 
     let created = 0;
     let updated = 0;
-    let skipped = 0;
+    let unnamed = 0;
 
     for (const row of args.rows) {
       const name = row.name.trim();
       if (name.length === 0) {
-        skipped++;
+        unnamed++;
         continue;
       }
       const fields = {
@@ -126,7 +129,15 @@ export const importRows = mutation({
       }
     }
 
-    return { created, updated, skipped };
+    const notes: string[] = [];
+    if (unnamed > 0) {
+      notes.push(`${unnamed} row${unnamed === 1 ? "" : "s"} had no name and were not imported.`);
+    }
+    if (updated > 0) {
+      notes.push(`${updated} matched a client already on the list by name and were updated rather than added.`);
+    }
+
+    return { created, updated, skipped: unnamed, notes };
   },
 });
 

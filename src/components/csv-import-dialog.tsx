@@ -22,7 +22,13 @@ export type CsvColumnSpec = {
   required?: boolean;
 };
 
-export type ImportOutcome = { created: number; updated: number; skipped: number };
+export type ImportOutcome = {
+  created: number;
+  updated: number;
+  skipped: number;
+  /** What the server did that the counts alone do not explain. */
+  notes?: string[];
+};
 
 // Matches the row cap on the import mutations.
 const BATCH_SIZE = 200;
@@ -48,6 +54,7 @@ export function CsvImportDialog({
   const [fileName, setFileName] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<ImportOutcome | null>(null);
 
   // Values typed in the review panel, and rows the user has chosen to drop,
   // both keyed by position in the file.
@@ -119,6 +126,7 @@ export function CsvImportDialog({
     setOverrides({});
     setDropped([]);
     setReviewing(false);
+    setResult(null);
     file
       .text()
       .then((text) => {
@@ -162,20 +170,28 @@ export function CsvImportDialog({
     if (readyIndexes.length === 0) return;
     setImporting(true);
     try {
-      const totals: ImportOutcome = { created: 0, updated: 0, skipped: 0 };
+      const totals: ImportOutcome = { created: 0, updated: 0, skipped: 0, notes: [] };
       // Sent in batches so a large file stays inside the mutation's row cap.
       for (const chunk of batch(readyIndexes.map((i) => rows[i]), BATCH_SIZE)) {
-        const result = await onImportBatch(chunk);
-        totals.created += result.created;
-        totals.updated += result.updated;
-        totals.skipped += result.skipped;
+        const outcome = await onImportBatch(chunk);
+        totals.created += outcome.created;
+        totals.updated += outcome.updated;
+        totals.skipped += outcome.skipped;
+        for (const note of outcome.notes ?? []) {
+          if (!totals.notes!.includes(note)) totals.notes!.push(note);
+        }
       }
-      const parts = [`${totals.created} added`];
-      if (totals.updated > 0) parts.push(`${totals.updated} updated`);
+
       const left = totals.skipped + blockedIndexes.length + dropped.length;
-      if (left > 0) parts.push(`${left} not imported`);
-      toast.success(`Import finished: ${parts.join(", ")}.`);
-      onClose();
+      // A clean import closes. Anything else stays open and says what
+      // happened, because a count that does not match the file is exactly
+      // what people need to see.
+      if (left === 0 && totals.updated === 0 && (totals.notes?.length ?? 0) === 0) {
+        toast.success(`Import finished: ${totals.created} added.`);
+        onClose();
+        return;
+      }
+      setResult(totals);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Import failed.");
     } finally {
@@ -218,6 +234,20 @@ export function CsvImportDialog({
           </div>
 
           {parseError && <p className="text-sm text-destructive">{parseError}</p>}
+
+          {/* Problems with the file itself, before any row is even considered. */}
+          {table !== null && table.issues.length > 0 && (
+            <div className="rounded-md border border-amber-400/50 bg-amber-50 p-3 dark:border-amber-500/30 dark:bg-amber-950/30">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                Check this file
+              </p>
+              <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-amber-900/90 dark:text-amber-200/80">
+                {table.issues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {table !== null && (
             <div className="min-w-0 space-y-3">
@@ -348,9 +378,33 @@ export function CsvImportDialog({
           )}
         </div>
 
+        {result && (
+          <div className="rounded-md border border-border bg-muted/40 p-3">
+            <p className="text-sm font-medium">
+              {result.created} added
+              {result.updated > 0 && `, ${result.updated} updated`}
+              {result.skipped + blockedIndexes.length + dropped.length > 0 &&
+                `, ${result.skipped + blockedIndexes.length + dropped.length} not imported`}
+            </p>
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+              {(result.notes ?? []).map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+              {blockedIndexes.length > 0 && (
+                <li>
+                  {blockedIndexes.length} row
+                  {blockedIndexes.length === 1 ? "" : "s"} still had no {missingLabel}. They are
+                  listed above and can be filled in and imported now.
+                </li>
+              )}
+              {dropped.length > 0 && <li>{dropped.length} you chose to skip.</li>}
+            </ul>
+          </div>
+        )}
+
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {result ? "Done" : "Cancel"}
           </Button>
           <Button onClick={handleImport} disabled={importing || readyIndexes.length === 0}>
             {importing ? "Importing…" : `Import ${readyIndexes.length || ""}`.trim()}

@@ -13,18 +13,24 @@ export function parseCsv(text: string): string[][] {
 
   // Strip a UTF-8 BOM, which Excel writes and which would otherwise become
   // part of the first header name.
-  const input = text.replace(/^﻿/, "");
+  const input = text.replace(/^\ufeff/, "");
 
   for (let i = 0; i < input.length; i++) {
     const char = input[i];
 
     if (inQuotes) {
       if (char === '"') {
-        if (input[i + 1] === '"') {
+        const next = input[i + 1];
+        if (next === '"') {
           cell += '"';
           i++;
-        } else {
+        } else if (next === undefined || next === "," || next === "\n" || next === "\r") {
+          // A closing quote is followed by the end of the field. Anything
+          // else and this is a stray quote inside the value, so keep it
+          // rather than ending the field early.
           inQuotes = false;
+        } else {
+          cell += '"';
         }
       } else {
         cell += char;
@@ -32,7 +38,11 @@ export function parseCsv(text: string): string[][] {
       continue;
     }
 
-    if (char === '"') {
+    // A quote only opens a quoted field at the start of one. Anywhere else it
+    // is a literal character — an inch mark in `24" monitor`, a foot mark in a
+    // cable length. Treating those as opening a quoted field swallowed every
+    // row after them into a single cell.
+    if (char === '"' && cell.length === 0) {
       inQuotes = true;
     } else if (char === ",") {
       row.push(cell);
@@ -78,23 +88,58 @@ export type CsvTable = {
   headers: string[];
   /** One record per data row, keyed by normalised heading. */
   records: Record<string, string>[];
+  /**
+   * Anything about the file worth saying out loud before importing it. Empty
+   * for a clean file. These are the cases where rows or values used to go
+   * missing without explanation.
+   */
+  issues: string[];
 };
 
-/** Like parseCsvRecords, but keeps the original headings for column matching. */
+/** Like parseCsvRecords, but keeps the original headings and reports problems. */
 export function parseCsvTable(text: string): CsvTable {
   const rows = parseCsv(text);
-  if (rows.length < 2) return { headers: rows[0] ?? [], records: [] };
+  if (rows.length < 2) return { headers: rows[0] ?? [], records: [], issues: [] };
+
   const headers = rows[0];
   const keys = headers.map(normaliseHeader);
+  const issues: string[] = [];
+
+  // A repeated heading used to overwrite the earlier column silently. Keep the
+  // first and say which one is being ignored.
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  keys.forEach((key, i) => {
+    if (key.length === 0) return;
+    if (seen.has(key)) duplicates.push(headers[i]);
+    else seen.add(key);
+  });
+  if (duplicates.length > 0) {
+    issues.push(
+      `Two columns are headed the same thing (${[...new Set(duplicates)].join(", ")}). Only the first of each is read.`,
+    );
+  }
+
   const records = rows.slice(1).map((cells) => {
     const record: Record<string, string> = {};
     keys.forEach((key, i) => {
       if (key.length === 0) return;
+      if (record[key] !== undefined) return;
       record[key] = (cells[i] ?? "").trim();
     });
     return record;
   });
-  return { headers, records };
+
+  // More values than headings means the file does not line up — usually an
+  // unescaped comma or quote — and the surplus has nowhere to go.
+  const ragged = rows.slice(1).filter((cells) => cells.length > headers.length).length;
+  if (ragged > 0) {
+    issues.push(
+      `${ragged} row${ragged === 1 ? " has" : "s have"} more values than there are columns, so the extra values are ignored. Check for a stray comma or quote.`,
+    );
+  }
+
+  return { headers, records, issues };
 }
 
 /** Words of a heading, for comparing "Value when new" with "New value (£)". */

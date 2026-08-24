@@ -39,6 +39,7 @@ export const add = mutation({
   args: {
     projectId: v.id("projects"),
     item: v.string(),
+    dept: v.optional(v.string()),
     quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
     section: v.optional(sectionValidator),
@@ -60,6 +61,7 @@ export const add = mutation({
       orgId: org._id,
       projectId: args.projectId,
       item: args.item.trim(),
+      dept: args.dept?.trim() || undefined,
       quantity: args.quantity,
       notes: args.notes?.trim() || undefined,
       status: args.status ?? (section === "equipment" ? "confirmed" : "needed"),
@@ -72,6 +74,7 @@ export const update = mutation({
   args: {
     id: v.id("projectEquipment"),
     item: v.optional(v.string()),
+    dept: v.optional(v.union(v.string(), v.null())),
     quantity: v.optional(v.union(v.number(), v.null())),
     notes: v.optional(v.union(v.string(), v.null())),
     status: v.optional(statusValidator),
@@ -87,6 +90,7 @@ export const update = mutation({
       if (args.item.trim().length === 0) throw new Error("Name the equipment");
       patch.item = args.item.trim();
     }
+    if (args.dept !== undefined) patch.dept = args.dept?.trim() || undefined;
     if (args.quantity !== undefined) {
       if (args.quantity !== null && (!Number.isFinite(args.quantity) || args.quantity < 1)) {
         throw new Error("Quantity must be at least 1");

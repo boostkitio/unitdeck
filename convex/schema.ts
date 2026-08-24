@@ -137,6 +137,9 @@ export default defineSchema({
     orgId: v.id("organisations"),
     projectId: v.id("projects"),
     item: v.string(),
+    // Camera, Lighting, Sound, Grip… copied from the inventory when the kit
+    // comes from there, typed by hand when it does not.
+    dept: v.optional(v.string()),
     quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
     status: v.union(v.literal("needed"), v.literal("confirmed")),

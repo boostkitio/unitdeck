@@ -177,10 +177,14 @@ export const applyToProject = mutation({
       .take(200);
 
     for (const row of rows) {
+      // Take the department from the inventory when the line points at kit we
+      // own, so the project's list can be read and sorted by department.
+      const kit = row.equipmentId ? await ctx.db.get(row.equipmentId) : null;
       await ctx.db.insert("projectEquipment", {
         orgId: org._id,
         projectId: args.projectId,
         item: row.item,
+        dept: kit?.orgId === org._id ? kit.dept : undefined,
         quantity: row.quantity,
         notes: `From ${pkg.name}`,
         status: "confirmed",

@@ -34,10 +34,12 @@ import Link from "next/link";
 // The query fills the section in for older rows, so it is always present here.
 type EquipmentRow = Omit<Doc<"projectEquipment">, "section"> & { section: SectionKey };
 
-type EquipmentSortKey = "item" | "quantity" | "status" | "notes";
+type EquipmentSortKey = "dept" | "item" | "quantity" | "status" | "notes";
 
 function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | number | null {
   switch (key) {
+    case "dept":
+      return row.dept ?? null;
     case "item":
       return row.item;
     case "quantity":
@@ -190,6 +192,13 @@ function EquipmentList({
             <Table>
               <TableHeader>
                 <TableRow>
+                  <SortableHead
+                    label="Dept"
+                    sortKey="dept"
+                    sort={sort}
+                    onSort={toggle}
+                    className="w-32"
+                  />
                   <SortableHead label="Item" sortKey="item" sort={sort} onSort={toggle} />
                   <SortableHead
                     label="Qty"
@@ -212,6 +221,9 @@ function EquipmentList({
               <TableBody>
                 {sorted.map((row) => (
                   <TableRow key={row._id}>
+                    <TableCell className="truncate text-muted-foreground">
+                      {row.dept ?? "·"}
+                    </TableCell>
                     <TableCell className="font-medium">{row.item}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {row.quantity ?? "·"}
@@ -276,6 +288,7 @@ function EquipmentDialog({
   const update = useMutation(api.projectEquipment.update);
 
   const [item, setItem] = useState(row?.item ?? "");
+  const [dept, setDept] = useState(row?.dept ?? "");
   const [quantity, setQuantity] = useState(row?.quantity !== undefined ? String(row.quantity) : "");
   const [notes, setNotes] = useState(row?.notes ?? "");
   const [list, setList] = useState<SectionKey>(section);
@@ -299,6 +312,7 @@ function EquipmentDialog({
         await update({
           id: row._id,
           item,
+          dept: dept.trim() || null,
           quantity: parsedQuantity,
           notes: notes.trim() || null,
           section: list,
@@ -308,6 +322,7 @@ function EquipmentDialog({
         await add({
           projectId,
           item,
+          dept: dept.trim() || undefined,
           quantity: parsedQuantity ?? undefined,
           notes: notes.trim() || undefined,
           section: list,
@@ -337,6 +352,15 @@ function EquipmentDialog({
               onChange={(e) => setItem(e.target.value)}
               placeholder="Ronin gimbal, 2x 1.2k HMI, walkie set…"
               autoFocus
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="equipment-dept">Department (optional)</Label>
+            <Input
+              id="equipment-dept"
+              value={dept}
+              onChange={(e) => setDept(e.target.value)}
+              placeholder="Camera, Lighting, Sound, Grip…"
             />
           </div>
           <div className="space-y-2">

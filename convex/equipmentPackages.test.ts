@@ -65,6 +65,31 @@ test("applying a package copies its contents onto the project", async () => {
   expect(kit.every((row) => row.section === "equipment")).toBe(true);
 });
 
+test("kit from the inventory brings its department onto the project", async () => {
+  const { t, ids, asA } = await setup();
+  const equipmentId = await t.run(async (ctx) => {
+    const project = (await ctx.db.get(ids.project))!;
+    return await ctx.db.insert("equipment", {
+      orgId: project.orgId,
+      item: "Sony FX9",
+      dept: "Camera",
+    });
+  });
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, equipmentId });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "1.2k HMI" });
+
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+
+  const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(kit.find((row) => row.item === "Sony FX9")?.dept).toBe("Camera");
+  // A hired-in line has no inventory record to take a department from.
+  expect(kit.find((row) => row.item === "1.2k HMI")?.dept).toBeUndefined();
+});
+
 test("a package with two of the same item lists both", async () => {
   const { ids, asA } = await setup();
   const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
