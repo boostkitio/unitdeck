@@ -301,7 +301,7 @@ function AddCrewDialog({
 
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-x-hidden overflow-y-auto">
+      <DialogContent className="max-h-[85vh] w-full max-w-xl overflow-y-auto sm:p-5">
         <DialogHeader>
           <DialogTitle>Add crew to this project</DialogTitle>
         </DialogHeader>

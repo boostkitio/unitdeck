@@ -165,7 +165,6 @@ function LocationDialog({
   const [nearestHospital, setNearestHospital] = useState(location?.nearestHospital ?? "");
   const [satNav, setSatNav] = useState(location?.satNav ?? "");
   const [nearestStation, setNearestStation] = useState(location?.nearestStation ?? "");
-  const [publicTransport, setPublicTransport] = useState(location?.publicTransport ?? "");
   const [nearestPoliceStation, setNearestPoliceStation] = useState(
     location?.nearestPoliceStation ?? ""
   );
@@ -223,7 +222,6 @@ function LocationDialog({
         nearestHospital: nearestHospital || undefined,
         satNav: satNav || undefined,
         nearestStation: nearestStation || undefined,
-        publicTransport: publicTransport || undefined,
         nearestPoliceStation: nearestPoliceStation || undefined,
         lat,
         lng,
@@ -246,7 +244,6 @@ function LocationDialog({
             r.nearestHospital && "nearest A&E",
             r.nearestPoliceStation && "police station",
             r.nearestStation && "nearest station",
-            r.publicTransport && "public transport",
             r.w3w && "what3words",
           ].filter(Boolean);
           // Say so either way: a silent no-op looks identical to a failure.
@@ -476,15 +473,6 @@ function LocationDialog({
               value={nearestStation}
               onChange={(e) => setNearestStation(e.target.value)}
               placeholder="White City (Central line), 6 min walk"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="loc-transport">Public transport</Label>
-            <Input
-              id="loc-transport"
-              value={publicTransport}
-              onChange={(e) => setPublicTransport(e.target.value)}
-              placeholder="Buses 72 and 272 stop on Wood Lane"
             />
           </div>
         </div>
