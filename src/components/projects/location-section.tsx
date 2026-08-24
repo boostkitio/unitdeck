@@ -44,7 +44,9 @@ export function LocationSection({
   location: Doc<"locations"> | null;
 }) {
   const [picking, setPicking] = useState(false);
+  const [looking, setLooking] = useState(false);
   const updateProject = useMutation(api.projects.update);
+  const lookupSafetyInfo = useAction(api.locations.lookupSafetyInfo);
 
   // Prefer coordinates when the location has been geocoded: a lat/lng drops the
   // pin exactly, where a free-text address can land on the wrong side of town.
@@ -126,18 +128,39 @@ export function LocationSection({
                 </p>
               )}
               {(!location.nearestHospital || !location.nearestPoliceStation) && (
-                <p className="text-xs text-muted-foreground">
-                  {!location.nearestHospital && !location.nearestPoliceStation
-                    ? "No nearest A&E or police station recorded"
-                    : !location.nearestHospital
-                      ? "No nearest A&E recorded"
-                      : "No nearest police station recorded"}{" "}
-                  —{" "}
-                  <Link href="/locations" className="underline underline-offset-2">
-                    add it on the location
-                  </Link>
-                  .
-                </p>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    {!location.nearestHospital && !location.nearestPoliceStation
+                      ? "No nearest A&E or police station recorded yet."
+                      : !location.nearestHospital
+                        ? "No nearest A&E recorded yet."
+                        : "No nearest police station recorded yet."}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={looking}
+                    onClick={async () => {
+                      setLooking(true);
+                      try {
+                        const result = await lookupSafetyInfo({ id: location._id });
+                        if (result.nearestHospital || result.nearestPoliceStation) {
+                          toast.success("Looked up the nearest A&E and police station.");
+                        } else {
+                          toast.info("Could not find them for that address — add them by hand.");
+                        }
+                      } catch (err) {
+                        toast.error(
+                          err instanceof Error ? err.message : "Could not look that up.",
+                        );
+                      } finally {
+                        setLooking(false);
+                      }
+                    }}
+                  >
+                    {looking ? "Looking up…" : "Look up nearest A&E and police station"}
+                  </Button>
+                </div>
               )}
               {query && (
                 <a
@@ -191,6 +214,7 @@ function LocationPickerDialog({
   const updateProject = useMutation(api.projects.update);
   const createLocation = useMutation(api.locations.create);
   const geocode = useAction(api.locations.geocode);
+  const lookupSafetyInfo = useAction(api.locations.lookupSafetyInfo);
 
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const [search, setSearch] = useState("");
@@ -284,6 +308,9 @@ function LocationPickerDialog({
       // geocode fills the gap when it did not. Failure is not fatal — the map
       // falls back to the address.
       if (!coords) void geocode({ id: locationId }).catch(() => undefined);
+      // Fills the nearest A&E and police station from the address. Only blank
+      // fields are touched, so a picked suggestion's values survive.
+      void lookupSafetyInfo({ id: locationId }).catch(() => undefined);
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add the location.");

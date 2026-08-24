@@ -22,36 +22,58 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchInput } from "@/components/search-input";
 import { matchesSearch } from "@/lib/search";
+import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 
 type LocationDoc = Doc<"locations">;
+
+type LocationSortKey = "name" | "address" | "parking" | "coords";
+
+function locationSortValue(l: LocationDoc, key: LocationSortKey): string | number | null {
+  switch (key) {
+    case "name":
+      return l.name;
+    case "address":
+      return l.address;
+    case "parking":
+      return l.parkingNotes ?? null;
+    case "coords":
+      // Un-geocoded locations sort to the bottom rather than clustering at 0,0.
+      return l.lat ?? null;
+  }
+}
 
 export default function LocationsPage() {
   const { organization } = useOrganization();
   const locations = useQuery(api.locations.list, organization ? {} : "skip");
   const [editing, setEditing] = useState<LocationDoc | "new" | null>(null);
   const [search, setSearch] = useState("");
+  const { sort, toggle } = useTableSort<LocationSortKey>({ key: "name", dir: "asc" });
 
   const visible = useMemo(
     () =>
-      (locations ?? []).filter((l) =>
-        matchesSearch(search, [
-          l.name,
-          l.address,
-          l.w3w,
-          l.parkingNotes,
-          l.accessNotes,
-          l.nearestHospital,
-          l.notes,
-        ]),
+      sortRows(
+        (locations ?? []).filter((l) =>
+          matchesSearch(search, [
+            l.name,
+            l.address,
+            l.w3w,
+            l.parkingNotes,
+            l.accessNotes,
+            l.nearestHospital,
+            l.nearestPoliceStation,
+            l.notes,
+          ]),
+        ),
+        sort,
+        locationSortValue,
       ),
-    [locations, search],
+    [locations, search, sort],
   );
 
   return (
@@ -83,10 +105,15 @@ export default function LocationsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>Parking</TableHead>
-                <TableHead>Coordinates</TableHead>
+                <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
+                <SortableHead label="Address" sortKey="address" sort={sort} onSort={toggle} />
+                <SortableHead label="Parking" sortKey="parking" sort={sort} onSort={toggle} />
+                <SortableHead
+                  label="Coordinates"
+                  sortKey="coords"
+                  sort={sort}
+                  onSort={toggle}
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -128,6 +155,7 @@ function LocationDialog({
   const updateLocation = useMutation(api.locations.update);
   const archiveLocation = useMutation(api.locations.archive);
   const geocode = useAction(api.locations.geocode);
+  const lookupSafetyInfo = useAction(api.locations.lookupSafetyInfo);
   const suggestAddress = useAction(api.locations.suggestAddress);
 
   const [name, setName] = useState(location?.name ?? "");
@@ -213,6 +241,21 @@ function LocationDialog({
       void geocode({ id }).then((r) => {
         if (r && !r.found) toast.info("Could not find coordinates for that address.");
       });
+      // Fill the nearest A&E and police station from the address when either
+      // is still blank. The action only patches blank fields, so anything
+      // typed here is safe.
+      if (!nearestHospital.trim() || !nearestPoliceStation.trim()) {
+        void lookupSafetyInfo({ id })
+          .then((r) => {
+            // Say so either way: a silent no-op looks identical to a failure.
+            if (r.nearestHospital || r.nearestPoliceStation) {
+              toast.success("Filled in the nearest A&E and police station.");
+            } else {
+              toast.info("Could not find the nearest A&E or police station for that address.");
+            }
+          })
+          .catch(() => undefined);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save.");
     } finally {

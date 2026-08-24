@@ -28,9 +28,28 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { cn } from "@/lib/utils";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
+
+type CrewSortKey = "name" | "role" | "status" | "email" | "phone";
+
+function crewSortValue(member: ProjectCrewMember, key: CrewSortKey): string | number | null {
+  switch (key) {
+    case "name":
+      return member.name;
+    case "role":
+      return member.role;
+    case "status":
+      // Still-to-confirm first when ascending, which is the order that matters.
+      return member.status === "confirmed" ? 1 : 0;
+    case "email":
+      return member.email;
+    case "phone":
+      return member.phone;
+  }
+}
 
 export function CrewSection({
   projectId,
@@ -45,6 +64,8 @@ export function CrewSection({
   const [forwarding, setForwarding] = useState(false);
 
   const outstanding = (crew ?? []).filter((m) => m.status !== "confirmed").length;
+  const { sort, toggle } = useTableSort<CrewSortKey>({ key: "name", dir: "asc" });
+  const sortedCrew = useMemo(() => sortRows(crew ?? [], sort, crewSortValue), [crew, sort]);
   const removeCrew = useMutation(api.projectCrew.remove);
   const updateCrew = useMutation(api.projectCrew.update);
 
@@ -106,16 +127,22 @@ export function CrewSection({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead className="w-32">Status</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
+                <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
+                <SortableHead label="Role" sortKey="role" sort={sort} onSort={toggle} />
+                <SortableHead
+                  label="Status"
+                  sortKey="status"
+                  sort={sort}
+                  onSort={toggle}
+                  className="w-32"
+                />
+                <SortableHead label="Email" sortKey="email" sort={sort} onSort={toggle} />
+                <SortableHead label="Phone" sortKey="phone" sort={sort} onSort={toggle} />
                 <TableHead className="w-px" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {crew.map((member) => (
+              {sortedCrew.map((member) => (
                 <TableRow key={member._id}>
                   <TableCell className="font-medium">{member.name}</TableCell>
                   <TableCell className="text-muted-foreground">{member.role}</TableCell>

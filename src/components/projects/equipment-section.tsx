@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
@@ -26,9 +26,26 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { cn } from "@/lib/utils";
 
 type EquipmentRow = Doc<"projectEquipment">;
+
+type EquipmentSortKey = "item" | "quantity" | "status" | "notes";
+
+function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | number | null {
+  switch (key) {
+    case "item":
+      return row.item;
+    case "quantity":
+      return row.quantity ?? null;
+    case "status":
+      // Still-needed first when ascending, which is the order that matters.
+      return row.status === "confirmed" ? 1 : 0;
+    case "notes":
+      return row.notes ?? null;
+  }
+}
 
 export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
   const equipment = useQuery(api.projectEquipment.listForProject, { projectId });
@@ -59,6 +76,11 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
   }
 
   const outstanding = (equipment ?? []).filter((row) => row.status === "needed").length;
+  const { sort, toggle } = useTableSort<EquipmentSortKey>({ key: "item", dir: "asc" });
+  const sortedEquipment = useMemo(
+    () => sortRows(equipment ?? [], sort, equipmentSortValue),
+    [equipment, sort],
+  );
 
   return (
     <Card className="mt-12">
@@ -85,15 +107,27 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="w-20 text-right">Qty</TableHead>
-                  <TableHead className="w-32">Status</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <SortableHead label="Item" sortKey="item" sort={sort} onSort={toggle} />
+                  <SortableHead
+                    label="Qty"
+                    sortKey="quantity"
+                    sort={sort}
+                    onSort={toggle}
+                    className="w-20 text-right"
+                  />
+                  <SortableHead
+                    label="Status"
+                    sortKey="status"
+                    sort={sort}
+                    onSort={toggle}
+                    className="w-32"
+                  />
+                  <SortableHead label="Notes" sortKey="notes" sort={sort} onSort={toggle} />
                   <TableHead className="w-px" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {equipment.map((row) => (
+                {sortedEquipment.map((row) => (
                   <TableRow key={row._id}>
                     <TableCell className="font-medium">{row.item}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">

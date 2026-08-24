@@ -150,6 +150,86 @@ export const geocode = action({
   },
 });
 
+export const saveSafetyInfo = internalMutation({
+  args: {
+    id: v.id("locations"),
+    nearestHospital: v.optional(v.string()),
+    nearestPoliceStation: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const location = await ctx.db.get(args.id);
+    if (!location || location.orgId !== org._id) throw new Error("Location not found");
+
+    // Never overwrite something a human typed: only fill what is blank.
+    const patch: Record<string, unknown> = {};
+    if (args.nearestHospital && !location.nearestHospital?.trim()) {
+      patch.nearestHospital = args.nearestHospital;
+    }
+    if (args.nearestPoliceStation && !location.nearestPoliceStation?.trim()) {
+      patch.nearestPoliceStation = args.nearestPoliceStation;
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(args.id, patch);
+    return null;
+  },
+});
+
+/**
+ * Fills in the nearest A&E and police station for a location's address.
+ *
+ * Run automatically after a location is saved, and available as an explicit
+ * action from the UI. Only blank fields are filled, so a hand-typed entry is
+ * never overwritten.
+ */
+export const lookupSafetyInfo = action({
+  args: { id: v.id("locations") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ nearestHospital?: string; nearestPoliceStation?: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const location = await ctx.runQuery(internal.locations.getForGeocode, { id: args.id });
+    if (!location) throw new Error("Location not found");
+    if (location.address.trim().length === 0) return {};
+
+    const system = `You are a UK location assistant for a film and TV production management tool.
+Given a UK address, name the nearest NHS A&E or major hospital and the nearest police station.
+
+Reply with ONLY a JSON object in exactly this shape, no prose, no code fences:
+{
+  "nearestHospital": "Name of nearest A&E or hospital, or null",
+  "nearestPoliceStation": "Name of nearest police station, or null"
+}
+
+Rules:
+- Give the commonly used name, e.g. "Wexham Park Hospital", "Slough Police Station".
+- Use null when you are not confident. Never invent a name.`;
+
+    const raw = await chatJson({
+      system,
+      user: `${location.name}\n${location.address}`,
+      model: AI_MODEL_FAST,
+    });
+    const obj = raw as Record<string, unknown>;
+    const text = (value: unknown): string | undefined =>
+      typeof value === "string" && value.trim() !== "" && value.trim().toLowerCase() !== "null"
+        ? value.trim()
+        : undefined;
+
+    const nearestHospital = text(obj?.nearestHospital);
+    const nearestPoliceStation = text(obj?.nearestPoliceStation);
+    if (nearestHospital || nearestPoliceStation) {
+      await ctx.runMutation(internal.locations.saveSafetyInfo, {
+        id: args.id,
+        nearestHospital,
+        nearestPoliceStation,
+      });
+    }
+    return { nearestHospital, nearestPoliceStation };
+  },
+});
+
 /**
  * Shape returned to the frontend for each address suggestion.
  */
