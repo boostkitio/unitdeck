@@ -90,6 +90,9 @@ export function PackagesView() {
                     <ul className="space-y-0.5 text-sm">
                       {pkg.items.slice(0, 6).map((item) => (
                         <li key={item._id} className="truncate text-muted-foreground">
+                          {item.dept && (
+                            <span className="text-xs uppercase">{item.dept} · </span>
+                          )}
                           {item.quantity ? `${item.quantity} × ` : ""}
                           {item.item}
                         </li>
@@ -296,7 +299,10 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
 
         <div className="grid min-h-0 gap-6 overflow-hidden py-2 md:grid-cols-2">
           <div className="flex min-h-0 flex-col space-y-2">
-            <Label>In this package</Label>
+            <div className="flex items-baseline justify-between gap-2">
+              <Label>In this package</Label>
+              <span className="text-xs text-muted-foreground">Dept · Item</span>
+            </div>
             {pkg.items.length === 0 ? (
               <p className="flex-1 rounded-md border border-border px-3 py-6 text-center text-sm text-muted-foreground">
                 Nothing in it yet.
@@ -308,12 +314,17 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
                     key={item._id}
                     className="flex min-w-0 items-center justify-between gap-2 px-3 py-2"
                   >
-                    <span className="min-w-0 truncate text-sm">
-                      {item.quantity ? `${item.quantity} × ` : ""}
-                      {item.item}
-                      {item.equipmentId === null && (
-                        <span className="ml-1.5 text-xs text-muted-foreground">(hired in)</span>
-                      )}
+                    <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                      <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
+                        {item.dept ?? "·"}
+                      </span>
+                      <span className="min-w-0 truncate text-sm">
+                        {item.quantity ? `${item.quantity} × ` : ""}
+                        {item.item}
+                        {item.equipmentId === null && (
+                          <span className="ml-1.5 text-xs text-muted-foreground">(hired in)</span>
+                        )}
+                      </span>
                     </span>
                     <Button
                       variant="ghost"
@@ -449,7 +460,12 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="sm:justify-between">
+          {/* Say it plainly: this window edits live productions, not a template. */}
+          <p className="text-xs text-muted-foreground">
+            Changes here reach every current project using this package. Projects you have
+            archived keep the kit list they went out with.
+          </p>
           <Button onClick={onClose}>Done</Button>
         </DialogFooter>
       </DialogContent>

@@ -127,7 +127,10 @@ test("applying twice lists the kit twice rather than swallowing the second run",
   ).toHaveLength(2);
 });
 
-test("editing a package afterwards does not rewrite a project's kit list", async () => {
+test("a project's package kit follows the package it came from", async () => {
+  // This replaces an earlier test asserting the opposite. The kit list used to
+  // be a snapshot; a package is a live definition of a setup, so a change to
+  // it is meant to reach the productions using it.
   const { ids, asA } = await setup();
   const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
   const itemId = await asA.mutation(api.equipmentPackages.addItem, {
@@ -139,10 +142,9 @@ test("editing a package afterwards does not rewrite a project's kit list", async
     projectId: ids.project,
   });
 
-  // The project's list is a copy, not a live link.
   await asA.mutation(api.equipmentPackages.removeItem, { id: itemId });
   const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
-  expect(kit.map((row) => row.item)).toEqual(["Sony FX9"]);
+  expect(kit).toEqual([]);
 });
 
 test("deleting a package takes its contents with it", async () => {
@@ -173,4 +175,112 @@ test("another org cannot read a package or apply it", async () => {
       projectId: ids.project,
     }),
   ).rejects.toThrow(/Package not found/);
+});
+
+test("adding kit to a package adds it to the projects carrying that package", async () => {
+  const { ids, asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Sony FX9" });
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Tripod" });
+
+  const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(kit.map((row) => row.item).sort()).toEqual(["Sony FX9", "Tripod"]);
+  expect(kit.find((row) => row.item === "Tripod")?.status).toBe("confirmed");
+});
+
+test("removing kit from a package removes it from those projects", async () => {
+  const { ids, asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  const itemId = await asA.mutation(api.equipmentPackages.addItem, {
+    packageId: pkgId,
+    item: "Sony FX9",
+  });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Tripod" });
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+
+  await asA.mutation(api.equipmentPackages.removeItem, { id: itemId });
+
+  const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(kit.map((row) => row.item)).toEqual(["Tripod"]);
+});
+
+test("renaming a package updates where its kit says it came from", async () => {
+  const { ids, asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Sony FX9" });
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+
+  await asA.mutation(api.equipmentPackages.update, { id: pkgId, name: "A-cam package" });
+
+  const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(kit[0].notes).toBe("From A-cam package");
+});
+
+test("an archived project keeps the kit list it went out with", async () => {
+  const { t, ids, asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  const itemId = await asA.mutation(api.equipmentPackages.addItem, {
+    packageId: pkgId,
+    item: "Sony FX9",
+  });
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+  await t.run(async (ctx) => await ctx.db.patch(ids.project, { archived: true }));
+
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Tripod" });
+  await asA.mutation(api.equipmentPackages.removeItem, { id: itemId });
+
+  // The record of what actually went out is not rewritten after the fact.
+  const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(kit.map((row) => row.item)).toEqual(["Sony FX9"]);
+});
+
+test("deleting a package leaves the kit on projects but cuts the link", async () => {
+  const { t, ids, asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Sony FX9" });
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+
+  await asA.mutation(api.equipmentPackages.remove, { id: pkgId });
+
+  const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(kit.map((row) => row.item)).toEqual(["Sony FX9"]);
+  const raw = await t.run(async (ctx) => await ctx.db.query("projectEquipment").collect());
+  expect(raw[0].packageId).toBeUndefined();
+  expect(raw[0].packageItemId).toBeUndefined();
+});
+
+test("a package change does not touch kit added to a project by hand", async () => {
+  const { ids, asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  const itemId = await asA.mutation(api.equipmentPackages.addItem, {
+    packageId: pkgId,
+    item: "Sony FX9",
+  });
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "1.2k HMI" });
+
+  await asA.mutation(api.equipmentPackages.removeItem, { id: itemId });
+
+  const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(kit.map((row) => row.item)).toEqual(["1.2k HMI"]);
 });

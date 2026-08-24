@@ -149,9 +149,17 @@ export default defineSchema({
     // the split — those read as "additional", which is the list they were
     // already showing in.
     section: v.optional(v.union(v.literal("equipment"), v.literal("additional"))),
+    // Where this line came from, when it came from a package. Keeping the link
+    // is what lets a change to the package reach the productions using it.
+    // Absent on anything added by hand, and on rows written before packages
+    // were linked.
+    packageId: v.optional(v.id("equipmentPackages")),
+    packageItemId: v.optional(v.id("equipmentPackageItems")),
   })
     .index("by_org", ["orgId"])
-    .index("by_project", ["projectId"]),
+    .index("by_project", ["projectId"])
+    .index("by_package", ["packageId"])
+    .index("by_package_item", ["packageItemId"]),
 
   // The org's own kit inventory. Distinct from projectEquipment, which is what
   // a given production still needs to source.

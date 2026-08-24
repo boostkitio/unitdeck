@@ -1,12 +1,14 @@
-import { mutation, query } from "./_generated/server";
+import { MutationCtx, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 
 export type PackageItem = {
   _id: Id<"equipmentPackageItems">;
   equipmentId: Id<"equipment"> | null;
   item: string;
+  /** Read live from the inventory, so it follows the kit rather than going stale. */
+  dept: string | null;
   quantity: number | null;
 };
 
@@ -33,22 +35,74 @@ export const list = query({
         .query("equipmentPackageItems")
         .withIndex("by_package", (q) => q.eq("packageId", pkg._id))
         .take(200);
+      const items: PackageItem[] = [];
+      for (const row of rows) {
+        const kit = row.equipmentId ? await ctx.db.get(row.equipmentId) : null;
+        items.push({
+          _id: row._id,
+          equipmentId: row.equipmentId ?? null,
+          item: row.item,
+          dept: (kit?.orgId === org._id ? kit.dept : undefined) ?? null,
+          quantity: row.quantity ?? null,
+        });
+      }
       result.push({
         _id: pkg._id,
         name: pkg.name,
         notes: pkg.notes ?? null,
-        items: rows.map((row) => ({
-          _id: row._id,
-          equipmentId: row.equipmentId ?? null,
-          item: row.item,
-          quantity: row.quantity ?? null,
-        })),
+        items,
       });
     }
     result.sort((a, b) => a.name.localeCompare(b.name));
     return result;
   },
 });
+
+/**
+ * The productions currently carrying this package, found from the rows it
+ * wrote. Archived projects are left alone: a job that has already been and
+ * gone is a record of what went out, and rewriting its kit list would make
+ * that record wrong.
+ */
+async function projectsUsingPackage(
+  ctx: MutationCtx,
+  packageId: Id<"equipmentPackages">,
+): Promise<Id<"projects">[]> {
+  const rows = await ctx.db
+    .query("projectEquipment")
+    .withIndex("by_package", (q) => q.eq("packageId", packageId))
+    .take(2000);
+
+  const seen = new Set<string>();
+  const projects: Id<"projects">[] = [];
+  for (const row of rows) {
+    if (seen.has(row.projectId)) continue;
+    seen.add(row.projectId);
+    const project = await ctx.db.get(row.projectId);
+    if (project && !project.archived) projects.push(row.projectId);
+  }
+  return projects;
+}
+
+/** The line a package item becomes on a project. */
+async function projectRowFor(
+  ctx: MutationCtx,
+  orgId: Id<"organisations">,
+  item: Doc<"equipmentPackageItems">,
+  packageName: string,
+) {
+  const kit = item.equipmentId ? await ctx.db.get(item.equipmentId) : null;
+  return {
+    orgId,
+    item: item.item,
+    dept: kit?.orgId === orgId ? kit.dept : undefined,
+    quantity: item.quantity,
+    notes: `From ${packageName}`,
+    section: "equipment" as const,
+    packageId: item.packageId,
+    packageItemId: item._id,
+  };
+}
 
 export const create = mutation({
   args: { name: v.string(), notes: v.optional(v.string()) },
@@ -81,6 +135,18 @@ export const update = mutation({
     }
     if (args.notes !== undefined) patch.notes = args.notes?.trim() || undefined;
     await ctx.db.patch(args.id, patch);
+
+    // The name is stamped on every line the package put on a project, so a
+    // rename has to reach them or they keep citing a package that is gone.
+    if (typeof patch.name === "string") {
+      const rows = await ctx.db
+        .query("projectEquipment")
+        .withIndex("by_package", (q) => q.eq("packageId", args.id))
+        .take(2000);
+      for (const row of rows) {
+        await ctx.db.patch(row._id, { notes: `From ${patch.name as string}` });
+      }
+    }
     return null;
   },
 });
@@ -91,6 +157,17 @@ export const remove = mutation({
     const { org } = await requireOrg(ctx);
     const pkg = await ctx.db.get(args.id);
     if (!pkg || pkg.orgId !== org._id) throw new Error("Package not found");
+
+    // Kit already on a project stays on it — deleting a package is tidying the
+    // template, not stripping a production's list — but the link goes, so
+    // nothing later tries to follow it.
+    const onProjects = await ctx.db
+      .query("projectEquipment")
+      .withIndex("by_package", (q) => q.eq("packageId", args.id))
+      .take(2000);
+    for (const row of onProjects) {
+      await ctx.db.patch(row._id, { packageId: undefined, packageItemId: undefined });
+    }
 
     // The contents go with it — they exist only as part of this package, and
     // orphaned rows would linger invisibly.
@@ -128,13 +205,24 @@ export const addItem = mutation({
     }
     if (item.length === 0) throw new Error("Name the item");
 
-    return await ctx.db.insert("equipmentPackageItems", {
+    const itemId = await ctx.db.insert("equipmentPackageItems", {
       orgId: org._id,
       packageId: args.packageId,
       equipmentId: args.equipmentId,
       item,
       quantity: args.quantity,
     });
+
+    // Adding to the package adds to the productions carrying it.
+    const inserted = (await ctx.db.get(itemId))!;
+    for (const projectId of await projectsUsingPackage(ctx, args.packageId)) {
+      await ctx.db.insert("projectEquipment", {
+        ...(await projectRowFor(ctx, org._id, inserted, pkg.name)),
+        projectId,
+        status: "confirmed",
+      });
+    }
+    return itemId;
   },
 });
 
@@ -144,6 +232,18 @@ export const removeItem = mutation({
     const { org } = await requireOrg(ctx);
     const row = await ctx.db.get(args.id);
     if (!row || row.orgId !== org._id) throw new Error("Item not found");
+
+    // Taking kit out of the package takes it off the productions carrying it.
+    const onProjects = await ctx.db
+      .query("projectEquipment")
+      .withIndex("by_package_item", (q) => q.eq("packageItemId", args.id))
+      .take(2000);
+    for (const projectRow of onProjects) {
+      const project = await ctx.db.get(projectRow.projectId);
+      if (project?.archived) continue;
+      await ctx.db.delete(projectRow._id);
+    }
+
     await ctx.db.delete(args.id);
     return null;
   },
@@ -159,8 +259,9 @@ export const removeItem = mutation({
  * They arrive confirmed — this is kit you own and have just committed to the
  * job, not something still to be chased.
  *
- * Rows are copied, not linked: editing the package later must not rewrite a
- * production's kit list.
+ * Each line keeps a link back to the package item it came from, so later
+ * changes to the package reach the productions carrying it. Archived projects
+ * are excluded from that: their kit list is a record of what went out.
  */
 export const applyToProject = mutation({
   args: { packageId: v.id("equipmentPackages"), projectId: v.id("projects") },
@@ -177,18 +278,10 @@ export const applyToProject = mutation({
       .take(200);
 
     for (const row of rows) {
-      // Take the department from the inventory when the line points at kit we
-      // own, so the project's list can be read and sorted by department.
-      const kit = row.equipmentId ? await ctx.db.get(row.equipmentId) : null;
       await ctx.db.insert("projectEquipment", {
-        orgId: org._id,
+        ...(await projectRowFor(ctx, org._id, row, pkg.name)),
         projectId: args.projectId,
-        item: row.item,
-        dept: kit?.orgId === org._id ? kit.dept : undefined,
-        quantity: row.quantity,
-        notes: `From ${pkg.name}`,
         status: "confirmed",
-        section: "equipment",
       });
     }
 
