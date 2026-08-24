@@ -1,14 +1,14 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
 import { Doc, Id } from "../../../../../convex/_generated/dataModel";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,19 +28,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  PROJECT_STATUSES,
-  ProjectStatus,
-  statusBadgeClass,
-  statusLabel,
-} from "@/lib/project-status";
-import { formatShootDateRange } from "@/lib/format-date";
-import { ShootDaysSection } from "./shoot-days";
+import { PROJECT_STATUSES, ProjectStatus } from "@/lib/project-status";
+import { ShootDatesEditor } from "@/components/projects/shoot-dates-editor";
+import { LocationSection } from "@/components/projects/location-section";
 import { CrewSection } from "@/components/projects/crew-section";
 import { DocumentsSection } from "@/components/documents/documents-section";
 import { CallSheetSection } from "@/components/projects/call-sheet-section";
 
-type ProjectWithClient = Doc<"projects"> & { clientName: string | null };
+type ProjectWithRelations = Doc<"projects"> & {
+  clientName: string | null;
+  location: Doc<"locations"> | null;
+};
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -69,21 +67,15 @@ function ProjectEditor({
   project,
   clients,
 }: {
-  project: ProjectWithClient;
+  project: ProjectWithRelations;
   clients: Doc<"clients">[];
 }) {
   const router = useRouter();
   const updateProject = useMutation(api.projects.update);
   const archiveProject = useMutation(api.projects.archive);
-  const shootDays = useQuery(api.shootDays.listForProject, { projectId: project._id });
 
   const [name, setName] = useState(project.name);
   const [briefSummary, setBriefSummary] = useState(project.briefSummary ?? "");
-
-  const shootDateRange = useMemo(
-    () => (shootDays ? formatShootDateRange(shootDays.map((d) => d.date)) : null),
-    [shootDays],
-  );
 
   async function save(patch: {
     name?: string;
@@ -100,57 +92,30 @@ function ProjectEditor({
   }
 
   return (
-    <div>
-      {/* Summary header: name with the shoot dates alongside it, then client,
-          brief and status stacked underneath. */}
-      <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0">
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">{project.name}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {project.clientName ?? "No client assigned"}
-          </p>
-          {project.briefSummary ? (
-            <p className="mt-2 max-w-2xl text-sm text-foreground/80">{project.briefSummary}</p>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">No brief summary yet.</p>
-          )}
-          <div className="mt-3">
-            <Badge variant="secondary" className={statusBadgeClass(project.status)}>
-              {statusLabel(project.status)}
-            </Badge>
-          </div>
-        </div>
-
-        <div className="shrink-0 text-right">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Shoot dates
-          </p>
-          {shootDays === undefined ? (
-            <Skeleton className="mt-1 h-5 w-40" />
-          ) : (
-            <p className="mt-1 text-sm font-medium">
-              {shootDateRange ?? <span className="text-muted-foreground">None scheduled</span>}
-            </p>
-          )}
-          <div className="mt-3">
-            <ArchiveDialog
-              onArchive={async () => {
-                await archiveProject({ id: project._id });
-                toast.success("Project archived.");
-                router.push("/projects");
-              }}
-            />
-          </div>
-        </div>
+    <div className="pb-8">
+      {/* Title with the shoot dates alongside it */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+          {project.name}
+        </h1>
+        <ShootDatesEditor projectId={project._id} />
       </div>
 
-      <details className="mt-6 rounded-lg border border-border">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Edit details</summary>
-        <div className="max-w-xl space-y-6 border-t border-border px-4 py-5">
+      {/* Everything editable in place — no disclosure to open first */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Details</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
             <div className="flex gap-2">
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="max-w-md"
+              />
               <Button
                 variant="secondary"
                 onClick={() => save({ name })}
@@ -171,7 +136,7 @@ function ProjectEditor({
                 })
               }
             >
-              <SelectTrigger className="w-56">
+              <SelectTrigger className="w-64">
                 {/* Explicit label: Base UI shows the raw value when items mount late */}
                 <SelectValue>
                   {project.clientId
@@ -197,6 +162,7 @@ function ProjectEditor({
               value={briefSummary}
               onChange={(e) => setBriefSummary(e.target.value)}
               rows={5}
+              className="max-w-2xl"
             />
             <Button
               variant="secondary"
@@ -215,7 +181,7 @@ function ProjectEditor({
                 if (value !== null) void save({ status: value as ProjectStatus });
               }}
             >
-              <SelectTrigger className="w-56">
+              <SelectTrigger className="w-64">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -227,13 +193,24 @@ function ProjectEditor({
               </SelectContent>
             </Select>
           </div>
-        </div>
-      </details>
+        </CardContent>
+      </Card>
 
-      <ShootDaysSection projectId={project._id} />
-      <CrewSection projectId={project._id} />
+      <LocationSection projectId={project._id} location={project.location} />
+      <CrewSection projectId={project._id} projectName={project.name} />
       <DocumentsSection projectId={project._id} />
       <CallSheetSection projectId={project._id} />
+
+      {/* Destructive action, deliberately last */}
+      <div className="mt-16 border-t border-border pt-6">
+        <ArchiveDialog
+          onArchive={async () => {
+            await archiveProject({ id: project._id });
+            toast.success("Project archived.");
+            router.push("/projects");
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -245,8 +222,8 @@ function ArchiveDialog({ onArchive }: { onArchive: () => Promise<void> }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="outline" size="sm">
-            Archive
+          <Button variant="destructive" size="sm">
+            Archive project
           </Button>
         }
       />

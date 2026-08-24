@@ -87,6 +87,77 @@ export const update = mutation({
   },
 });
 
+// One transaction's worth. Larger files are sent in successive batches.
+const MAX_IMPORT_ROWS = 200;
+
+/**
+ * Bulk insert from a parsed CSV. Rows missing a name are skipped rather than
+ * failing the batch. Matching an existing person by name updates them instead
+ * of inserting a duplicate, so re-importing a corrected file is safe.
+ */
+export const importRows = mutation({
+  args: {
+    rows: v.array(
+      v.object({
+        name: v.string(),
+        role: v.optional(v.string()),
+        email: v.optional(v.string()),
+        phone: v.optional(v.string()),
+        notes: v.optional(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args): Promise<{ created: number; updated: number; skipped: number }> => {
+    const { org } = await requireOrg(ctx);
+    if (args.rows.length > MAX_IMPORT_ROWS) {
+      throw new Error(`Import at most ${MAX_IMPORT_ROWS} rows at a time`);
+    }
+
+    const existing = await ctx.db
+      .query("people")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(1000);
+    const byName = new Map(existing.map((person) => [person.name.trim().toLowerCase(), person]));
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of args.rows) {
+      const name = row.name.trim();
+      if (name.length === 0) {
+        skipped++;
+        continue;
+      }
+      const fields = {
+        email: row.email?.trim() || undefined,
+        phone: row.phone?.trim() || undefined,
+        notes: row.notes?.trim() || undefined,
+      };
+      const match = byName.get(name.toLowerCase());
+      if (match) {
+        await ctx.db.patch(match._id, {
+          ...fields,
+          // Role is required on the table, so a blank column keeps the old one.
+          role: row.role?.trim() || match.role,
+        });
+        updated++;
+      } else {
+        const id = await ctx.db.insert("people", {
+          orgId: org._id,
+          name,
+          role: row.role?.trim() || "Crew",
+          ...fields,
+        });
+        byName.set(name.toLowerCase(), (await ctx.db.get(id))!);
+        created++;
+      }
+    }
+
+    return { created, updated, skipped };
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id("people") },
   handler: async (ctx, args) => {

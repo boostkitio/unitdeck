@@ -29,6 +29,7 @@ import type * as locations from "../locations.js";
 import type * as organisations from "../organisations.js";
 import type * as people from "../people.js";
 import type * as projectCrew from "../projectCrew.js";
+import type * as projectFiles from "../projectFiles.js";
 import type * as projects from "../projects.js";
 import type * as setMode from "../setMode.js";
 import type * as shootDays from "../shootDays.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   organisations: typeof organisations;
   people: typeof people;
   projectCrew: typeof projectCrew;
+  projectFiles: typeof projectFiles;
   projects: typeof projects;
   setMode: typeof setMode;
   shootDays: typeof shootDays;

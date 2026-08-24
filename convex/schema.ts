@@ -29,7 +29,12 @@ export default defineSchema({
 
   clients: defineTable({
     orgId: v.id("organisations"),
+    // The company. Existing rows were created when this was the only field.
     name: v.string(),
+    // Primary contact at that company.
+    contactName: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
     notes: v.optional(v.string()),
     archived: v.optional(v.boolean()),
   }).index("by_org", ["orgId"]),
@@ -62,6 +67,9 @@ export default defineSchema({
       v.literal("archived")
     ),
     briefSummary: v.optional(v.string()),
+    // Where the production is based. Individual shoot days can still carry
+    // their own locations for call sheets; this is the project-level one.
+    locationId: v.optional(v.id("locations")),
   })
     .index("by_org", ["orgId"])
     .index("by_org_and_status", ["orgId", "status"]),
@@ -80,6 +88,30 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"])
     .index("by_project_and_person", ["projectId", "personId"]),
+
+  // Any file attached to a production: releases, risk assessments, creative.
+  // Deliberately separate from `documents`, which is the e-signature flow with
+  // its own structured data and signer; these are plain uploads.
+  projectFiles: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.id("projects"),
+    title: v.string(),
+    kind: v.union(
+      v.literal("talent_release"),
+      v.literal("location_release"),
+      v.literal("risk_assessment"),
+      v.literal("creative"),
+      v.literal("other")
+    ),
+    fileId: v.id("_storage"),
+    fileName: v.string(),
+    contentType: v.optional(v.string()),
+    size: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    uploadedBy: v.optional(v.string()), // Clerk subject
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"]),
 
   locations: defineTable({
     orgId: v.id("organisations"),

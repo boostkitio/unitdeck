@@ -120,6 +120,105 @@ export const remove = mutation({
   },
 });
 
+// A production can be long, but a typo like 2026 -> 2062 should not create
+// tens of thousands of rows.
+const MAX_RANGE_DAYS = 366;
+
+/**
+ * Inclusive list of "YYYY-MM-DD" between two dates. Walked in UTC so the day
+ * count never shifts with the server's timezone or a daylight-saving boundary.
+ */
+function datesBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  const cursor = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  while (cursor <= end) {
+    out.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return out;
+}
+
+/** True when something hangs off this day that deleting it would destroy. */
+async function dayHasRecords(ctx: MutationCtx, day: Doc<"shootDays">): Promise<boolean> {
+  if (day.wrapNotes !== undefined && day.wrapNotes.trim().length > 0) return true;
+  const sheets = await ctx.db
+    .query("callSheets")
+    .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", day._id))
+    .take(1);
+  if (sheets.length > 0) return true;
+  const recipients = await ctx.db
+    .query("recipients")
+    .withIndex("by_shoot_day", (q) => q.eq("shootDayId", day._id))
+    .take(1);
+  return recipients.length > 0;
+}
+
+/**
+ * Reconciles a project's shoot days to a date range, both ends inclusive.
+ * Missing days inside the range are created; days outside it are removed.
+ *
+ * A day carrying a call sheet, crew recipients or wrap notes is never deleted
+ * — that is the record of a shoot that actually happened. Those days are kept
+ * and returned in `kept` so the UI can say what it declined to remove.
+ */
+export const setRange = mutation({
+  args: {
+    projectId: v.id("projects"),
+    from: v.string(),
+    to: v.string(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ created: number; removed: number; kept: string[] }> => {
+    const { org } = await requireProject(ctx, args.projectId);
+    if (!DATE_RE.test(args.from) || !DATE_RE.test(args.to)) {
+      throw new Error("Dates must be YYYY-MM-DD");
+    }
+    if (args.from > args.to) throw new Error("The start date must not be after the end date");
+
+    const wanted = datesBetween(args.from, args.to);
+    if (wanted.length > MAX_RANGE_DAYS) {
+      throw new Error(`A shoot range covers at most ${MAX_RANGE_DAYS} days`);
+    }
+
+    const existing = await ctx.db
+      .query("shootDays")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(500);
+    const existingDates = new Set(existing.map((d) => d.date));
+
+    let created = 0;
+    for (const date of wanted) {
+      if (existingDates.has(date)) continue;
+      await ctx.db.insert("shootDays", {
+        orgId: org._id,
+        projectId: args.projectId,
+        date,
+        locationIds: [],
+      });
+      created++;
+    }
+
+    const wantedDates = new Set(wanted);
+    let removed = 0;
+    const kept: string[] = [];
+    for (const day of existing) {
+      if (wantedDates.has(day.date)) continue;
+      if (await dayHasRecords(ctx, day)) {
+        kept.push(day.date);
+        continue;
+      }
+      await ctx.db.delete(day._id);
+      removed++;
+    }
+    kept.sort();
+
+    return { created, removed, kept };
+  },
+});
+
 export const getForWeather = internalQuery({
   args: { id: v.id("shootDays") },
   handler: async (ctx, args) => {

@@ -25,6 +25,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CsvImportDialog, type CsvColumnSpec } from "@/components/csv-import-dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 type PersonForm = {
   name: string;
@@ -33,9 +35,26 @@ type PersonForm = {
   phone: string;
   dayRate: string;
   dietary: string;
+  notes: string;
 };
 
-const EMPTY_FORM: PersonForm = { name: "", role: "", email: "", phone: "", dayRate: "", dietary: "" };
+const EMPTY_FORM: PersonForm = {
+  name: "",
+  role: "",
+  email: "",
+  phone: "",
+  dayRate: "",
+  dietary: "",
+  notes: "",
+};
+
+const IMPORT_COLUMNS: CsvColumnSpec[] = [
+  { key: "name", label: "Name", aliases: ["Full Name", "Contact"], required: true },
+  { key: "role", label: "Role", aliases: ["Job", "Job Role", "Position", "Department"] },
+  { key: "email", label: "Email", aliases: ["E-mail", "Email Address"] },
+  { key: "phone", label: "Phone", aliases: ["Number", "Telephone", "Mobile", "Tel"] },
+  { key: "notes", label: "Notes", aliases: ["Comment", "Comments"] },
+];
 
 export default function PeoplePage() {
   const { organization } = useOrganization();
@@ -44,7 +63,9 @@ export default function PeoplePage() {
   const updatePerson = useMutation(api.people.update);
   const removePerson = useMutation(api.people.remove);
 
+  const importRows = useMutation(api.people.importRows);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<Doc<"people"> | null>(null);
   const [form, setForm] = useState<PersonForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -64,6 +85,7 @@ export default function PeoplePage() {
       phone: person.phone ?? "",
       dayRate: person.dayRate?.toString() ?? "",
       dietary: person.dietary ?? "",
+      notes: person.notes ?? "",
     });
     setDialogOpen(true);
   }
@@ -89,6 +111,7 @@ export default function PeoplePage() {
           phone: form.phone,
           dayRate: dayRate ?? null,
           dietary: form.dietary,
+          notes: form.notes,
         });
         toast.success("Saved.");
       } else {
@@ -99,6 +122,7 @@ export default function PeoplePage() {
           phone: form.phone.trim() || undefined,
           dayRate,
           dietary: form.dietary.trim() || undefined,
+          notes: form.notes.trim() || undefined,
         });
         toast.success("Person added.");
       }
@@ -129,7 +153,12 @@ export default function PeoplePage() {
             Crew, freelancers and contacts. Your company memory.
           </p>
         </div>
-        <Button onClick={openCreate}>Add person</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => setImportOpen(true)}>
+            Import CSV
+          </Button>
+          <Button onClick={openCreate}>Add person</Button>
+        </div>
       </div>
 
       <div className="mt-6">
@@ -153,6 +182,7 @@ export default function PeoplePage() {
                     <TableHead>Role</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Phone</TableHead>
+                    <TableHead>Notes</TableHead>
                     <TableHead className="text-right">Day rate</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -167,6 +197,9 @@ export default function PeoplePage() {
                       <TableCell className="text-muted-foreground">{p.role}</TableCell>
                       <TableCell className="text-muted-foreground">{p.email ?? ""}</TableCell>
                       <TableCell className="text-muted-foreground">{p.phone ?? ""}</TableCell>
+                      <TableCell className="max-w-xs truncate text-muted-foreground">
+                        {p.notes ?? ""}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {p.dayRate !== undefined ? `£${p.dayRate}` : ""}
                       </TableCell>
@@ -217,6 +250,27 @@ export default function PeoplePage() {
           </>
         )}
       </div>
+
+      {importOpen && (
+        <CsvImportDialog
+          title="Import people from CSV"
+          description="Every row becomes a contact. A row whose name already exists updates that person rather than creating a duplicate, so you can safely re-import a corrected file. A blank role defaults to \u201cCrew\u201d."
+          columns={IMPORT_COLUMNS}
+          exampleHeader="Name,Role,Email,Phone,Notes"
+          onImportBatch={(rows) =>
+            importRows({
+              rows: rows.map((row) => ({
+                name: row.name ?? "",
+                role: row.role,
+                email: row.email,
+                phone: row.phone,
+                notes: row.notes,
+              })),
+            })
+          }
+          onClose={() => setImportOpen(false)}
+        />
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
@@ -276,6 +330,15 @@ export default function PeoplePage() {
                 onChange={(e) => setForm({ ...form, dietary: e.target.value })}
               />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="person-notes">Notes</Label>
+            <Textarea
+              id="person-notes"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={3}
+            />
           </div>
           <DialogFooter className="flex items-center justify-between sm:justify-between">
             {editing ? (

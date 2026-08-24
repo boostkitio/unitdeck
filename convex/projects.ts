@@ -64,11 +64,13 @@ export const get = query({
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.id);
     if (!project || project.orgId !== org._id) return null;
+    const location = project.locationId ? await ctx.db.get(project.locationId) : null;
     return {
       ...project,
       clientName: project.clientId
         ? ((await ctx.db.get(project.clientId))?.name ?? null)
         : null,
+      location,
     };
   },
 });
@@ -103,6 +105,7 @@ export const update = mutation({
     clientId: v.optional(v.union(v.id("clients"), v.null())),
     status: v.optional(statusValidator),
     briefSummary: v.optional(v.string()),
+    locationId: v.optional(v.union(v.id("locations"), v.null())),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -125,6 +128,15 @@ export const update = mutation({
     }
     if (args.status !== undefined) patch.status = args.status;
     if (args.briefSummary !== undefined) patch.briefSummary = args.briefSummary;
+    if (args.locationId !== undefined) {
+      if (args.locationId !== null) {
+        const location = await ctx.db.get(args.locationId);
+        if (!location || location.orgId !== org._id) throw new Error("Unknown location");
+        patch.locationId = args.locationId;
+      } else {
+        patch.locationId = undefined;
+      }
+    }
 
     await ctx.db.patch(args.id, patch);
     return null;
