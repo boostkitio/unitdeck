@@ -1,8 +1,17 @@
-import { mutation, query } from "./_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
 import { Doc, Id } from "./_generated/dataModel";
 import { LEGACY_STATUSES, normaliseStatus } from "./lib/projectStatus";
+import { fetchDailyForecast, fetchTimezone } from "./lib/weather";
+import { formatInZone, sunTimes } from "./lib/sun";
 
 // Only current statuses are settable; legacy values remain readable but can
 // no longer be written.
@@ -71,6 +80,18 @@ export const list = query({
   },
 });
 
+
+/**
+ * The shoot day a project's header speaks for: the next one still to come, or
+ * the last one if the shoot is over. A production booked across a week wants
+ * the day it is heading into, not whichever row happens to sort first.
+ */
+function headlineShootDate(dates: string[], today: string): string | null {
+  if (dates.length === 0) return null;
+  const sorted = [...dates].sort();
+  return sorted.find((date) => date >= today) ?? sorted[sorted.length - 1];
+}
+
 export const get = query({
   args: { id: v.id("projects") },
   handler: async (ctx, args) => {
@@ -78,6 +99,16 @@ export const get = query({
     const project = await ctx.db.get(args.id);
     if (!project || project.orgId !== org._id) return null;
     const location = project.locationId ? await ctx.db.get(project.locationId) : null;
+
+    const days = await ctx.db
+      .query("shootDays")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(200);
+    const forecastDate = headlineShootDate(
+      days.map((d) => d.date),
+      new Date().toISOString().slice(0, 10),
+    );
+
     return {
       ...project,
       clientName: project.clientId
@@ -86,6 +117,10 @@ export const get = query({
       status: normaliseStatus(project.status),
       archived: isArchived(project),
       location,
+      // The day and place the header reports on. The client compares these
+      // with `forecast` to know whether what it is showing is still current.
+      forecastDate,
+      forecastLocationId: location?.lat !== undefined ? location._id : null,
     };
   },
 });
@@ -215,5 +250,131 @@ export const migrateStatuses = mutation({
       migrated++;
     }
     return { migrated };
+  },
+});
+
+/** Everything the forecast action needs, resolved inside the org check. */
+export const getForForecast = internalQuery({
+  args: { id: v.id("projects") },
+  handler: async (ctx, args) => {
+    // The org check belongs here rather than in the action: an action has no
+    // database to check against, and runQuery carries the caller's identity.
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.id);
+    if (!project || project.orgId !== org._id) return null;
+    const location = project.locationId ? await ctx.db.get(project.locationId) : null;
+    if (!location || location.lat === undefined || location.lng === undefined) return null;
+
+    const days = await ctx.db
+      .query("shootDays")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(200);
+    const date = headlineShootDate(
+      days.map((d) => d.date),
+      new Date().toISOString().slice(0, 10)
+    );
+    if (!date) return null;
+    return { date, location };
+  },
+});
+
+export const saveForecast = internalMutation({
+  args: {
+    id: v.id("projects"),
+    locationId: v.id("locations"),
+    timezone: v.optional(v.string()),
+    forecast: v.object({
+      date: v.string(),
+      locationId: v.id("locations"),
+      fetchedAt: v.number(),
+      reason: v.optional(v.string()),
+      summary: v.optional(v.string()),
+      tempMinC: v.optional(v.number()),
+      tempMaxC: v.optional(v.number()),
+      precipitationProbability: v.optional(v.number()),
+      windMaxKph: v.optional(v.number()),
+      sunrise: v.optional(v.string()),
+      sunset: v.optional(v.string()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { forecast: args.forecast });
+    // Worth keeping: it is what lets a shoot beyond the forecast window still
+    // show its sun times in local time.
+    if (args.timezone) {
+      const location = await ctx.db.get(args.locationId);
+      if (location && location.timezone !== args.timezone) {
+        await ctx.db.patch(args.locationId, { timezone: args.timezone });
+      }
+    }
+    return null;
+  },
+});
+
+/**
+ * Sunrise, sunset and the weather for the project's shoot day at its location.
+ *
+ * Sun times always come back: they are astronomy, so they are known for any
+ * date, and a producer setting a call time months out needs them. Weather only
+ * reaches about sixteen days, and beyond that the reason is recorded rather
+ * than left blank.
+ */
+export const refreshForecast = action({
+  args: { id: v.id("projects") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ ok: boolean; reason?: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const target = await ctx.runQuery(internal.projects.getForForecast, { id: args.id });
+    if (!target) return { ok: false, reason: "No shoot date, or no location with coordinates" };
+
+    const { date, location } = target;
+    const lat = location.lat!;
+    const lng = location.lng!;
+
+    const forecast = await fetchDailyForecast(lat, lng, date);
+    if (forecast) {
+      await ctx.runMutation(internal.projects.saveForecast, {
+        id: args.id,
+        locationId: location._id,
+        timezone: forecast.timezone,
+        forecast: {
+          date,
+          locationId: location._id,
+          fetchedAt: Date.now(),
+          summary: forecast.summary,
+          tempMinC: forecast.tempMinC,
+          tempMaxC: forecast.tempMaxC,
+          precipitationProbability: forecast.precipitationProbability,
+          windMaxKph: forecast.windMaxKph,
+          sunrise: forecast.sunrise,
+          sunset: forecast.sunset,
+        },
+      });
+      return { ok: true };
+    }
+
+    // Out of forecast range. The sun still rises: work it out and show it,
+    // in the location's own time, rather than showing nothing at all.
+    const timezone = location.timezone ?? (await fetchTimezone(lat, lng));
+    const sun = sunTimes(date, lat, lng);
+    await ctx.runMutation(internal.projects.saveForecast, {
+      id: args.id,
+      locationId: location._id,
+      timezone,
+      forecast: {
+        date,
+        locationId: location._id,
+        fetchedAt: Date.now(),
+        reason: sun
+          ? "Too far ahead for a forecast"
+          : "Too far ahead for a forecast, and the sun does not rise or set here that day",
+        sunrise: sun ? formatInZone(sun.sunriseMs, timezone) : undefined,
+        sunset: sun ? formatInZone(sun.sunsetMs, timezone) : undefined,
+      },
+    });
+    return { ok: true, reason: "Sun times only — the shoot is beyond the forecast range" };
   },
 });

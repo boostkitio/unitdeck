@@ -2,6 +2,7 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
+import { fetchDailyForecast } from "./lib/weather";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -251,35 +252,6 @@ export const saveWeather = internalMutation({
   },
 });
 
-const WEATHER_CODES: Record<number, string> = {
-  0: "Clear",
-  1: "Mostly clear",
-  2: "Partly cloudy",
-  3: "Overcast",
-  45: "Fog",
-  48: "Freezing fog",
-  51: "Light drizzle",
-  53: "Drizzle",
-  55: "Heavy drizzle",
-  61: "Light rain",
-  63: "Rain",
-  65: "Heavy rain",
-  66: "Freezing rain",
-  67: "Heavy freezing rain",
-  71: "Light snow",
-  73: "Snow",
-  75: "Heavy snow",
-  77: "Snow grains",
-  80: "Light showers",
-  81: "Showers",
-  82: "Heavy showers",
-  85: "Snow showers",
-  86: "Heavy snow showers",
-  95: "Thunderstorm",
-  96: "Thunderstorm with hail",
-  99: "Severe thunderstorm",
-};
-
 /**
  * Pull the Open-Meteo daily forecast for the shoot day's first geocoded
  * location. Forecast range is ~16 days; outside that the API returns no
@@ -296,48 +268,29 @@ export const refreshWeather = action({
       return { ok: false as const, reason: "No location with coordinates on this shoot day" };
     }
     const { day, location } = result;
-    const url =
-      `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lng}` +
-      `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset` +
-      `&timezone=auto&start_date=${day.date}&end_date=${day.date}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Weather lookup failed: ${res.status}`);
-    const json = (await res.json()) as {
-      daily?: {
-        weather_code: number[];
-        temperature_2m_max: number[];
-        temperature_2m_min: number[];
-        precipitation_probability_max: (number | null)[];
-        wind_speed_10m_max: number[];
-        sunrise: string[]; // ISO "2026-06-20T04:43"
-        sunset: string[];
-      };
-    };
-    const daily = json.daily;
-    if (!daily || daily.weather_code.length === 0) {
+    const forecast = await fetchDailyForecast(location.lat!, location.lng!, day.date);
+    if (!forecast) {
       return { ok: false as const, reason: "Shoot day is outside the 16-day forecast range" };
     }
-    const sunrise = daily.sunrise[0]?.slice(11, 16) ?? "";
-    const sunset = daily.sunset[0]?.slice(11, 16) ?? "";
     const weather = {
       fetchedAt: Date.now(),
-      summary: WEATHER_CODES[daily.weather_code[0]] ?? "Unknown",
-      tempMinC: daily.temperature_2m_min[0],
-      tempMaxC: daily.temperature_2m_max[0],
-      precipitationProbability: daily.precipitation_probability_max[0] ?? undefined,
-      windMaxKph: daily.wind_speed_10m_max[0],
+      summary: forecast.summary,
+      tempMinC: forecast.tempMinC,
+      tempMaxC: forecast.tempMaxC,
+      precipitationProbability: forecast.precipitationProbability,
+      windMaxKph: forecast.windMaxKph,
     };
     await ctx.runMutation(internal.shootDays.saveWeather, {
       id: args.id,
       weather,
-      sun: { sunrise, sunset },
+      sun: { sunrise: forecast.sunrise, sunset: forecast.sunset },
     });
     // Returned directly so callers can update documents without re-querying
     return {
       ok: true as const,
       weatherSummary: `${weather.summary}, ${Math.round(weather.tempMinC)}–${Math.round(weather.tempMaxC)}°C`,
-      sunrise,
-      sunset,
+      sunrise: forecast.sunrise,
+      sunset: forecast.sunset,
     };
   },
 });

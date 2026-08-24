@@ -35,6 +35,7 @@ import {
   statusLabel,
 } from "@/lib/project-status";
 import { saveStateLabel, useDebouncedSave } from "@/lib/use-debounced-save";
+import { ProjectForecast } from "@/components/projects/project-forecast";
 import { ShootDatesEditor } from "@/components/projects/shoot-dates-editor";
 import { LocationSection } from "@/components/projects/location-section";
 import { CrewSection } from "@/components/projects/crew-section";
@@ -154,6 +155,13 @@ function ProjectEditor({
               ? "A project needs a name"
               : (saveStateLabel(nameState) ?? "")}
           </p>
+          <ProjectForecast
+            projectId={project._id}
+            forecast={project.forecast}
+            date={project.forecastDate}
+            locationId={project.forecastLocationId}
+            locationName={project.location?.name ?? null}
+          />
         </div>
         <ShootDatesEditor projectId={project._id} />
       </div>

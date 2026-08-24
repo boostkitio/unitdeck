@@ -81,6 +81,26 @@ export default defineSchema({
     // Where the production is based. Individual shoot days can still carry
     // their own locations for call sheets; this is the project-level one.
     locationId: v.optional(v.id("locations")),
+    // Last forecast fetched for the project's shoot day at its location, so
+    // the header can render straight away instead of hitting the weather
+    // service on every view. `date` and `locationId` say what it is for, which
+    // is how a stale one is spotted; `reason` says why there is no weather,
+    // for a day beyond the forecast.
+    forecast: v.optional(
+      v.object({
+        date: v.string(),
+        locationId: v.id("locations"),
+        fetchedAt: v.number(),
+        reason: v.optional(v.string()),
+        summary: v.optional(v.string()),
+        tempMinC: v.optional(v.number()),
+        tempMaxC: v.optional(v.number()),
+        precipitationProbability: v.optional(v.number()),
+        windMaxKph: v.optional(v.number()),
+        sunrise: v.optional(v.string()),
+        sunset: v.optional(v.string()),
+      })
+    ),
   })
     .index("by_org", ["orgId"])
     .index("by_org_and_status", ["orgId", "status"]),
@@ -217,6 +237,9 @@ export default defineSchema({
     // The nearest tube/rail station, named on its own rather than buried in a
     // paragraph — it is the single thing crew look for when travelling in.
     nearestStation: v.optional(v.string()),
+    // IANA zone for the coordinates, learned from the weather service. Kept so
+    // sun times can be shown in local time for a date beyond the forecast.
+    timezone: v.optional(v.string()),
     publicTransport: v.optional(v.string()),
     nearestPoliceStation: v.optional(v.string()),
   }).index("by_org", ["orgId"]),
