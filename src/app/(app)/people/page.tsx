@@ -28,6 +28,8 @@ import { CsvImportDialog, type CsvColumnSpec } from "@/components/csv-import-dia
 import { Textarea } from "@/components/ui/textarea";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
+import { SearchInput } from "@/components/search-input";
+import { matchesSearch } from "@/lib/search";
 
 type PersonForm = {
   name: string;
@@ -87,10 +89,18 @@ export default function PeoplePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const { sort, toggle } = useTableSort<PersonSortKey>({ key: "name", dir: "asc" });
+  const [search, setSearch] = useState("");
 
   const sortedPeople = useMemo(
-    () => sortRows(people ?? [], sort, personSortValue),
-    [people, sort],
+    () =>
+      sortRows(
+        (people ?? []).filter((p) =>
+          matchesSearch(search, [p.name, p.role, p.email, p.phone, p.notes]),
+        ),
+        sort,
+        personSortValue,
+      ),
+    [people, sort, search],
   );
   const [editing, setEditing] = useState<Doc<"people"> | null>(null);
   const [form, setForm] = useState<PersonForm>(EMPTY_FORM);
@@ -188,6 +198,14 @@ export default function PeoplePage() {
       </div>
 
       <div className="mt-6">
+        {people !== undefined && people.length > 0 && (
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search name, role, email, phone or notes…"
+            className="mb-4 max-w-sm"
+          />
+        )}
         {people === undefined ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
@@ -196,6 +214,10 @@ export default function PeoplePage() {
         ) : people.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
             No people yet. Add your regular crew first.
+          </p>
+        ) : sortedPeople.length === 0 ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            No people match “{search}”.
           </p>
         ) : (
           <>

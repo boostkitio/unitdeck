@@ -43,6 +43,13 @@ export function normaliseStatus(value: string): ProjectStatus {
 /** Statuses the dashboard treats as still needing work chased. */
 export const NEEDS_ATTENTION_STATUSES: ProjectStatus[] = ["not_booked", "pencilled"];
 
+/**
+ * Archiving is stored as `projects.archived`, not as a status, but it belongs
+ * in the same dropdown because that is where people look for it. The UI maps
+ * this value onto the flag.
+ */
+export const ARCHIVED_OPTION = { value: "archived", label: "Archived" } as const;
+
 export function needsAttention(status: string): boolean {
   return NEEDS_ATTENTION_STATUSES.includes(normaliseStatus(status));
 }

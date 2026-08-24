@@ -28,7 +28,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PROJECT_STATUSES, ProjectStatus } from "@/lib/project-status";
+import {
+  ARCHIVED_OPTION,
+  PROJECT_STATUSES,
+  ProjectStatus,
+  statusLabel,
+} from "@/lib/project-status";
 import { saveStateLabel, useDebouncedSave } from "@/lib/use-debounced-save";
 import { ShootDatesEditor } from "@/components/projects/shoot-dates-editor";
 import { LocationSection } from "@/components/projects/location-section";
@@ -95,6 +100,25 @@ function ProjectEditor({
   const nameToSave = name.trim().length === 0 ? project.name : name;
   const nameState = useDebouncedSave(nameToSave, project.name, saveName);
   const briefState = useDebouncedSave(briefSummary, project.briefSummary ?? "", saveBrief);
+
+  /**
+   * The dropdown offers Archived alongside the booking statuses, so choosing
+   * it sets the flag, and choosing a real status clears it again.
+   */
+  async function changeStatus(value: string) {
+    try {
+      if (value === ARCHIVED_OPTION.value) {
+        await setArchived({ id: project._id, archived: true });
+        toast.success("Project archived.");
+        return;
+      }
+      await updateProject({ id: project._id, status: value as ProjectStatus });
+      if (project.archived) await setArchived({ id: project._id, archived: false });
+      toast.success("Saved.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save.");
+    }
+  }
 
   async function save(patch: { clientId?: Id<"clients"> | null; status?: ProjectStatus }) {
     try {
@@ -187,13 +211,16 @@ function ProjectEditor({
           <div className="space-y-2">
             <Label>Status</Label>
             <Select
-              value={project.status}
+              value={project.archived ? ARCHIVED_OPTION.value : project.status}
               onValueChange={(value) => {
-                if (value !== null) void save({ status: value as ProjectStatus });
+                if (value !== null) void changeStatus(value);
               }}
             >
               <SelectTrigger className="w-64">
-                <SelectValue />
+                {/* Explicit label: Base UI shows the raw value when items mount late */}
+                <SelectValue>
+                  {project.archived ? ARCHIVED_OPTION.label : statusLabel(project.status)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {PROJECT_STATUSES.map((s) => (
@@ -201,6 +228,7 @@ function ProjectEditor({
                     {s.label}
                   </SelectItem>
                 ))}
+                <SelectItem value={ARCHIVED_OPTION.value}>{ARCHIVED_OPTION.label}</SelectItem>
               </SelectContent>
             </Select>
           </div>

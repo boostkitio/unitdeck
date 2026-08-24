@@ -36,7 +36,12 @@ export const attention = query({
       .query("projects")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(200);
-    const byId = new Map(projects.filter((p) => chases(p.status)).map((p) => [p._id, p]));
+    // Archiving keeps the booking status, so an archived project can still be
+    // "pencilled" — it must be excluded here or it produces attention items
+    // for a production that no longer appears anywhere in the app.
+    const byId = new Map(
+      projects.filter((p) => !isArchived(p) && chases(p.status)).map((p) => [p._id, p])
+    );
 
     // Range on the composite index: only rows from today onwards are read,
     // so a long shoot-day history can never crowd out upcoming days. Index

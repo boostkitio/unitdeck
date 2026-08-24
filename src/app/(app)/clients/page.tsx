@@ -28,6 +28,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CsvImportDialog, type CsvColumnSpec } from "@/components/csv-import-dialog";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
+import { SearchInput } from "@/components/search-input";
+import { matchesSearch } from "@/lib/search";
 
 type ClientSortKey = "name" | "contactName" | "phone" | "email" | "notes";
 
@@ -72,10 +74,18 @@ export default function ClientsPage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const { sort, toggle } = useTableSort<ClientSortKey>({ key: "name", dir: "asc" });
+  const [search, setSearch] = useState("");
 
   const sortedClients = useMemo(
-    () => sortRows(clients ?? [], sort, clientSortValue),
-    [clients, sort],
+    () =>
+      sortRows(
+        (clients ?? []).filter((c) =>
+          matchesSearch(search, [c.name, c.contactName, c.phone, c.email, c.notes]),
+        ),
+        sort,
+        clientSortValue,
+      ),
+    [clients, sort, search],
   );
 
   function openCreate() {
@@ -159,6 +169,14 @@ export default function ClientsPage() {
       </div>
 
       <div className="mt-6">
+        {clients !== undefined && clients.length > 0 && (
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search company, contact, number, email or notes…"
+            className="mb-4 max-w-sm"
+          />
+        )}
         {clients === undefined ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
@@ -166,6 +184,10 @@ export default function ClientsPage() {
           </div>
         ) : clients.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">No clients yet.</p>
+        ) : sortedClients.length === 0 ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            No clients match “{search}”.
+          </p>
         ) : (
           <Table>
             <TableHeader>

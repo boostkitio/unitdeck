@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
@@ -27,6 +27,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SearchInput } from "@/components/search-input";
+import { matchesSearch } from "@/lib/search";
 
 type LocationDoc = Doc<"locations">;
 
@@ -34,6 +36,23 @@ export default function LocationsPage() {
   const { organization } = useOrganization();
   const locations = useQuery(api.locations.list, organization ? {} : "skip");
   const [editing, setEditing] = useState<LocationDoc | "new" | null>(null);
+  const [search, setSearch] = useState("");
+
+  const visible = useMemo(
+    () =>
+      (locations ?? []).filter((l) =>
+        matchesSearch(search, [
+          l.name,
+          l.address,
+          l.w3w,
+          l.parkingNotes,
+          l.accessNotes,
+          l.nearestHospital,
+          l.notes,
+        ]),
+      ),
+    [locations, search],
+  );
 
   return (
     <div>
@@ -42,11 +61,23 @@ export default function LocationsPage() {
         <Button onClick={() => setEditing("new")}>Add location</Button>
       </div>
       <div className="mt-6">
+        {locations !== undefined && locations.length > 0 && (
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search name, address, parking, access or notes…"
+            className="mb-4 max-w-sm"
+          />
+        )}
         {locations === undefined ? (
           <Skeleton className="h-40 w-full" />
         ) : locations.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
             No locations yet. Add the studios, offices and venues you shoot at.
+          </p>
+        ) : visible.length === 0 ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            No locations match “{search}”.
           </p>
         ) : (
           <Table>
@@ -59,7 +90,7 @@ export default function LocationsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {locations.map((l) => (
+              {visible.map((l) => (
                 <TableRow key={l._id} className="cursor-pointer" onClick={() => setEditing(l)}>
                   <TableCell className="font-medium">{l.name}</TableCell>
                   <TableCell>{l.address}</TableCell>

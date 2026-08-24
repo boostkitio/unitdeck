@@ -15,8 +15,12 @@ export function Sidebar() {
   const pathname = usePathname();
   const { open } = useCommandPalette();
 
+  // Sticky rather than fixed: it stays in the flex row, so the main column
+  // still sits beside it without needing a matching left margin. h-screen plus
+  // its own overflow means a long nav scrolls inside the sidebar, not with the
+  // page.
   return (
-    <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar px-3 py-4 md:flex">
+    <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar px-3 py-4 md:sticky md:top-0 md:flex md:h-screen md:overflow-y-auto">
       <Link
         href="/"
         className="px-2"

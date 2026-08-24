@@ -175,20 +175,9 @@ export default function DashboardPage() {
                 <Skeleton className="h-5 w-3/4" />
                 <Skeleton className="h-5 w-1/2" />
               </div>
-            ) : active.length === 0 ? (
-              <p className="text-muted-foreground">
-                No active projects yet.{" "}
-                <Link className="underline underline-offset-2 text-foreground" href="/projects">
-                  Create your first project
-                </Link>{" "}
-                to get going.
-              </p>
-            ) : attention.length === 0 ? (
-              <p className="text-muted-foreground">
-                Nothing needs attention. Unbooked and pencilled shoot days with unsent call
-                sheets, unconfirmed crew or weather risk will appear here.
-              </p>
-            ) : (
+            ) : attention.length > 0 ? (
+              // Items first: the count in the tile above must never disagree
+              // with what this panel shows.
               <ul className="divide-y divide-border">
                 {attention.map((item, i) => (
                   <li key={i} className="flex items-center justify-between gap-3 py-2.5">
@@ -207,6 +196,19 @@ export default function DashboardPage() {
                   </li>
                 ))}
               </ul>
+            ) : active.length === 0 ? (
+              <p className="text-muted-foreground">
+                No active projects yet.{" "}
+                <Link className="underline underline-offset-2 text-foreground" href="/projects">
+                  Create your first project
+                </Link>{" "}
+                to get going.
+              </p>
+            ) : (
+              <p className="text-muted-foreground">
+                Nothing needs attention. Unbooked and pencilled shoot days with unsent call
+                sheets, unconfirmed crew or weather risk will appear here.
+              </p>
             )}
           </CardContent>
         </Card>
