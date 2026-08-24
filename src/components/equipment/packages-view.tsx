@@ -270,10 +270,10 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
 
   return (
     <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
-      {/* Wide and tall: this is a two-column working view, and at 2xl the kit
-          lists were too cramped to scan. Each column scrolls on its own so the
-          dialog itself stays put. */}
-      <DialogContent className="grid-rows-[auto_1fr_auto] h-[88vh] w-[95vw] max-w-6xl overflow-hidden sm:p-6">
+      {/* A two-column working view, so it takes the screen: kit names are long
+          and two lists side by side need the room. Each column scrolls on its
+          own so the dialog itself stays put. */}
+      <DialogContent className="grid-rows-[auto_1fr_auto] h-[90vh] w-[96vw] max-w-[1800px] overflow-hidden sm:p-6">
         {/* The heading is the name field. pr-10 keeps it clear of the close button. */}
         <DialogHeader className="pr-10">
           <DialogTitle className="sr-only">{pkg.name}</DialogTitle>

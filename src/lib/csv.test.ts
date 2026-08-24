@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batch, parseCsv, parseCsvRecords, pickColumn } from "./csv";
+import { batch, matchHeaders, parseCsv, parseCsvRecords, parseCsvTable, pickColumn } from "./csv";
 
 describe("parseCsv", () => {
   it("splits plain rows", () => {
@@ -80,5 +80,71 @@ describe("batch", () => {
 
   it("returns nothing for an empty list", () => {
     expect(batch([], 10)).toEqual([]);
+  });
+});
+
+describe("matchHeaders", () => {
+  const specs = [
+    { key: "dept", label: "Dept", aliases: ["Department", "Category"] },
+    { key: "item", label: "Item", aliases: ["Equipment", "Name", "Description"] },
+    { key: "serialNumber", label: "Serial number", aliases: ["Serial", "Serial No", "SN"] },
+    { key: "weightKg", label: "Weight (kg)", aliases: ["Weight", "Kg"] },
+    { key: "valueNew", label: "Value when new", aliases: ["New Value", "Purchase Price"] },
+    { key: "valueCurrent", label: "Current value", aliases: ["Value", "Present Value"] },
+  ];
+
+  it("matches headings that are written exactly", () => {
+    expect(matchHeaders(["Dept", "Item"], specs)).toMatchObject({
+      dept: "dept",
+      item: "item",
+    });
+  });
+
+  it("ignores case, spacing and punctuation", () => {
+    expect(matchHeaders(["  SERIAL_NO. ", "weight (KG)"], specs)).toMatchObject({
+      serialNumber: "serialno",
+      weightKg: "weightkg",
+    });
+  });
+
+  it("matches a heading that only shares a word", () => {
+    // The case that was dropping whole files: close, but not equal.
+    expect(matchHeaders(["Item Name", "Dept Code"], specs)).toMatchObject({
+      item: "itemname",
+      dept: "deptcode",
+    });
+  });
+
+  it("gives a heading to the field it fits best", () => {
+    const matched = matchHeaders(["Value when new", "Current Value"], specs);
+    expect(matched.valueNew).toBe("valuewhennew");
+    expect(matched.valueCurrent).toBe("currentvalue");
+  });
+
+  it("never reads one heading as two fields", () => {
+    const matched = matchHeaders(["Value"], specs);
+    const used = Object.values(matched).filter(Boolean);
+    expect(used).toEqual([...new Set(used)]);
+  });
+
+  it("leaves a field unmatched rather than guessing wildly", () => {
+    expect(matchHeaders(["Quantity", "Colour"], specs).item).toBeUndefined();
+  });
+
+  it("does not match on a short coincidental overlap", () => {
+    // "SN" appears inside "Consignment", which is not a serial number.
+    expect(matchHeaders(["Consignment"], specs).serialNumber).toBeUndefined();
+  });
+});
+
+describe("parseCsvTable", () => {
+  it("keeps the headings as written alongside the records", () => {
+    const table = parseCsvTable("Item Name,Dept\nFX9,Camera");
+    expect(table.headers).toEqual(["Item Name", "Dept"]);
+    expect(table.records).toEqual([{ itemname: "FX9", dept: "Camera" }]);
+  });
+
+  it("returns no records for a header-only file", () => {
+    expect(parseCsvTable("Item,Dept").records).toEqual([]);
   });
 });

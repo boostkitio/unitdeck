@@ -70,17 +70,110 @@ function normaliseHeader(header: string): string {
  * there is no data beyond the header.
  */
 export function parseCsvRecords(text: string): Record<string, string>[] {
+  return parseCsvTable(text).records;
+}
+
+export type CsvTable = {
+  /** Headings as written in the file, for matching against field names. */
+  headers: string[];
+  /** One record per data row, keyed by normalised heading. */
+  records: Record<string, string>[];
+};
+
+/** Like parseCsvRecords, but keeps the original headings for column matching. */
+export function parseCsvTable(text: string): CsvTable {
   const rows = parseCsv(text);
-  if (rows.length < 2) return [];
-  const headers = rows[0].map(normaliseHeader);
-  return rows.slice(1).map((cells) => {
+  if (rows.length < 2) return { headers: rows[0] ?? [], records: [] };
+  const headers = rows[0];
+  const keys = headers.map(normaliseHeader);
+  const records = rows.slice(1).map((cells) => {
     const record: Record<string, string> = {};
-    headers.forEach((header, i) => {
-      if (header.length === 0) return;
-      record[header] = (cells[i] ?? "").trim();
+    keys.forEach((key, i) => {
+      if (key.length === 0) return;
+      record[key] = (cells[i] ?? "").trim();
     });
     return record;
   });
+  return { headers, records };
+}
+
+/** Words of a heading, for comparing "Value when new" with "New value (£)". */
+function tokens(header: string): string[] {
+  return header
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 0);
+}
+
+export type ColumnMatchSpec = { key: string; label: string; aliases?: string[] };
+
+/**
+ * How well a CSV heading fits one of a field's accepted names, from 0 (not at
+ * all) to 1. Anything at or above MATCH_THRESHOLD is taken as the same column.
+ *
+ * Three ways of being the same thing, in descending confidence: the same name
+ * ignoring case and punctuation; sharing words, scored by how much of the
+ * longer name is shared; and one name containing the other, which catches the
+ * headings that run words together.
+ */
+function headingScore(header: string, candidate: string): number {
+  const h = normaliseHeader(header);
+  const c = normaliseHeader(candidate);
+  if (h.length === 0 || c.length === 0) return 0;
+  if (h === c) return 1;
+
+  const hWords = tokens(header);
+  const cWords = tokens(candidate);
+  const shared = hWords.filter((word) => cWords.includes(word)).length;
+  if (shared > 0) {
+    return 0.5 + 0.4 * (shared / Math.max(hWords.length, cWords.length));
+  }
+
+  // Long enough that the overlap means something: "sn" inside "consignment"
+  // is a coincidence, "serial" inside "serialnumber" is not.
+  const shorter = Math.min(h.length, c.length);
+  if (shorter >= 4 && (h.includes(c) || c.includes(h))) return 0.45;
+
+  return 0;
+}
+
+const MATCH_THRESHOLD = 0.4;
+
+/**
+ * Works out which column of a file feeds each field, returning the normalised
+ * heading to read for each one.
+ *
+ * Headings in the wild are close to what we ask for rather than equal to it —
+ * "Item Name" for Item, "Current Value (£)" for Current value — and demanding
+ * an exact match silently dropped every row of an otherwise fine file. Matches
+ * are scored and taken best-first, so a heading goes to the field it fits
+ * best; each heading is used once, so "Value when new" cannot also be read as
+ * "Current value".
+ */
+export function matchHeaders(
+  headers: string[],
+  specs: ColumnMatchSpec[],
+): Record<string, string | undefined> {
+  const scored: { key: string; header: string; score: number }[] = [];
+  for (const spec of specs) {
+    for (const header of headers) {
+      const score = Math.max(
+        ...[spec.label, ...(spec.aliases ?? [])].map((name) => headingScore(header, name)),
+      );
+      if (score >= MATCH_THRESHOLD) scored.push({ key: spec.key, header, score });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+
+  const result: Record<string, string | undefined> = {};
+  const claimed = new Set<string>();
+  for (const match of scored) {
+    const header = normaliseHeader(match.header);
+    if (result[match.key] !== undefined || claimed.has(header)) continue;
+    result[match.key] = header;
+    claimed.add(header);
+  }
+  return result;
 }
 
 /**

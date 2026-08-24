@@ -59,7 +59,15 @@ function DialogContent({
           // whole dialog and its contents spill past the edges; truncate on
           // anything nested inside has no effect, because the overflow starts
           // here.
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-x-hidden rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none [&>*]:min-w-0 sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // The width cap is one unprefixed utility rather than
+          // max-w-[calc(100%-2rem)] + sm:max-w-sm. It resolves to the same
+          // size at every width — min() picks the margin-clamped value on a
+          // phone and 24rem on a desktop — but a caller's own max-w-* now
+          // actually overrides it. With the breakpoint-prefixed version,
+          // tailwind-merge kept both classes and sm:max-w-sm won on any
+          // screen over 640px, so every dialog that asked to be wider was
+          // silently clamped to 24rem.
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[min(calc(100%-2rem),24rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-x-hidden rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none [&>*]:min-w-0 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
