@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Doc, Id } from "../../../convex/_generated/dataModel";
+import { type EquipmentSection as SectionKey } from "../../../convex/projectEquipment";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -30,7 +31,8 @@ import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
-type EquipmentRow = Doc<"projectEquipment">;
+// The query fills the section in for older rows, so it is always present here.
+type EquipmentRow = Omit<Doc<"projectEquipment">, "section"> & { section: SectionKey };
 
 type EquipmentSortKey = "item" | "quantity" | "status" | "notes";
 
@@ -48,14 +50,104 @@ function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | 
   }
 }
 
+/**
+ * A project's kit in two lists: the standard equipment going out, and whatever
+ * is hired in on top. They are one table with one set of behaviours — only the
+ * heading, the empty state and the buttons differ.
+ */
 export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
   const equipment = useQuery(api.projectEquipment.listForProject, { projectId });
+
+  const [applying, setApplying] = useState(false);
+  const [adding, setAdding] = useState<SectionKey | null>(null);
+  const [editing, setEditing] = useState<EquipmentRow | null>(null);
+
+  const rows = equipment as EquipmentRow[] | undefined;
+  const standard = useMemo(
+    () => (rows ?? []).filter((row) => row.section === "equipment"),
+    [rows],
+  );
+  const additional = useMemo(
+    () => (rows ?? []).filter((row) => row.section === "additional"),
+    [rows],
+  );
+
+  return (
+    <div className="mt-12 space-y-6">
+      <EquipmentList
+        title="Equipment"
+        rows={standard}
+        loading={rows === undefined}
+        empty="Nothing listed. Add a package, or list the kit going out on this job."
+        onEdit={setEditing}
+        actions={
+          <>
+            <Button size="sm" variant="secondary" onClick={() => setApplying(true)}>
+              Add from package
+            </Button>
+            <Button size="sm" onClick={() => setAdding("equipment")}>
+              Add equipment
+            </Button>
+          </>
+        }
+      />
+
+      <EquipmentList
+        title="Additional equipment"
+        rows={additional}
+        loading={rows === undefined}
+        empty="Nothing extra. Anything hired in, or off a normal job, goes here."
+        onEdit={setEditing}
+        actions={
+          <Button size="sm" onClick={() => setAdding("additional")}>
+            Add equipment
+          </Button>
+        }
+      />
+
+      {applying && (
+        <ApplyPackageDialog projectId={projectId} onClose={() => setApplying(false)} />
+      )}
+      {adding && (
+        <EquipmentDialog
+          projectId={projectId}
+          section={adding}
+          onClose={() => setAdding(null)}
+        />
+      )}
+      {editing && (
+        <EquipmentDialog
+          projectId={projectId}
+          section={editing.section}
+          row={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function EquipmentList({
+  title,
+  rows,
+  loading,
+  empty,
+  actions,
+  onEdit,
+}: {
+  title: string;
+  rows: EquipmentRow[];
+  loading: boolean;
+  empty: string;
+  actions: React.ReactNode;
+  onEdit: (row: EquipmentRow) => void;
+}) {
   const update = useMutation(api.projectEquipment.update);
   const remove = useMutation(api.projectEquipment.remove);
 
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState<EquipmentRow | null>(null);
-  const [applying, setApplying] = useState(false);
+  const { sort, toggle } = useTableSort<EquipmentSortKey>({ key: "item", dir: "asc" });
+  const sorted = useMemo(() => sortRows(rows, sort, equipmentSortValue), [rows, sort]);
+  const outstanding = rows.filter((row) => row.status === "needed").length;
 
   async function toggleStatus(row: EquipmentRow) {
     try {
@@ -77,39 +169,22 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
     }
   }
 
-  const outstanding = (equipment ?? []).filter((row) => row.status === "needed").length;
-  const { sort, toggle } = useTableSort<EquipmentSortKey>({ key: "item", dir: "asc" });
-  const sortedEquipment = useMemo(
-    () => sortRows(equipment ?? [], sort, equipmentSortValue),
-    [equipment, sort],
-  );
-
   return (
-    <Card className="mt-12">
+    <Card>
       <CardHeader>
-        <CardTitle>Additional equipment</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardAction>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setApplying(true)}>
-              Add from package
-            </Button>
-            <Button size="sm" onClick={() => setAdding(true)}>
-              Add equipment
-            </Button>
-          </div>
+          <div className="flex items-center gap-2">{actions}</div>
         </CardAction>
       </CardHeader>
       <CardContent>
-        {equipment === undefined ? (
+        {loading ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
           </div>
-        ) : equipment.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            Nothing listed. Add a package, or anything this production needs beyond the
-            standard kit.
-          </p>
+        ) : rows.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>
         ) : (
           <>
             <Table>
@@ -135,7 +210,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedEquipment.map((row) => (
+                {sorted.map((row) => (
                   <TableRow key={row._id}>
                     <TableCell className="font-medium">{row.item}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
@@ -161,7 +236,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => setEditing(row)}>
+                        <Button variant="ghost" size="sm" onClick={() => onEdit(row)}>
                           Edit
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => void handleRemove(row)}>
@@ -182,28 +257,18 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
           </>
         )}
       </CardContent>
-
-      {applying && (
-        <ApplyPackageDialog projectId={projectId} onClose={() => setApplying(false)} />
-      )}
-      {adding && <EquipmentDialog projectId={projectId} onClose={() => setAdding(false)} />}
-      {editing && (
-        <EquipmentDialog
-          projectId={projectId}
-          row={editing}
-          onClose={() => setEditing(null)}
-        />
-      )}
     </Card>
   );
 }
 
 function EquipmentDialog({
   projectId,
+  section,
   row,
   onClose,
 }: {
   projectId: Id<"projects">;
+  section: SectionKey;
   row?: EquipmentRow;
   onClose: () => void;
 }) {
@@ -213,6 +278,7 @@ function EquipmentDialog({
   const [item, setItem] = useState(row?.item ?? "");
   const [quantity, setQuantity] = useState(row?.quantity !== undefined ? String(row.quantity) : "");
   const [notes, setNotes] = useState(row?.notes ?? "");
+  const [list, setList] = useState<SectionKey>(section);
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -235,6 +301,7 @@ function EquipmentDialog({
           item,
           quantity: parsedQuantity,
           notes: notes.trim() || null,
+          section: list,
         });
         toast.success("Saved.");
       } else {
@@ -243,6 +310,7 @@ function EquipmentDialog({
           item,
           quantity: parsedQuantity ?? undefined,
           notes: notes.trim() || undefined,
+          section: list,
         });
         toast.success("Equipment added.");
       }
@@ -280,6 +348,30 @@ function EquipmentDialog({
               onChange={(e) => setQuantity(e.target.value)}
               className="w-32"
             />
+          </div>
+          {/* Which list it sits in, so a line put in the wrong one — or an
+              older line from before the split — can be moved. */}
+          <div className="space-y-2">
+            <Label>List</Label>
+            <div className="flex gap-2">
+              <Button
+                variant={list === "equipment" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setList("equipment")}
+              >
+                Equipment
+              </Button>
+              <Button
+                variant={list === "additional" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setList("additional")}
+              >
+                Additional
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Additional is for kit hired in, or anything off a normal job.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="equipment-notes">Notes (optional)</Label>
@@ -320,14 +412,9 @@ function ApplyPackageDialog({
     setBusy(true);
     try {
       const result = await applyToProject({ packageId, projectId });
-      if (result.added === 0 && result.skipped > 0) {
-        toast.info(`Everything in ${result.packageName} is already on this project.`);
-      } else {
-        const skipped = result.skipped > 0 ? `, ${result.skipped} already listed` : "";
-        toast.success(
-          `Added ${result.added} item${result.added === 1 ? "" : "s"} from ${result.packageName}${skipped}.`,
-        );
-      }
+      toast.success(
+        `Added ${result.added} item${result.added === 1 ? "" : "s"} from ${result.packageName}.`,
+      );
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add the package.");

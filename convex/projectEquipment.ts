@@ -3,18 +3,35 @@ import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 
 const statusValidator = v.union(v.literal("needed"), v.literal("confirmed"));
+const sectionValidator = v.union(v.literal("equipment"), v.literal("additional"));
 
-/** Kit needed for a project, oldest first so the list reads in entry order. */
+export type EquipmentSection = "equipment" | "additional";
+
+/**
+ * Rows written before the list was split carry no section. They read as
+ * "additional", which is the list they were already appearing in — nothing
+ * moves out from under anyone.
+ */
+function sectionOf(row: { section?: EquipmentSection }): EquipmentSection {
+  return row.section ?? "additional";
+}
+
+/**
+ * Kit for a project, oldest first so each list reads in entry order. The
+ * section is filled in here rather than in the UI, so there is one rule for
+ * which list a row belongs to.
+ */
 export const listForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== org._id) return [];
-    return await ctx.db
+    const rows = await ctx.db
       .query("projectEquipment")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .take(200);
+    return rows.map((row) => ({ ...row, section: sectionOf(row) }));
   },
 });
 
@@ -24,6 +41,8 @@ export const add = mutation({
     item: v.string(),
     quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
+    section: v.optional(sectionValidator),
+    status: v.optional(statusValidator),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -34,13 +53,17 @@ export const add = mutation({
       throw new Error("Quantity must be at least 1");
     }
 
+    // Your own kit is a given, so it lands confirmed; anything additional has
+    // still to be sourced, so it lands needed.
+    const section = args.section ?? "additional";
     return await ctx.db.insert("projectEquipment", {
       orgId: org._id,
       projectId: args.projectId,
       item: args.item.trim(),
       quantity: args.quantity,
       notes: args.notes?.trim() || undefined,
-      status: "needed",
+      status: args.status ?? (section === "equipment" ? "confirmed" : "needed"),
+      section,
     });
   },
 });
@@ -52,6 +75,7 @@ export const update = mutation({
     quantity: v.optional(v.union(v.number(), v.null())),
     notes: v.optional(v.union(v.string(), v.null())),
     status: v.optional(statusValidator),
+    section: v.optional(sectionValidator),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -71,6 +95,7 @@ export const update = mutation({
     }
     if (args.notes !== undefined) patch.notes = args.notes?.trim() || undefined;
     if (args.status !== undefined) patch.status = args.status;
+    if (args.section !== undefined) patch.section = args.section;
 
     await ctx.db.patch(args.id, patch);
     return null;

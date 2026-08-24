@@ -150,18 +150,21 @@ export const removeItem = mutation({
 });
 
 /**
- * Copies a package's contents onto a project's equipment list.
+ * Copies a package's contents onto a project's Equipment list.
  *
- * Items the project already lists are skipped rather than duplicated, and the
- * count comes back so the UI can say what happened. Rows are copied, not
- * linked: editing the package later must not rewrite a production's kit list.
+ * Every line is copied, including ones sharing a name with something already
+ * listed: two identical bodies or three of the same lens are separate pieces
+ * of kit, and collapsing them would understate what is going on the truck.
+ *
+ * They arrive confirmed — this is kit you own and have just committed to the
+ * job, not something still to be chased.
+ *
+ * Rows are copied, not linked: editing the package later must not rewrite a
+ * production's kit list.
  */
 export const applyToProject = mutation({
   args: { packageId: v.id("equipmentPackages"), projectId: v.id("projects") },
-  handler: async (
-    ctx,
-    args
-  ): Promise<{ added: number; skipped: number; packageName: string }> => {
+  handler: async (ctx, args): Promise<{ added: number; packageName: string }> => {
     const { org } = await requireOrg(ctx);
     const pkg = await ctx.db.get(args.packageId);
     if (!pkg || pkg.orgId !== org._id) throw new Error("Package not found");
@@ -173,32 +176,18 @@ export const applyToProject = mutation({
       .withIndex("by_package", (q) => q.eq("packageId", args.packageId))
       .take(200);
 
-    const existing = await ctx.db
-      .query("projectEquipment")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .take(200);
-    const alreadyListed = new Set(existing.map((row) => row.item.trim().toLowerCase()));
-
-    let added = 0;
-    let skipped = 0;
     for (const row of rows) {
-      const key = row.item.trim().toLowerCase();
-      if (alreadyListed.has(key)) {
-        skipped++;
-        continue;
-      }
       await ctx.db.insert("projectEquipment", {
         orgId: org._id,
         projectId: args.projectId,
         item: row.item,
         quantity: row.quantity,
         notes: `From ${pkg.name}`,
-        status: "needed",
+        status: "confirmed",
+        section: "equipment",
       });
-      alreadyListed.add(key);
-      added++;
     }
 
-    return { added, skipped, packageName: pkg.name };
+    return { added: rows.length, packageName: pkg.name };
   },
 });

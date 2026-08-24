@@ -54,16 +54,35 @@ test("applying a package copies its contents onto the project", async () => {
     packageId: pkgId,
     projectId: ids.project,
   });
-  expect(result).toMatchObject({ added: 2, skipped: 0, packageName: "Camera package" });
+  expect(result).toMatchObject({ added: 2, packageName: "Camera package" });
 
   const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
   expect(kit.map((row) => row.item).sort()).toEqual(["Sony FX9", "Tripod"]);
   expect(kit.find((row) => row.item === "Tripod")?.quantity).toBe(2);
-  // Everything arrives as still needed, not silently confirmed.
-  expect(kit.every((row) => row.status === "needed")).toBe(true);
+  // It is kit you own and have just committed to the job, so it lands
+  // confirmed, in the standard equipment list rather than the hire-in one.
+  expect(kit.every((row) => row.status === "confirmed")).toBe(true);
+  expect(kit.every((row) => row.section === "equipment")).toBe(true);
 });
 
-test("applying twice does not duplicate what is already listed", async () => {
+test("a package with two of the same item lists both", async () => {
+  const { ids, asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  // Two identical bodies are two pieces of kit, not one.
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Sony FX9" });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Sony FX9" });
+
+  const result = await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+
+  expect(result.added).toBe(2);
+  const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(kit.map((row) => row.item)).toEqual(["Sony FX9", "Sony FX9"]);
+});
+
+test("applying twice lists the kit twice rather than swallowing the second run", async () => {
   const { ids, asA } = await setup();
   const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
   await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Sony FX9" });
@@ -77,10 +96,10 @@ test("applying twice does not duplicate what is already listed", async () => {
     projectId: ids.project,
   });
 
-  expect(second).toMatchObject({ added: 0, skipped: 1 });
+  expect(second).toMatchObject({ added: 1 });
   expect(
     await asA.query(api.projectEquipment.listForProject, { projectId: ids.project }),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
 });
 
 test("editing a package afterwards does not rewrite a project's kit list", async () => {

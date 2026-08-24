@@ -130,8 +130,9 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"]),
 
-  // Kit a production needs beyond the standard package: a line per item, so
-  // each can be tracked from "needed" to "confirmed" independently.
+  // Kit a production is taking out: a line per item, so each can be tracked
+  // from "needed" to "confirmed" independently. Split into two lists by
+  // `section` — the standard kit, and whatever is hired in on top.
   projectEquipment: defineTable({
     orgId: v.id("organisations"),
     projectId: v.id("projects"),
@@ -139,6 +140,12 @@ export default defineSchema({
     quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
     status: v.union(v.literal("needed"), v.literal("confirmed")),
+    // Which of the project's two lists this line sits in. "equipment" is the
+    // standard kit going out, usually pulled in from a package; "additional"
+    // is hired in, or anything off a normal job. Optional because rows predate
+    // the split — those read as "additional", which is the list they were
+    // already showing in.
+    section: v.optional(v.union(v.literal("equipment"), v.literal("additional"))),
   })
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"]),

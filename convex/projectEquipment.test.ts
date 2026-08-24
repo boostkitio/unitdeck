@@ -38,6 +38,60 @@ test("equipment starts as needed and can be confirmed", async () => {
   expect(rows[0].status).toBe("confirmed");
 });
 
+test("an added item defaults to the hire-in list, still needed", async () => {
+  const { ids, asA } = await setup();
+
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "1.2k HMI" });
+
+  const rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(rows[0]).toMatchObject({ section: "additional", status: "needed" });
+});
+
+test("kit added to the standard list lands confirmed", async () => {
+  const { ids, asA } = await setup();
+
+  await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    item: "Sony FX9",
+    section: "equipment",
+  });
+
+  const rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  // It is your own kit — nothing to chase.
+  expect(rows[0]).toMatchObject({ section: "equipment", status: "confirmed" });
+});
+
+test("a line can be moved between the two lists", async () => {
+  const { ids, asA } = await setup();
+
+  const id = await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    item: "Ronin gimbal",
+  });
+  await asA.mutation(api.projectEquipment.update, { id, section: "equipment" });
+
+  const rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(rows[0].section).toBe("equipment");
+});
+
+test("a row written before the split reads as additional", async () => {
+  const { t, ids, asA } = await setup();
+
+  // No section field at all, as older rows have.
+  await t.run(async (ctx) => {
+    const project = (await ctx.db.get(ids.project))!;
+    await ctx.db.insert("projectEquipment", {
+      orgId: project.orgId,
+      projectId: ids.project,
+      item: "Walkie set",
+      status: "needed",
+    });
+  });
+
+  const rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(rows[0].section).toBe("additional");
+});
+
 test("a blank item or a quantity below one is rejected", async () => {
   const { ids, asA } = await setup();
 
