@@ -2,6 +2,7 @@ import { mutation, query, internalAction, internalMutation, internalQuery, Mutat
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import {
+  type DocumentData,
   DEFAULT_LOCATION_RIGHTS_CLAUSE,
   DEFAULT_TALENT_RIGHTS_CLAUSE,
   documentDataValidator,
@@ -200,13 +201,33 @@ export const ensureForPerson = mutation({
   },
 });
 
+/**
+ * The org's logo, for a release raised before logos were put on them.
+ *
+ * Branding is not a term of the agreement, so filling it in on an older
+ * document changes nothing that was signed — and a release with the company's
+ * mark on it is what anybody expects to receive.
+ */
+async function withLogo<T extends { orgId: Id<"organisations">; data: DocumentData }>(
+  ctx: QueryCtx,
+  doc: T
+): Promise<T> {
+  if (doc.data.logoUrl) return doc;
+  const org = await ctx.db.get(doc.orgId);
+  const storageId = org?.settings?.logoStorageId;
+  if (!storageId) return doc;
+  const logoUrl = (await ctx.storage.getUrl(storageId)) ?? undefined;
+  if (!logoUrl) return doc;
+  return { ...doc, data: { ...doc.data, logoUrl } };
+}
+
 export const get = query({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const doc = await ctx.db.get(args.id);
     if (!doc || doc.orgId !== org._id) return null;
-    return doc;
+    return await withLogo(ctx, doc);
   },
 });
 
@@ -219,7 +240,7 @@ export const listForProject = query({
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .take(200);
-    return docs.filter((d) => d.orgId === org._id);
+    return await Promise.all(docs.filter((d) => d.orgId === org._id).map((d) => withLogo(ctx, d)));
   },
 });
 
@@ -332,9 +353,10 @@ export const getBySignToken = query({
   handler: async (ctx, args) => {
     const doc = await docByToken(ctx, args.token);
     if (!doc) return null;
+    const shown = await withLogo(ctx, doc);
     return {
       status: doc.status,
-      data: doc.data,
+      data: shown.data,
       signer: { name: doc.signer.name },
       signedAt: doc.signature?.signedAt ?? null,
     };
@@ -401,9 +423,10 @@ export const getForPrint = query({
   handler: async (ctx, args) => {
     const doc = await docByToken(ctx, args.token);
     if (!doc) return null;
+    const shown = await withLogo(ctx, doc);
     const sig = doc.signature;
     return {
-      data: doc.data,
+      data: shown.data,
       signature: sig ? { typedName: sig.typedName, drawnImage: sig.drawnImage, signedAt: sig.signedAt } : null,
     };
   },
@@ -465,5 +488,25 @@ export const deliverSignedCopy = internalAction({
     const result = await sendEmail({ apiKey, to, subject, html });
     // The signed copy is a courtesy email; log failures without failing the flow.
     if (!result.ok) console.error("Signed copy send failed", result.error);
+  },
+});
+
+/**
+ * Take a release off the production.
+ *
+ * Deletes the document and its render tokens. A signed one is a legal record,
+ * so removing that is deliberate rather than accidental — but it is the
+ * producer's record to keep or not, and a release raised on the wrong person
+ * should not have to live on the page forever.
+ */
+export const remove = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const { doc } = await requireOwnedDoc(ctx, args.id);
+    // The stored signed copy goes with it; leaving the blob behind would be
+    // keeping the document while claiming to have removed it.
+    if (doc.signedPdfFileId) await ctx.storage.delete(doc.signedPdfFileId);
+    await ctx.db.delete(args.id);
+    return null;
   },
 });

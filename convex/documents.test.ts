@@ -412,3 +412,50 @@ test("a release waiting to be signed can be chased, a finished one cannot", asyn
   const doc = await asA.query(api.documents.get, { id });
   expect(doc?.status).toBe("sent");
 });
+
+test("an older release picks up the company logo it was raised without", async () => {
+  const { t, ids, asA } = await setup();
+  const id = await asA.mutation(api.documents.create, {
+    projectId: ids.projectA,
+    personId: ids.person,
+  });
+  // Raised before there was a logo to put on it.
+  await t.run(async (ctx) => {
+    const doc = await ctx.db.get(id);
+    await ctx.db.patch(id, { data: { ...doc!.data, logoUrl: undefined } });
+    const storageId = await ctx.storage.store(new Blob(["logo"], { type: "image/png" }));
+    const org = await ctx.db.get(ids.orgA);
+    await ctx.db.patch(ids.orgA, { settings: { ...org!.settings, logoStorageId: storageId } });
+  });
+
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.data.logoUrl).toBeTruthy();
+});
+
+test("a release can be taken off the production", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.documents.create, {
+    projectId: ids.projectA,
+    personId: ids.person,
+  });
+  expect(await asA.query(api.documents.listForProject, { projectId: ids.projectA })).toHaveLength(1);
+
+  await asA.mutation(api.documents.remove, { id });
+
+  expect(await asA.query(api.documents.listForProject, { projectId: ids.projectA })).toEqual([]);
+  expect(await asA.query(api.documents.get, { id })).toBeNull();
+});
+
+test("another org cannot remove your release", async () => {
+  const { t, ids, asA, asB } = await setup();
+  const id = await asA.mutation(api.documents.create, {
+    projectId: ids.projectA,
+    personId: ids.person,
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+  });
+
+  await expect(asB.mutation(api.documents.remove, { id })).rejects.toThrow();
+  expect(await asA.query(api.documents.get, { id })).not.toBeNull();
+});

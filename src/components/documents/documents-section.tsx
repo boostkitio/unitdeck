@@ -139,6 +139,7 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
                           ? "Download signed PDF"
                           : "Download PDF"}
                     </Button>
+                    <RemoveDocumentButton id={doc._id} title={doc.title} signed={doc.status === "signed"} />
                   </div>
                 </li>
               ))}
@@ -435,5 +436,54 @@ function UploadDocumentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Take a release off the production.
+ *
+ * A signed one is a record, so that asks first; an unsigned draft raised on
+ * the wrong person is just clutter and goes without ceremony.
+ */
+function RemoveDocumentButton({
+  id,
+  title,
+  signed,
+}: {
+  id: Id<"documents">;
+  title: string;
+  signed: boolean;
+}) {
+  const remove = useMutation(api.documents.remove);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  async function go() {
+    if (signed && !confirming) {
+      setConfirming(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      await remove({ id });
+      toast.success(`${title} removed.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove it.");
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={busy}
+      onClick={() => void go()}
+      onBlur={() => setConfirming(false)}
+    >
+      {busy ? "Removing…" : confirming ? "Remove signed copy?" : "Remove"}
+    </Button>
   );
 }

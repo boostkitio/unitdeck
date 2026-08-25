@@ -124,7 +124,7 @@ export function LocationSection({
                 title="See Documents below to preview or download it"
                 className="px-2 text-xs text-muted-foreground"
               >
-                Release {release.status}
+                Location release {release.status}
               </span>
             ) : location ? (
               <Button
@@ -136,8 +136,8 @@ export function LocationSection({
                 {makingRelease
                   ? "Opening…"
                   : release
-                    ? "Edit release form"
-                    : "Release form"}
+                    ? "Edit location release form"
+                    : "Location release form"}
               </Button>
             ) : null}
             {location && (

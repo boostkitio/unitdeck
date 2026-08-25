@@ -46,6 +46,10 @@ export default defineSchema({
     contacts: v.optional(
       v.array(
         v.object({
+          // Stable identity, so a production can name one of these without
+          // counting down the list. Absent on contacts written before there
+          // were ids; the next write gives them one.
+          id: v.optional(v.string()),
           name: v.string(),
           role: v.optional(v.string()),
           phone: v.optional(v.string()),
@@ -84,6 +88,13 @@ export default defineSchema({
     // client's contact list. A position rather than a name so correcting a
     // typo in the name does not quietly unset who booked it.
     bookedByContact: v.optional(v.number()),
+    // Who booked it, by the contact's stable id. Supersedes the position
+    // above, which is still read for projects set before ids existed.
+    bookedByContactId: v.optional(v.string()),
+    // Whether anyone has yet said which of the client's people are on this
+    // job. Until they have, all of them are — and once they have, an empty
+    // list means nobody, which is not the same thing.
+    clientContactsChosen: v.optional(v.boolean()),
     // Which of the client's contacts are on this production, by the same
     // positions. Absent means nobody has pruned the list, so all of them are
     // — which is what it did before there was a choice. Taking one off writes
@@ -142,6 +153,19 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_org_and_status", ["orgId", "status"])
     .index("by_org_and_job_number", ["orgId", "jobNumber"]),
+
+  // Which of a client's people are on a production. The client's book is the
+  // company record, this is the booking — the same shape as projectCrew, and
+  // for the same reason: taking somebody off a job must not reach the record.
+  projectClients: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.id("projects"),
+    clientId: v.id("clients"),
+    /** The contact's stable id within that client. */
+    contactId: v.string(),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"]),
 
   // Crew booked onto a production. `people` is the org-wide contact book; this
   // is the per-project booking, so one person can sit on several productions.

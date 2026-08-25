@@ -6,7 +6,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
-import { type ClientContact } from "../../../convex/clients";
+import { type ProjectClientContact } from "../../../convex/projectClients";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -31,9 +31,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 
-/** A contact with the position it holds in the client's list, which is what
- *  edits and removals are addressed by. */
-type IndexedContact = ClientContact & { index: number };
+/** A contact on this production, carrying its booking and its place in the
+ *  client's book — the booking is what a removal deletes. */
+type IndexedContact = ProjectClientContact;
 
 type ContactSortKey = "name" | "role" | "email" | "phone";
 
@@ -64,53 +64,41 @@ export function ProjectClientSection({
   projectId,
   clientId,
   clientName,
-  onShoot,
 }: {
   projectId: Id<"projects">;
   clientId: Id<"clients"> | null;
   clientName: string | null;
-  /** Who this production has on it, already resolved. */
-  onShoot: ClientContact[];
 }) {
   const client = useQuery(api.clients.get, clientId ? { id: clientId } : "skip");
-  const setOnShoot = useMutation(api.projects.setClientContact);
+  const onShoot = useQuery(api.projectClients.listForProject, { projectId });
+  const addToShoot = useMutation(api.projectClients.add);
+  const removeFromShoot = useMutation(api.projectClients.remove);
   const { sort, toggle } = useTableSort<ContactSortKey>({ key: "name", dir: "asc" });
 
   const [editing, setEditing] = useState<IndexedContact | null>(null);
   const [adding, setAdding] = useState(false);
   const [forwarding, setForwarding] = useState(false);
 
-  // Positions are how a contact is addressed, so they are taken from the
-  // company's book — the shoot's own list is a subset of it.
-  const book = useMemo(
-    () => (client?.contacts ?? []).map((c, index) => ({ ...c, index })),
-    [client],
-  );
-  const onShootKeys = useMemo(
-    () => new Set(onShoot.map((c) => `${c.name}|${c.email ?? ""}|${c.phone ?? ""}`)),
-    [onShoot],
-  );
   const contacts = useMemo(
-    () =>
-      sortRows(
-        book.filter((c) => onShootKeys.has(`${c.name}|${c.email ?? ""}|${c.phone ?? ""}`)),
-        sort,
-        contactSortValue,
-      ),
-    [book, onShootKeys, sort],
-  );
-  const available = useMemo(
-    () => book.filter((c) => !onShootKeys.has(`${c.name}|${c.email ?? ""}|${c.phone ?? ""}`)),
-    [book, onShootKeys],
+    () => sortRows(onShoot ?? [], sort, contactSortValue),
+    [onShoot, sort],
   );
 
+  // Everybody at the company who is not on this job yet, to pick from.
+  const available = useMemo(() => {
+    const on = new Set((onShoot ?? []).map((c) => c.index));
+    return (client?.contacts ?? [])
+      .map((c, index) => ({ ...c, index, bookingId: null }))
+      .filter((c) => !on.has(c.index));
+  }, [client, onShoot]);
+
   /**
-   * Takes somebody off this production. Not out of the client's book — they
-   * are still the client's producer, they are simply not on this job.
+   * Takes somebody off this production. It deletes the booking and nothing
+   * else — they stay in the client's book, where they still work.
    */
   async function handleRemove(contact: IndexedContact) {
     try {
-      await setOnShoot({ id: projectId, index: contact.index, on: false });
+      await removeFromShoot({ projectId, index: contact.index });
       toast.success(`${contact.name} taken off this production.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove them.");
@@ -119,7 +107,7 @@ export function ProjectClientSection({
 
   async function handleAdd(index: number) {
     try {
-      await setOnShoot({ id: projectId, index, on: true });
+      await addToShoot({ projectId, index });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add them.");
     }

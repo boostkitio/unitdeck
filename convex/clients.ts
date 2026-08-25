@@ -5,13 +5,23 @@ import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx } from "./_generated/server";
 
 export type ClientContact = {
+  id?: string;
   name: string;
   role?: string;
   phone?: string;
   email?: string;
 };
 
+/** Short, unguessable, and stable once written. */
+function newContactId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 const contactValidator = v.object({
+  id: v.optional(v.string()),
   name: v.string(),
   role: v.optional(v.string()),
   phone: v.optional(v.string()),
@@ -39,6 +49,7 @@ export function contactsOf(client: {
     client.contactName?.trim() || client.phone?.trim() || client.email?.trim()
       ? [
           {
+            id: undefined,
             name: client.contactName?.trim() || "Main contact",
             role: undefined,
             phone: client.phone,
@@ -64,6 +75,8 @@ function isMirrorOf(legacy: ClientContact, first: ClientContact): boolean {
 function tidy(contacts: ClientContact[]): ClientContact[] {
   return contacts
     .map((c) => ({
+      // Given one the first time they are written, and never changed after.
+      id: c.id ?? newContactId(),
       name: c.name.trim(),
       role: c.role?.trim() || undefined,
       phone: c.phone?.trim() || undefined,
@@ -239,6 +252,27 @@ export const saveContact = mutation({
     return Math.min(at, Math.max(written.length - 1, 0));
   },
 });
+
+/**
+ * Give every contact at a client an id, if they have not got one.
+ *
+ * Idempotent, and the only way a production can name one of these without
+ * counting down the list — which is what made removing one from a shoot
+ * dangerous in the first place.
+ */
+export async function ensureContactIds(
+  ctx: MutationCtx,
+  clientId: Id<"clients">
+): Promise<Required<Pick<ClientContact, "id">>[] & ClientContact[]> {
+  const client = await ctx.db.get(clientId);
+  if (!client) throw new Error("Client not found");
+  const contacts = contactsOf(client);
+  if (contacts.length > 0 && contacts.every((c) => c.id)) {
+    return contacts as (ClientContact & { id: string })[];
+  }
+  const written = await writeContacts(ctx, clientId, contacts);
+  return written as (ClientContact & { id: string })[];
+}
 
 export const removeContact = mutation({
   args: { id: v.id("clients"), index: v.number() },

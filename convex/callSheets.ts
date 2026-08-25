@@ -134,12 +134,18 @@ async function buildFromProject(
   // Only the people actually on this production: a client's accounts contact
   // does not belong on a call sheet.
   const everyone = client ? contactsOf(client) : [];
-  const onShoot =
-    project.clientContacts === undefined
-      ? everyone
-      : project.clientContacts
-          .filter((i) => i >= 0 && i < everyone.length)
-          .map((i) => everyone[i]);
+  const bookings = client
+    ? (
+        await ctx.db
+          .query("projectClients")
+          .withIndex("by_project", (q) => q.eq("projectId", day.projectId))
+          .take(200)
+      ).filter((r) => r.clientId === client._id)
+    : [];
+  const booked = new Set(bookings.map((r) => r.contactId));
+  const onShoot = project.clientContactsChosen
+    ? everyone.filter((c) => c.id !== undefined && booked.has(c.id))
+    : everyone;
   const clientRows = onShoot.map((contact, i) => ({
     id: `client-${i + 1}`,
     name: contact.name,
