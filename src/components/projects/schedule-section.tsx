@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { type ScheduleItem } from "../../../convex/schedule";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -46,7 +46,6 @@ export function ScheduleSection({ projectId }: { projectId: Id<"projects"> }) {
   const schedule = useQuery(api.schedule.listForProject, { projectId });
   const remove = useMutation(api.schedule.remove);
 
-  const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ScheduleItem | null>(null);
 
   async function handleRemove(item: ScheduleItem) {
@@ -72,11 +71,6 @@ export function ScheduleSection({ projectId }: { projectId: Id<"projects"> }) {
     <Card className="mt-12">
       <CardHeader>
         <CardTitle>Schedule</CardTitle>
-        <CardAction>
-          <Button size="sm" onClick={() => setAdding(true)}>
-            Add to schedule
-          </Button>
-        </CardAction>
       </CardHeader>
       <CardContent>
         {schedule === undefined ? (
@@ -86,8 +80,8 @@ export function ScheduleSection({ projectId }: { projectId: Id<"projects"> }) {
           </div>
         ) : schedule.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            Nothing scheduled yet. Build the running order — call time, first setup, lunch,
-            wrap — and it will read down the page in the order the day happens.
+            Nothing scheduled yet. Type the running order below — call time, first setup,
+            lunch, wrap — and it will read down the page in the order the day happens.
           </p>
         ) : (
           <div className="space-y-6">
@@ -132,9 +126,9 @@ export function ScheduleSection({ projectId }: { projectId: Id<"projects"> }) {
             ))}
           </div>
         )}
+        <ScheduleRowEntry projectId={projectId} />
       </CardContent>
 
-      {adding && <ScheduleDialog projectId={projectId} onClose={() => setAdding(false)} />}
       {editing && (
         <ScheduleDialog
           projectId={projectId}
@@ -276,5 +270,105 @@ function ScheduleDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * A line at a time.
+ *
+ * Building a running order is twenty short entries in a row, and a dialog per
+ * entry makes that twenty open-type-save-close cycles. This is one row that
+ * stays where it is: type a time, type what happens, press Enter, and the
+ * cursor is back on the time ready for the next one.
+ */
+function ScheduleRowEntry({ projectId }: { projectId: Id<"projects"> }) {
+  const days = useQuery(api.shootDays.listForProject, { projectId });
+  const add = useMutation(api.schedule.add);
+
+  const [time, setTime] = useState("");
+  const [what, setWhat] = useState("");
+  const [dayId, setDayId] = useState<string>("any");
+  const [saving, setSaving] = useState(false);
+  const timeRef = useRef<HTMLInputElement>(null);
+
+  async function submit() {
+    if (what.trim().length === 0) {
+      toast.error("Say what happens.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await add({
+        projectId,
+        time: time.trim() || undefined,
+        item: what,
+        shootDayId: dayId === "any" ? undefined : (dayId as Id<"shootDays">),
+      });
+      // Cleared and refocused, so the next line is straight in. The day is
+      // kept: a run of entries is nearly always for the same day.
+      setTime("");
+      setWhat("");
+      timeRef.current?.focus();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add it.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void submit();
+    }
+  }
+
+  const dayName = (id: string) => {
+    if (id === "any") return "Any day";
+    const day = (days ?? []).find((d) => d._id === id);
+    if (!day) return "…";
+    return day.label ? `${formatShootDate(day.date)} — ${day.label}` : formatShootDate(day.date);
+  };
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+      <Input
+        ref={timeRef}
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="07:00"
+        aria-label="Time"
+        className="w-20 font-mono"
+      />
+      <Input
+        value={what}
+        onChange={(e) => setWhat(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="Crew call, first setup, lunch, wrap…"
+        aria-label="What happens"
+        className="min-w-40 flex-1"
+      />
+      {(days ?? []).length > 0 && (
+        <Select value={dayId} onValueChange={(value) => setDayId(value ?? "any")}>
+          <SelectTrigger className="w-44">
+            <SelectValue>{dayName(dayId)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">Any day</SelectItem>
+            {(days ?? []).map((day) => (
+              <SelectItem key={day._id} value={day._id}>
+                {day.label
+                  ? `${formatShootDate(day.date)} — ${day.label}`
+                  : formatShootDate(day.date)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      <Button size="sm" disabled={saving || what.trim().length === 0} onClick={() => void submit()}>
+        Add
+      </Button>
+    </div>
   );
 }

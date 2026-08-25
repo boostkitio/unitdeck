@@ -2,15 +2,25 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 
+const kindValidator = v.union(v.literal("crew"), v.literal("talent"));
+
+/**
+ * One contact book per kind. Contacts added before talent existed have no
+ * kind and read as crew, which is what they are.
+ */
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { kind: v.optional(kindValidator) },
+  handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const people = await ctx.db
       .query("people")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(500);
-    return people.filter((p) => !p.archived);
+    const wanted = args.kind ?? "crew";
+    return people
+      .filter((p) => !p.archived)
+      .filter((p) => (p.kind ?? "crew") === wanted)
+      .map((p) => ({ ...p, kind: p.kind ?? ("crew" as const) }));
   },
 });
 
@@ -28,6 +38,7 @@ export const create = mutation({
   args: {
     name: v.string(),
     role: v.string(),
+    kind: v.optional(kindValidator),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
     dayRate: v.optional(v.number()),
@@ -42,6 +53,7 @@ export const create = mutation({
       orgId: org._id,
       name: args.name.trim(),
       role: args.role.trim(),
+      kind: args.kind,
       email: args.email?.trim() || undefined,
       phone: args.phone?.trim() || undefined,
       dayRate: args.dayRate,
@@ -97,6 +109,7 @@ const MAX_IMPORT_ROWS = 200;
  */
 export const importRows = mutation({
   args: {
+    kind: v.optional(kindValidator),
     rows: v.array(
       v.object({
         name: v.string(),
@@ -120,7 +133,14 @@ export const importRows = mutation({
       .query("people")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(1000);
-    const byName = new Map(existing.map((person) => [person.name.trim().toLowerCase(), person]));
+    const wanted = args.kind ?? "crew";
+    // Matching stays inside the book being imported into, so a talent import
+    // does not silently overwrite a crew member with the same name.
+    const byName = new Map(
+      existing
+        .filter((person) => (person.kind ?? "crew") === wanted)
+        .map((person) => [person.name.trim().toLowerCase(), person])
+    );
 
     let created = 0;
     let updated = 0;
@@ -149,7 +169,8 @@ export const importRows = mutation({
         const id = await ctx.db.insert("people", {
           orgId: org._id,
           name,
-          role: row.role?.trim() || "Crew",
+          role: row.role?.trim() || (wanted === "talent" ? "Talent" : "Crew"),
+          kind: args.kind,
           ...fields,
         });
         byName.set(name.toLowerCase(), (await ctx.db.get(id))!);

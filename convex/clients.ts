@@ -14,12 +14,58 @@ export const list = query({
   },
 });
 
+const contactValidator = v.object({
+  name: v.string(),
+  role: v.optional(v.string()),
+  phone: v.optional(v.string()),
+  email: v.optional(v.string()),
+});
+
+/**
+ * Every contact at a client, with the original single contact first.
+ *
+ * A client used to hold one name, phone and email. Those fields are still
+ * where an existing row keeps its person, so reads present them as the first
+ * contact rather than losing them or making anyone retype.
+ */
+export function contactsOf(client: {
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  contacts?: { name: string; role?: string; phone?: string; email?: string }[];
+}) {
+  const first =
+    client.contactName?.trim() || client.phone?.trim() || client.email?.trim()
+      ? [
+          {
+            name: client.contactName?.trim() || "Main contact",
+            role: undefined as string | undefined,
+            phone: client.phone,
+            email: client.email,
+          },
+        ]
+      : [];
+  return [...first, ...(client.contacts ?? [])];
+}
+
+/** One client with its contacts resolved, for the project's client card. */
+export const get = query({
+  args: { id: v.id("clients") },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const client = await ctx.db.get(args.id);
+    if (!client || client.orgId !== org._id) return null;
+    return { ...client, contacts: contactsOf(client) };
+  },
+});
+
 export const create = mutation({
   args: {
     name: v.string(),
     contactName: v.optional(v.string()),
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
+    contacts: v.optional(v.array(contactValidator)),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -31,6 +77,7 @@ export const create = mutation({
       contactName: args.contactName?.trim() || undefined,
       phone: args.phone?.trim() || undefined,
       email: args.email?.trim() || undefined,
+      contacts: args.contacts,
       notes: args.notes,
     });
   },
@@ -43,6 +90,7 @@ export const update = mutation({
     contactName: v.optional(v.union(v.string(), v.null())),
     phone: v.optional(v.union(v.string(), v.null())),
     email: v.optional(v.union(v.string(), v.null())),
+    contacts: v.optional(v.array(contactValidator)),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -57,6 +105,18 @@ export const update = mutation({
     if (args.contactName !== undefined) patch.contactName = args.contactName?.trim() || undefined;
     if (args.phone !== undefined) patch.phone = args.phone?.trim() || undefined;
     if (args.email !== undefined) patch.email = args.email?.trim() || undefined;
+    if (args.contacts !== undefined) {
+      const cleaned = args.contacts
+        .map((c) => ({
+          name: c.name.trim(),
+          role: c.role?.trim() || undefined,
+          phone: c.phone?.trim() || undefined,
+          email: c.email?.trim() || undefined,
+        }))
+        // A contact with no name is a blank row somebody left behind.
+        .filter((c) => c.name.length > 0);
+      patch.contacts = cleaned.length > 0 ? cleaned : undefined;
+    }
     if (args.notes !== undefined) patch.notes = args.notes;
     await ctx.db.patch(args.id, patch);
     return null;

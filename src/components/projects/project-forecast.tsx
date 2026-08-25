@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction } from "convex/react";
+import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { formatShootDate } from "@/lib/format-date";
@@ -43,6 +44,7 @@ export function ProjectForecast({
   locationName: string | null;
 }) {
   const refresh = useAction(api.projects.refreshForecast);
+  const [checking, setChecking] = useState(false);
 
   // One refresh per stale combination, not one per render: the effect reruns
   // whenever the query updates, and the action's own write is such an update.
@@ -54,10 +56,27 @@ export function ProjectForecast({
     if (requested.current === key) return;
     requested.current = key;
     void refresh({ id: projectId }).catch(() => {
-      // Leave the last known reading up; a failed lookup is not worth a toast
-      // on a page the user opened to do something else.
+      // Clear the guard so this can be tried again. Holding it meant one
+      // failed lookup left the line reading "Checking the forecast…" for
+      // good, with no way to ask it to try again.
+      requested.current = null;
     });
   }, [projectId, forecast, date, locationId, refresh]);
+
+  /** Asks again now, whatever the cache thinks. */
+  async function refreshNow() {
+    setChecking(true);
+    try {
+      requested.current = null;
+      const result = await refresh({ id: projectId });
+      if (result.ok) toast.success(result.reason ?? "Forecast updated.");
+      else toast.error(result.reason ?? "Could not check the forecast.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not check the forecast.");
+    } finally {
+      setChecking(false);
+    }
+  }
 
   if (!date) return null;
   if (!locationId) {
@@ -68,7 +87,19 @@ export function ProjectForecast({
     );
   }
   if (!forecast || forecast.date !== date) {
-    return <p className="px-2 text-xs text-muted-foreground">Checking the forecast…</p>;
+    return (
+      <p className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
+        Checking the forecast…
+        <button
+          type="button"
+          onClick={() => void refreshNow()}
+          disabled={checking}
+          className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+        >
+          {checking ? "Checking…" : "Check now"}
+        </button>
+      </p>
+    );
   }
 
   const temperature =
@@ -108,6 +139,16 @@ export function ProjectForecast({
       )}
 
       {forecast.reason && <span>{forecast.reason}</span>}
+
+      <button
+        type="button"
+        onClick={() => void refreshNow()}
+        disabled={checking}
+        title="Check the forecast again now"
+        className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+      >
+        {checking ? "Checking…" : "Refresh"}
+      </button>
     </div>
   );
 }

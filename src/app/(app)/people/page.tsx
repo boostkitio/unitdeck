@@ -79,9 +79,34 @@ const IMPORT_COLUMNS: CsvColumnSpec[] = [
   { key: "notes", label: "Notes", aliases: ["Comment", "Comments"] },
 ];
 
+/** The two contact books are the same page with a different heading. */
+export type ContactKind = "crew" | "talent";
+
+const BOOK = {
+  crew: {
+    title: "People",
+    blurb: "Crew, freelancers and contacts. Your company memory.",
+    addLabel: "Add person",
+    exportName: "people",
+    empty: "No people yet. Add your first crew member.",
+  },
+  talent: {
+    title: "Talent",
+    blurb: "Actors, presenters and contributors. Kept apart from crew.",
+    addLabel: "Add talent",
+    exportName: "talent",
+    empty: "No talent yet. Add your first contributor.",
+  },
+} as const;
+
 export default function PeoplePage() {
+  return <ContactBook kind="crew" />;
+}
+
+export function ContactBook({ kind }: { kind: ContactKind }) {
   const { organization } = useOrganization();
-  const people = useQuery(api.people.list, organization ? {} : "skip");
+  const book = BOOK[kind];
+  const people = useQuery(api.people.list, organization ? { kind } : "skip");
   const createPerson = useMutation(api.people.create);
   const updatePerson = useMutation(api.people.update);
   const removePerson = useMutation(api.people.remove);
@@ -153,6 +178,7 @@ export default function PeoplePage() {
         toast.success("Saved.");
       } else {
         await createPerson({
+          kind,
           name: form.name,
           role: form.role,
           email: form.email.trim() || undefined,
@@ -185,14 +211,12 @@ export default function PeoplePage() {
     <div>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">People</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Crew, freelancers and contacts. Your company memory.
-          </p>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">{book.title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{book.blurb}</p>
         </div>
         <div className="flex items-center gap-2">
           <CsvExportButton
-            filename="people"
+            filename={book.exportName}
             headers={["Name", "Role", "Email", "Phone", "Day rate", "Notes"]}
             rows={(people ?? []).map((p) => [
               p.name,
@@ -206,7 +230,7 @@ export default function PeoplePage() {
           <Button variant="secondary" onClick={() => setImportOpen(true)}>
             Import CSV
           </Button>
-          <Button onClick={openCreate}>Add person</Button>
+          <Button onClick={openCreate}>{book.addLabel}</Button>
         </div>
       </div>
 
@@ -226,7 +250,7 @@ export default function PeoplePage() {
           </div>
         ) : people.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
-            No people yet. Add your regular crew first.
+            {book.empty}
           </p>
         ) : sortedPeople.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
@@ -330,6 +354,7 @@ export default function PeoplePage() {
           exampleHeader="Name,Role,Email,Phone,Notes"
           onImportBatch={(rows) =>
             importRows({
+              kind,
               rows: rows.map((row) => ({
                 name: row.name ?? "",
                 role: row.role,

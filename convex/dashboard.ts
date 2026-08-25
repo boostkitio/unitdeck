@@ -8,7 +8,7 @@ export type AttentionItem = {
   // Call-sheet-derived kinds are gone: call sheets are not in use, so an
   // unsent one is not something to chase. What matters before a shoot is
   // whether the crew is confirmed.
-  kind: "no_crew" | "unfilled_roles" | "unconfirmed_crew" | "weather_risk";
+  kind: "no_crew" | "unfilled_roles" | "unconfirmed_crew" | "kit_clash" | "weather_risk";
   projectId: Id<"projects">;
   projectName: string;
   shootDayId: Id<"shootDays">;
@@ -20,6 +20,11 @@ export type AttentionItem = {
 // attention" just because its call sheet has not gone out yet.
 function chases(status: string): boolean {
   return needsAttention(status);
+}
+
+/** Case and spacing are not what makes two lines the same piece of kit. */
+function itemKey(item: string): string {
+  return item.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 export const attention = query({
@@ -47,6 +52,9 @@ export const attention = query({
       .withIndex("by_org_and_date", (q) => q.eq("orgId", org._id).gte("date", today))
       .take(500);
     const upcoming = days.filter((d) => byId.has(d.projectId));
+
+    // Readable names for the kit, keyed the way clashes are counted.
+    const itemNames = new Map<string, string>();
 
     // Crew is booked per project rather than per day, so it is resolved once
     // per project and reused across that project's shoot days.
@@ -113,6 +121,94 @@ export const attention = query({
           ...base,
           kind: "unconfirmed_crew",
           label: `${outstanding} of ${crew.filled} crew still to confirm`,
+        });
+      }
+    }
+
+    // Kit booked on two productions at once. Counted the same way the project
+    // page counts it — what everyone shooting that day wants against what the
+    // company owns — so the dashboard and the project never disagree.
+    const kitRows = await ctx.db
+      .query("projectEquipment")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(4000);
+    const inventory = await ctx.db
+      .query("equipment")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(5000);
+
+    const stock = new Map<string, number>();
+    for (const kit of inventory) {
+      if (kit.archived) continue;
+      const key = itemKey(kit.item);
+      stock.set(key, (stock.get(key) ?? 0) + 1);
+      if (!itemNames.has(key)) itemNames.set(key, kit.item);
+    }
+
+    // Every production with an upcoming day, and the days it holds. Unlike the
+    // crew checks this is not limited to unconfirmed bookings: a confirmed
+    // shoot double-booked on a camera is exactly the problem worth raising.
+    const liveProjects = new Map<string, Doc<"projects">>();
+    for (const project of projects) {
+      if (isArchived(project)) continue;
+      liveProjects.set(String(project._id), project);
+    }
+    const datesByProject = new Map<string, Set<string>>();
+    for (const day of days) {
+      if (!liveProjects.has(String(day.projectId))) continue;
+      const key = String(day.projectId);
+      const set = datesByProject.get(key);
+      if (set) set.add(day.date);
+      else datesByProject.set(key, new Set([day.date]));
+    }
+
+    // What each production wants of each thing, on the days it is shooting.
+    const demand = new Map<string, Map<string, number>>();
+    for (const row of kitRows) {
+      const projectKey = String(row.projectId);
+      if (!datesByProject.has(projectKey)) continue;
+      const key = itemKey(row.item);
+      if (!stock.has(key)) continue; // Hired in: nothing fixed to run out of.
+      const byItem = demand.get(key) ?? new Map<string, number>();
+      byItem.set(projectKey, (byItem.get(projectKey) ?? 0) + (row.quantity ?? 1));
+      demand.set(key, byItem);
+    }
+
+    // One item raised once per production it overbooks, on the day it happens.
+    const raised = new Set<string>();
+    for (const [key, byProject] of demand) {
+      if (byProject.size < 2) continue;
+      const held = stock.get(key)!;
+
+      for (const [projectKey, wanted] of byProject) {
+        const myDates = datesByProject.get(projectKey)!;
+        let clashingOn: string | null = null;
+        let total = wanted;
+
+        for (const [otherKey, otherWanted] of byProject) {
+          if (otherKey === projectKey) continue;
+          const otherDates = datesByProject.get(otherKey)!;
+          const shared = [...myDates].filter((d) => otherDates.has(d)).sort();
+          if (shared.length === 0) continue;
+          total += otherWanted;
+          if (!clashingOn || shared[0] < clashingOn) clashingOn = shared[0];
+        }
+        if (clashingOn === null || total <= held) continue;
+
+        const project = liveProjects.get(projectKey)!;
+        const day = days.find((d) => String(d.projectId) === projectKey && d.date === clashingOn);
+        if (!day) continue;
+        const marker = `${projectKey}:${key}`;
+        if (raised.has(marker)) continue;
+        raised.add(marker);
+
+        items.push({
+          projectId: project._id,
+          projectName: project.name,
+          shootDayId: day._id,
+          date: clashingOn,
+          kind: "kit_clash",
+          label: `${itemNames.get(key) ?? key} double-booked — ${total} wanted, ${held} owned`,
         });
       }
     }

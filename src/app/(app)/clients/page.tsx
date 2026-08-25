@@ -73,6 +73,11 @@ export default function ClientsPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+  // Everyone beyond the first contact, which stays in its own fields so
+  // existing rows keep the person already on them.
+  const [contacts, setContacts] = useState<
+    { name: string; role: string; phone: string; email: string }[]
+  >([]);
   const [saving, setSaving] = useState(false);
   const { sort, toggle } = useTableSort<ClientSortKey>({ key: "name", dir: "asc" });
   const [search, setSearch] = useState("");
@@ -96,6 +101,7 @@ export default function ClientsPage() {
     setPhone("");
     setEmail("");
     setNotes("");
+    setContacts([]);
     setDialogOpen(true);
   }
 
@@ -106,6 +112,14 @@ export default function ClientsPage() {
     setPhone(client.phone ?? "");
     setEmail(client.email ?? "");
     setNotes(client.notes ?? "");
+    setContacts(
+      (client.contacts ?? []).map((c) => ({
+        name: c.name,
+        role: c.role ?? "",
+        phone: c.phone ?? "",
+        email: c.email ?? "",
+      })),
+    );
     setDialogOpen(true);
   }
 
@@ -114,6 +128,16 @@ export default function ClientsPage() {
       toast.error("Company is required.");
       return;
     }
+    // A row with no name is a blank one somebody left behind.
+    const extraContacts = contacts
+      .filter((c) => c.name.trim().length > 0)
+      .map((c) => ({
+        name: c.name.trim(),
+        role: c.role.trim() || undefined,
+        phone: c.phone.trim() || undefined,
+        email: c.email.trim() || undefined,
+      }));
+
     setSaving(true);
     try {
       if (editing) {
@@ -123,6 +147,7 @@ export default function ClientsPage() {
           contactName: contactName.trim() || null,
           phone: phone.trim() || null,
           email: email.trim() || null,
+          contacts: extraContacts,
           notes,
         });
         toast.success("Saved.");
@@ -132,6 +157,7 @@ export default function ClientsPage() {
           contactName: contactName.trim() || undefined,
           phone: phone.trim() || undefined,
           email: email.trim() || undefined,
+          contacts: extraContacts.length > 0 ? extraContacts : undefined,
           notes: notes.trim() || undefined,
         });
         toast.success("Client added.");
@@ -300,6 +326,97 @@ export default function ClientsPage() {
               />
             </div>
             <div className="space-y-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Other contacts</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setContacts((rows) => [
+                        ...rows,
+                        { name: "", role: "", phone: "", email: "" },
+                      ])
+                    }
+                  >
+                    Add contact
+                  </Button>
+                </div>
+                {contacts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    A producer, someone in accounts, whoever signs off — they are rarely the
+                    same person.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {contacts.map((contact, i) => (
+                      <li key={i} className="space-y-2 rounded-md border border-border p-2">
+                        <div className="flex gap-2">
+                          <Input
+                            value={contact.name}
+                            onChange={(e) =>
+                              setContacts((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, name: e.target.value } : r,
+                                ),
+                              )
+                            }
+                            placeholder="Name"
+                            aria-label="Contact name"
+                          />
+                          <Input
+                            value={contact.role}
+                            onChange={(e) =>
+                              setContacts((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, role: e.target.value } : r,
+                                ),
+                              )
+                            }
+                            placeholder="Role (optional)"
+                            aria-label="Contact role"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setContacts((rows) => rows.filter((_, j) => j !== i))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        <div className="flex gap-2">
+                          <Input
+                            value={contact.phone}
+                            onChange={(e) =>
+                              setContacts((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, phone: e.target.value } : r,
+                                ),
+                              )
+                            }
+                            placeholder="Number"
+                            aria-label="Contact number"
+                          />
+                          <Input
+                            value={contact.email}
+                            onChange={(e) =>
+                              setContacts((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, email: e.target.value } : r,
+                                ),
+                              )
+                            }
+                            placeholder="Email"
+                            aria-label="Contact email"
+                          />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               <Label htmlFor="client-notes">Notes</Label>
               <Textarea
                 id="client-notes"

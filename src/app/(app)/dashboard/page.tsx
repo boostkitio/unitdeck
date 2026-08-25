@@ -207,8 +207,8 @@ export default function DashboardPage() {
               </p>
             ) : (
               <p className="text-muted-foreground">
-                Nothing needs attention. Upcoming shoots with no crew booked, crew still to
-                confirm, or weather risk will appear here.
+                Nothing needs attention. Crew not booked, crew still to confirm, kit
+                double-booked with another shoot, or weather risk will appear here.
               </p>
             )}
           </CardContent>

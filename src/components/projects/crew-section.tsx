@@ -33,13 +33,10 @@ import { cn } from "@/lib/utils";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
 
-type CrewSortKey = "kind" | "name" | "role" | "status" | "email" | "phone";
+type CrewSortKey = "name" | "role" | "status" | "email" | "phone";
 
 function crewSortValue(member: ProjectCrewMember, key: CrewSortKey): string | number | null {
   switch (key) {
-    case "kind":
-      // Crew first, then talent — the order a call sheet reads in.
-      return member.kind === "talent" ? 1 : 0;
     case "name":
       return member.name;
     case "role":
@@ -57,11 +54,16 @@ function crewSortValue(member: ProjectCrewMember, key: CrewSortKey): string | nu
 export function CrewSection({
   projectId,
   projectName,
+  kind = "crew",
 }: {
   projectId: Id<"projects">;
   projectName: string;
+  /** Which list this card is: crew and talent are separate boxes, because a
+   *  call sheet keeps them apart. */
+  kind?: "crew" | "talent";
 }) {
-  const crew = useQuery(api.projectCrew.listForProject, { projectId });
+  const all = useQuery(api.projectCrew.listForProject, { projectId });
+  const crew = all?.filter((m) => m.kind === kind);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ProjectCrewMember | null>(null);
   const [forwarding, setForwarding] = useState(false);
@@ -99,7 +101,7 @@ export function CrewSection({
   return (
     <Card className="mt-12">
       <CardHeader>
-        <CardTitle>Crew &amp; talent</CardTitle>
+        <CardTitle>{kind === "talent" ? "Talent" : "Crew"}</CardTitle>
         <CardAction>
           <div className="flex items-center gap-2">
             <Button
@@ -111,7 +113,7 @@ export function CrewSection({
               Forward
             </Button>
             <Button size="sm" onClick={() => setAdding(true)}>
-              Add crew or talent
+              {kind === "talent" ? "Add talent" : "Add crew"}
             </Button>
           </div>
         </CardAction>
@@ -124,9 +126,12 @@ export function CrewSection({
           </div>
         ) : crew.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            Nobody on this production yet. Add crew or talent from your{" "}
-            <Link href="/people" className="underline underline-offset-2 text-foreground">
-              people
+            {kind === "talent" ? "No talent on this production yet." : "No crew on this production yet."} Add from your{" "}
+            <Link
+              href={kind === "talent" ? "/talent" : "/people"}
+              className="underline underline-offset-2 text-foreground"
+            >
+              {kind === "talent" ? "talent" : "people"}
             </Link>{" "}
             list.
           </p>
@@ -134,13 +139,6 @@ export function CrewSection({
           <Table>
             <TableHeader>
               <TableRow>
-                <SortableHead
-                  label="Type"
-                  sortKey="kind"
-                  sort={sort}
-                  onSort={toggle}
-                  className="w-24"
-                />
                 <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
                 <SortableHead label="Role" sortKey="role" sort={sort} onSort={toggle} />
                 <SortableHead
@@ -158,18 +156,6 @@ export function CrewSection({
             <TableBody>
               {sortedCrew.map((member) => (
                 <TableRow key={member._id}>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-medium",
-                        member.kind === "talent"
-                          ? "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {member.kind === "talent" ? "Talent" : "Crew"}
-                    </span>
-                  </TableCell>
                   <TableCell className="font-medium">
                     {member.name ?? (
                       <span className="text-muted-foreground italic">Nobody booked</span>
@@ -249,7 +235,8 @@ export function CrewSection({
       {adding && (
         <AddCrewDialog
           projectId={projectId}
-          existing={crew ?? []}
+          initialKind={kind}
+          existing={all ?? []}
           onClose={() => setAdding(false)}
         />
       )}
@@ -292,12 +279,17 @@ function PersonPicker({
   taken,
   disabled,
   onPick,
+  book,
+  onBookChange,
 }: {
   taken: (Id<"people"> | null)[];
   disabled: boolean;
   onPick: (personId: Id<"people">) => void;
+  /** Which contact book is being picked from. */
+  book: "crew" | "talent";
+  onBookChange: (book: "crew" | "talent") => void;
 }) {
-  const people = useQuery(api.people.list, {});
+  const people = useQuery(api.people.list, { kind: book });
   const [search, setSearch] = useState("");
 
   const available = useMemo(() => {
@@ -326,6 +318,24 @@ function PersonPicker({
 
   return (
     <div className="space-y-3">
+      {/* Both books from one window: adding a presenter should not mean
+          closing this and going somewhere else. */}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant={book === "crew" ? "secondary" : "ghost"}
+          onClick={() => onBookChange("crew")}
+        >
+          People
+        </Button>
+        <Button
+          size="sm"
+          variant={book === "talent" ? "secondary" : "ghost"}
+          onClick={() => onBookChange("talent")}
+        >
+          Talent
+        </Button>
+      </div>
       <Input
         placeholder="Search by name, role, email or phone…"
         value={search}
@@ -335,7 +345,7 @@ function PersonPicker({
       {matches.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           {available.length === 0
-            ? "Everyone in your people list is already on this project."
+            ? `Everyone in your ${book === "talent" ? "talent" : "people"} list is already on this project.`
             : "Nothing matches that search."}
         </p>
       ) : (
@@ -370,17 +380,20 @@ function PersonPicker({
 function AddCrewDialog({
   projectId,
   existing,
+  initialKind,
   onClose,
 }: {
   projectId: Id<"projects">;
   existing: ProjectCrewMember[];
+  /** Which card opened it, so it starts on the right book. */
+  initialKind: "crew" | "talent";
   onClose: () => void;
 }) {
   const addCrew = useMutation(api.projectCrew.add);
   const createPerson = useMutation(api.people.create);
 
   const [mode, setMode] = useState<"existing" | "new" | "role">("existing");
-  const [kind, setKind] = useState<"crew" | "talent">("crew");
+  const [kind, setKind] = useState<"crew" | "talent">(initialKind);
   const [saving, setSaving] = useState(false);
 
   // New-person fields, so someone can be added without leaving the dialog.
@@ -456,26 +469,6 @@ function AddCrewDialog({
           <DialogTitle>Add to this project</DialogTitle>
         </DialogHeader>
 
-        {/* Talent are booked exactly like crew, so it is the same three routes
-            in with a different heading over the result. */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Adding</span>
-          <Button
-            size="sm"
-            variant={kind === "crew" ? "secondary" : "ghost"}
-            onClick={() => setKind("crew")}
-          >
-            Crew
-          </Button>
-          <Button
-            size="sm"
-            variant={kind === "talent" ? "secondary" : "ghost"}
-            onClick={() => setKind("talent")}
-          >
-            Talent
-          </Button>
-        </div>
-
         <div className="flex flex-wrap gap-2 border-b border-border pb-3">
           <Button
             size="sm"
@@ -506,6 +499,8 @@ function AddCrewDialog({
               taken={existing.map((m) => m.personId)}
               disabled={saving}
               onPick={(personId) => void choose(personId)}
+              book={kind}
+              onBookChange={setKind}
             />
           </div>
         )}
@@ -606,6 +601,7 @@ function FillRoleDialog({
   onClose: () => void;
 }) {
   const assign = useMutation(api.projectCrew.assign);
+  const [book, setBook] = useState<"crew" | "talent">("crew");
   const [saving, setSaving] = useState(false);
 
   async function pick(personId: Id<"people">) {
@@ -632,6 +628,8 @@ function FillRoleDialog({
             taken={existing.map((m) => m.personId)}
             disabled={saving}
             onPick={(personId) => void pick(personId)}
+            book={book}
+            onBookChange={setBook}
           />
         </div>
         <DialogFooter>

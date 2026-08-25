@@ -31,10 +31,25 @@ export default defineSchema({
     orgId: v.id("organisations"),
     // The company. Existing rows were created when this was the only field.
     name: v.string(),
-    // Primary contact at that company.
+    // The first contact at that company, from when there could only be one.
+    // Reads as the first entry in `contacts`; kept so existing rows still
+    // carry the person whose details are on them.
     contactName: v.optional(v.string()),
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
+    // Everyone else you deal with there. A client of any size has a producer,
+    // an accounts contact and someone who signs things off, and they are
+    // rarely the same person.
+    contacts: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          role: v.optional(v.string()),
+          phone: v.optional(v.string()),
+          email: v.optional(v.string()),
+        })
+      )
+    ),
     notes: v.optional(v.string()),
     archived: v.optional(v.boolean()),
   }).index("by_org", ["orgId"]),
@@ -42,6 +57,11 @@ export default defineSchema({
   people: defineTable({
     orgId: v.id("organisations"),
     name: v.string(),
+    // Which contact book they are in. Talent and crew are the same record —
+    // a name, a role, contact details — kept in separate lists because that
+    // is how a production office thinks about them. Absent reads as crew,
+    // which is what every contact added before this is.
+    kind: v.optional(v.union(v.literal("crew"), v.literal("talent"))),
     // Free-text production role: "DP", "Sound recordist", "Editor", "Runner"
     role: v.string(),
     email: v.optional(v.string()),
