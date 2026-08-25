@@ -187,7 +187,8 @@ export default function DashboardPage() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-foreground">{item.label}</p>
                       <p className="text-xs text-muted-foreground">
-                        {item.projectName} · {formatShootDate(item.date)}
+                        {item.projectName} ·{" "}
+                        {item.date ? formatShootDate(item.date) : "No shoot dates yet"}
                       </p>
                     </div>
                     <Link

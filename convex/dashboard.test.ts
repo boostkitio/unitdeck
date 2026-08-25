@@ -42,7 +42,7 @@ test("attention feed chases crew confirmation, not call sheets", async () => {
   });
   items = await asA.query(api.dashboard.attention, {});
   expect(items.map((i) => i.kind)).toEqual(["unconfirmed_crew"]);
-  expect(items[0].label).toBe("1 of 1 crew still to confirm");
+  expect(items[0].label).toBe("Sam Reed still to confirm");
 
   // Confirmed: nothing left to chase.
   await asA.mutation(api.projectCrew.update, { id: bookingId, status: "confirmed" });
@@ -194,8 +194,8 @@ test("an unfilled role is chased separately from unconfirmed crew", async () => 
 
   const items = await asE.query(api.dashboard.attention, {});
   // The confirmed person is settled; the empty role is not.
-  expect(items.map((i) => i.kind)).toEqual(["unfilled_roles"]);
-  expect(items[0].label).toBe("1 role still to book");
+  expect(items.map((i) => i.kind)).toEqual(["unfilled_role"]);
+  expect(items[0].label).toBe("Gaffer still to book");
 });
 
 test("a crew problem is raised once per production, not once per shoot day", async () => {
@@ -331,4 +331,120 @@ test("a shoot overbooked on many items is one line, not many", async () => {
   // One line per production, counting the items — not four lines each.
   expect(clashes).toHaveLength(2);
   expect(clashes[0].label).toBe("4 items double-booked with another shoot");
+});
+
+test("a confirmed production still has its crew chased", async () => {
+  const t = convexTest(schema, modules);
+  const future = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org F", clerkOrgId: "org_f" });
+    // Confirmed with the client — which is precisely when the crew has to be
+    // booked. The old feed skipped these productions entirely.
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: future, locationIds: [] });
+    const sam = await ctx.db.insert("people", { orgId: org, name: "Sam Reed", role: "Sound" });
+    await ctx.db.insert("projectCrew", { orgId: org, projectId: project, personId: sam });
+    await ctx.db.insert("projectCrew", { orgId: org, projectId: project, role: "Gaffer" });
+  });
+  const asF = t.withIdentity({ subject: "user_f", org_id: "org_f" });
+
+  const items = await asF.query(api.dashboard.attention, {});
+  expect(items.map((i) => i.label).sort()).toEqual([
+    "Gaffer still to book",
+    "Sam Reed still to confirm",
+  ]);
+});
+
+test("every outstanding person is a line, not one line counting them", async () => {
+  const t = convexTest(schema, modules);
+  const future = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org G", clerkOrgId: "org_g" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: future, locationIds: [] });
+    // Three pencilled, one confirmed, and two roles nobody is in.
+    for (const name of ["Ada Vaughn", "Ben Okoro", "Cleo Marsh"]) {
+      const personId = await ctx.db.insert("people", { orgId: org, name, role: "Camera" });
+      await ctx.db.insert("projectCrew", { orgId: org, projectId: project, personId });
+    }
+    const settled = await ctx.db.insert("people", { orgId: org, name: "Dee Hall", role: "Grip" });
+    await ctx.db.insert("projectCrew", {
+      orgId: org,
+      projectId: project,
+      personId: settled,
+      status: "confirmed",
+    });
+    for (const role of ["Gaffer", "Runner"]) {
+      await ctx.db.insert("projectCrew", { orgId: org, projectId: project, role });
+    }
+  });
+  const asG = t.withIdentity({ subject: "user_g", org_id: "org_g" });
+
+  const items = await asG.query(api.dashboard.attention, {});
+  // Five outstanding people, five lines — each one a different phone call.
+  // Dee Hall has confirmed and is not among them.
+  expect(items.map((i) => i.label).sort()).toEqual([
+    "Ada Vaughn still to confirm",
+    "Ben Okoro still to confirm",
+    "Cleo Marsh still to confirm",
+    "Gaffer still to book",
+    "Runner still to book",
+  ]);
+});
+
+test("crew on a production with no dates yet is still chased, but sorts last", async () => {
+  const t = convexTest(schema, modules);
+  const soon = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org H", clerkOrgId: "org_h" });
+
+    const dated = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Dated job",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: dated, date: soon, locationIds: [] });
+    await ctx.db.insert("projectCrew", { orgId: org, projectId: dated, role: "Gaffer" });
+
+    // Nothing in the diary yet, but a role is already open on it.
+    const undated = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Undated job",
+      status: "pencilled",
+    });
+    await ctx.db.insert("projectCrew", { orgId: org, projectId: undated, role: "Runner" });
+  });
+  const asH = t.withIdentity({ subject: "user_h", org_id: "org_h" });
+
+  const items = await asH.query(api.dashboard.attention, {});
+  expect(items.map((i) => i.projectName)).toEqual(["Dated job", "Undated job"]);
+  expect(items[1].date).toBeUndefined();
+  expect(items[1].label).toBe("Runner still to book");
+});
+
+test("an archived production is chased for nothing", async () => {
+  const t = convexTest(schema, modules);
+  const future = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org I", clerkOrgId: "org_i" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Old job",
+      status: "confirmed",
+      archived: true,
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: future, locationIds: [] });
+    await ctx.db.insert("projectCrew", { orgId: org, projectId: project, role: "Gaffer" });
+  });
+  const asI = t.withIdentity({ subject: "user_i", org_id: "org_i" });
+
+  expect(await asI.query(api.dashboard.attention, {})).toEqual([]);
 });

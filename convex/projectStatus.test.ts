@@ -101,7 +101,7 @@ test("new projects start not booked", async () => {
   expect(projects[0].status).toBe("not_booked");
 });
 
-test("the attention feed only chases unconfirmed work", async () => {
+test("the attention feed chases crew on every live production, whatever its status", async () => {
   const { t, asA } = await setup();
   const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -131,7 +131,12 @@ test("the attention feed only chases unconfirmed work", async () => {
   const items = await asA.query(api.dashboard.attention, {});
   const names = new Set(items.map((i) => i.projectName));
   expect(names.has("Pencilled job")).toBe(true);
-  // A confirmed booking is not "needing attention" just for having no call sheet.
-  expect(names.has("Confirmed job")).toBe(false);
-  expect(items.every((i) => i.projectId === ids.pencilled)).toBe(true);
+  // Booking status used to gate this, which hid the crew on every job that had
+  // been confirmed with the client — the point at which the crew most needs
+  // booking. Both productions have nobody on them, so both are chased.
+  expect(names.has("Confirmed job")).toBe(true);
+  expect(items.map((i) => i.kind)).toEqual(["no_crew", "no_crew"]);
+  expect(new Set(items.map((i) => i.projectId))).toEqual(
+    new Set([ids.pencilled, ids.confirmed])
+  );
 });

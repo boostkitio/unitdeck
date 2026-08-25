@@ -1,30 +1,31 @@
 import { query, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
-import { needsAttention } from "./lib/projectStatus";
 import { Doc, Id } from "./_generated/dataModel";
 
 export type AttentionItem = {
   // Call-sheet-derived kinds are gone: call sheets are not in use, so an
   // unsent one is not something to chase. What matters before a shoot is
-  // whether the crew is confirmed.
-  kind: "no_crew" | "unfilled_roles" | "unconfirmed_crew" | "kit_clash" | "weather_risk";
+  // whether the crew is booked and whether they have confirmed.
+  kind: "no_crew" | "unfilled_role" | "unconfirmed_crew" | "kit_clash" | "weather_risk";
   projectId: Id<"projects">;
   projectName: string;
-  shootDayId: Id<"shootDays">;
-  date: string;
+  // A production with no dates in the diary still has crew to chase, so both
+  // of these are absent for one that has not been scheduled yet.
+  shootDayId?: Id<"shootDays">;
+  date?: string;
   label: string;
 };
-
-// Only unconfirmed work is chased: a confirmed booking is not "needing
-// attention" just because its call sheet has not gone out yet.
-function chases(status: string): boolean {
-  return needsAttention(status);
-}
 
 /** Case and spacing are not what makes two lines the same piece of kit. */
 function itemKey(item: string): string {
   return item.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** What to call a booking nobody is in yet. `role` is what names such a row. */
+function roleName(row: Doc<"projectCrew">): string {
+  const role = row.role?.trim();
+  return role && role.length > 0 ? role : "A role";
 }
 
 export const attention = query({
@@ -35,14 +36,16 @@ export const attention = query({
     const projects = await ctx.db
       .query("projects")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .take(200);
+      .take(500);
 
-    // Archiving keeps the booking status, so an archived project can still be
-    // "pencilled" — it must be excluded here or it produces attention items
-    // for a production that no longer appears anywhere in the app.
-    const byId = new Map(
-      projects.filter((p) => !isArchived(p) && chases(p.status)).map((p) => [p._id, p])
-    );
+    // Every production still on the books. Booking status is deliberately not
+    // a filter: a job confirmed with the client is exactly the one whose crew
+    // has to be booked and confirmed, and gating on status hid all of them.
+    // Archiving is the only thing that takes a production off this list.
+    const live = new Map<Id<"projects">, Doc<"projects">>();
+    for (const project of projects) {
+      if (!isArchived(project)) live.set(project._id, project);
+    }
 
     // Range on the composite index: only rows from today onwards are read,
     // so a long shoot-day history can never crowd out upcoming days. Index
@@ -51,75 +54,78 @@ export const attention = query({
       .query("shootDays")
       .withIndex("by_org_and_date", (q) => q.eq("orgId", org._id).gte("date", today))
       .take(500);
-    const upcoming = days.filter((d) => byId.has(d.projectId));
+    const upcoming = days.filter((d) => live.has(d.projectId));
 
-
-    // Crew is booked per project rather than per day, so it is resolved once
-    // per project and reused across that project's shoot days.
-    const crewByProject = new Map<
-      Id<"projects">,
-      { total: number; unfilled: number; filled: number; confirmed: number }
-    >();
-    async function crewFor(projectId: Id<"projects">) {
-      const cached = crewByProject.get(projectId);
-      if (cached) return cached;
-      const rows = await ctx.db
-        .query("projectCrew")
-        .withIndex("by_project", (q) => q.eq("projectId", projectId))
-        .take(200);
-      // A role with nobody in it is a different problem from a booked person
-      // who has not confirmed, and only the filled ones can be confirmed.
-      const filledRows = rows.filter((r) => r.personId !== undefined);
-      const counts = {
-        total: rows.length,
-        unfilled: rows.length - filledRows.length,
-        filled: filledRows.length,
-        // Bookings predating the status field read as pencilled.
-        confirmed: filledRows.filter((r) => r.status === "confirmed").length,
-      };
-      crewByProject.set(projectId, counts);
-      return counts;
-    }
-
-    const items: AttentionItem[] = [];
-
-    // Crew is booked per production, not per day, so it is reported once per
-    // production against the first day it matters. Raising it per shoot day
-    // repeated the same sentence for every day of the shoot and counted a
-    // single unbooked production five times over.
+    // Crew is booked per production, not per day, so a crew problem is dated
+    // by the first day it matters. Raising it per shoot day repeated the same
+    // sentence for every day of the shoot.
     const firstDayByProject = new Map<Id<"projects">, Doc<"shootDays">>();
     for (const day of upcoming) {
       if (!firstDayByProject.has(day.projectId)) firstDayByProject.set(day.projectId, day);
     }
 
-    for (const [projectId, day] of firstDayByProject) {
-      const project = byId.get(projectId)!;
+    // One read for the whole org rather than one per production.
+    const crewRows = await ctx.db
+      .query("projectCrew")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(4000);
+    const crewByProject = new Map<Id<"projects">, Doc<"projectCrew">[]>();
+    for (const row of crewRows) {
+      if (!live.has(row.projectId)) continue;
+      const rows = crewByProject.get(row.projectId);
+      if (rows) rows.push(row);
+      else crewByProject.set(row.projectId, [row]);
+    }
+
+    // Names for the people who have yet to confirm — a line saying who it is
+    // can be acted on; one saying "2 of 5" cannot.
+    const names = new Map<Id<"people">, string>();
+    for (const rows of crewByProject.values()) {
+      for (const row of rows) {
+        if (row.personId === undefined || row.status === "confirmed") continue;
+        if (names.has(row.personId)) continue;
+        const person = await ctx.db.get(row.personId);
+        names.set(row.personId, person?.name ?? "Somebody");
+      }
+    }
+
+    const items: AttentionItem[] = [];
+
+    for (const project of live.values()) {
+      const day = firstDayByProject.get(project._id);
       const base = {
         projectId: project._id,
         projectName: project.name,
-        shootDayId: day._id,
-        date: day.date,
+        shootDayId: day?._id,
+        date: day?.date,
       };
 
-      const crew = await crewFor(projectId);
-      if (crew.total === 0) {
+      const rows = crewByProject.get(project._id) ?? [];
+      if (rows.length === 0) {
         items.push({ ...base, kind: "no_crew", label: "No crew on this project yet" });
         continue;
       }
-      if (crew.unfilled > 0) {
-        items.push({
-          ...base,
-          kind: "unfilled_roles",
-          label: `${crew.unfilled} role${crew.unfilled === 1 ? "" : "s"} still to book`,
-        });
-      }
-      if (crew.filled > 0 && crew.confirmed < crew.filled) {
-        const outstanding = crew.filled - crew.confirmed;
-        items.push({
-          ...base,
-          kind: "unconfirmed_crew",
-          label: `${outstanding} of ${crew.filled} crew still to confirm`,
-        });
+
+      // A line per person, because each one is a different phone call. A role
+      // with nobody in it is a different job from a booked person who has not
+      // said yes, and only a filled row can be confirmed.
+      for (const row of rows) {
+        if (row.personId === undefined) {
+          items.push({
+            ...base,
+            kind: "unfilled_role",
+            label: `${roleName(row)} still to book`,
+          });
+        } else if (row.status !== "confirmed") {
+          // Bookings predating the status field read as pencilled.
+          const name = names.get(row.personId) ?? "Somebody";
+          const role = row.role?.trim();
+          items.push({
+            ...base,
+            kind: "unconfirmed_crew",
+            label: role ? `${name} (${role}) still to confirm` : `${name} still to confirm`,
+          });
+        }
       }
     }
 
@@ -143,54 +149,50 @@ export const attention = query({
       stock.set(key, (stock.get(key) ?? 0) + 1);
     }
 
-    // Every production with an upcoming day, and the days it holds. Unlike the
-    // crew checks this is not limited to unconfirmed bookings: a confirmed
-    // shoot double-booked on a camera is exactly the problem worth raising.
-    const liveProjects = new Map<string, Doc<"projects">>();
-    for (const project of projects) {
-      if (isArchived(project)) continue;
-      liveProjects.set(String(project._id), project);
-    }
-    const datesByProject = new Map<string, Set<string>>();
+    // Which days each production holds. Only productions with dates can clash
+    // with one another, so this is the set the kit check works over.
+    const datesByProject = new Map<Id<"projects">, Set<string>>();
     for (const day of days) {
-      if (!liveProjects.has(String(day.projectId))) continue;
-      const key = String(day.projectId);
-      const set = datesByProject.get(key);
+      if (!live.has(day.projectId)) continue;
+      const set = datesByProject.get(day.projectId);
       if (set) set.add(day.date);
-      else datesByProject.set(key, new Set([day.date]));
+      else datesByProject.set(day.projectId, new Set([day.date]));
     }
 
     // What each production wants of each thing, and which exact pieces of kit
     // it has claimed.
-    const demand = new Map<string, Map<string, { count: number; units: Set<string> }>>();
+    const demand = new Map<
+      string,
+      Map<Id<"projects">, { count: number; units: Set<string> }>
+    >();
     for (const row of kitRows) {
-      const projectKey = String(row.projectId);
-      if (!datesByProject.has(projectKey)) continue;
+      if (!datesByProject.has(row.projectId)) continue;
       const key = itemKey(row.item);
       if (!stock.has(key)) continue; // Hired in: nothing fixed to run out of.
-      const byItem = demand.get(key) ?? new Map<string, { count: number; units: Set<string> }>();
-      const entry = byItem.get(projectKey) ?? { count: 0, units: new Set<string>() };
+      const byItem =
+        demand.get(key) ?? new Map<Id<"projects">, { count: number; units: Set<string> }>();
+      const entry = byItem.get(row.projectId) ?? { count: 0, units: new Set<string>() };
       entry.count += row.quantity ?? 1;
       if (row.equipmentId) entry.units.add(String(row.equipmentId));
-      byItem.set(projectKey, entry);
+      byItem.set(row.projectId, entry);
       demand.set(key, byItem);
     }
 
     // How many items each production is overbooked on, and the day it bites.
-    const clashCount = new Map<string, { count: number; date: string }>();
+    const clashCount = new Map<Id<"projects">, { count: number; date: string }>();
     for (const [key, byProject] of demand) {
       if (byProject.size < 2) continue;
       const held = stock.get(key)!;
 
-      for (const [projectKey, mine] of byProject) {
-        const myDates = datesByProject.get(projectKey)!;
+      for (const [projectId, mine] of byProject) {
+        const myDates = datesByProject.get(projectId)!;
         let clashingOn: string | null = null;
         let total = mine.count;
         let sameUnit = false;
 
-        for (const [otherKey, other] of byProject) {
-          if (otherKey === projectKey) continue;
-          const otherDates = datesByProject.get(otherKey)!;
+        for (const [otherId, other] of byProject) {
+          if (otherId === projectId) continue;
+          const otherDates = datesByProject.get(otherId)!;
           const shared = [...myDates].filter((d) => otherDates.has(d)).sort();
           if (shared.length === 0) continue;
           total += other.count;
@@ -200,21 +202,19 @@ export const attention = query({
         if (clashingOn === null) continue;
         if (!sameUnit && total <= held) continue;
 
-        const running = clashCount.get(projectKey);
+        const running = clashCount.get(projectId);
         if (running) {
           running.count++;
           if (clashingOn < running.date) running.date = clashingOn;
         } else {
-          clashCount.set(projectKey, { count: 1, date: clashingOn });
+          clashCount.set(projectId, { count: 1, date: clashingOn });
         }
       }
     }
 
-    for (const [projectKey, clash] of clashCount) {
-      const project = liveProjects.get(projectKey)!;
-      const day = days.find(
-        (d) => String(d.projectId) === projectKey && d.date === clash.date
-      );
+    for (const [projectId, clash] of clashCount) {
+      const project = live.get(projectId)!;
+      const day = days.find((d) => d.projectId === projectId && d.date === clash.date);
       if (!day) continue;
       items.push({
         projectId: project._id,
@@ -227,7 +227,9 @@ export const attention = query({
     }
 
     // Weather is the one thing that genuinely differs day by day, so it stays
-    // per shoot day.
+    // per shoot day — and like a kit clash it is worth knowing about whatever
+    // the booking status says, because rain does not care that a job is
+    // confirmed.
     for (const day of upcoming) {
       if (
         day.weather?.precipitationProbability === undefined ||
@@ -235,7 +237,7 @@ export const attention = query({
       ) {
         continue;
       }
-      const project = byId.get(day.projectId)!;
+      const project = live.get(day.projectId)!;
       items.push({
         projectId: project._id,
         projectName: project.name,
@@ -246,8 +248,19 @@ export const attention = query({
       });
     }
 
-    // Soonest first: the panel is a queue of what to deal with next.
-    items.sort((a, b) => a.date.localeCompare(b.date));
+    // Soonest first: the panel is a queue of what to deal with next. Anything
+    // on a production with no dates in the diary sorts to the bottom — it is
+    // still work, but it is not work with a deadline.
+    items.sort((a, b) => {
+      if (a.date !== undefined && b.date !== undefined) {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+      } else if (a.date !== undefined) {
+        return -1;
+      } else if (b.date !== undefined) {
+        return 1;
+      }
+      return a.projectName.localeCompare(b.projectName) || a.label.localeCompare(b.label);
+    });
     return items;
   },
 });
