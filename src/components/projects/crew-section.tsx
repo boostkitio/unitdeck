@@ -943,8 +943,10 @@ function ReleaseCell({
       </span>
     );
   }
+  // The brand colour rather than a ghost: a release is a thing to go and do,
+  // not a quiet action sitting among Edit and Remove.
   return (
-    <Button variant="ghost" size="sm" disabled={busy} onClick={onOpen}>
+    <Button variant="default" size="sm" disabled={busy} onClick={onOpen}>
       {busy ? "Opening…" : release ? "Edit release form" : "Release form"}
     </Button>
   );
@@ -973,7 +975,7 @@ export function ReminderButton({ id }: { id: Id<"documents"> }) {
   }
 
   return (
-    <Button variant="ghost" size="sm" disabled={sending} onClick={() => void send()}>
+    <Button variant="default" size="sm" disabled={sending} onClick={() => void send()}>
       {sending ? "Sending…" : "Send reminder"}
     </Button>
   );

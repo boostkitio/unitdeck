@@ -113,10 +113,8 @@ export function LocationSection({
       <CardHeader>
         <CardTitle>Location</CardTitle>
         <CardAction>
+          {/* Release first, then the two that change what is here. */}
           <div className="flex items-center gap-1">
-            <Button size="sm" variant={location ? "ghost" : "default"} onClick={() => setPicking(true)}>
-              {location ? "Change" : "Add location"}
-            </Button>
             {location && release?.status === "sent" ? (
               <ReminderButton id={release._id} />
             ) : location && release && release.status !== "draft" ? (
@@ -129,7 +127,7 @@ export function LocationSection({
             ) : location ? (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="default"
                 disabled={makingRelease}
                 onClick={() => void openRelease()}
               >
@@ -140,6 +138,9 @@ export function LocationSection({
                     : "Location release form"}
               </Button>
             ) : null}
+            <Button size="sm" variant={location ? "ghost" : "default"} onClick={() => setPicking(true)}>
+              {location ? "Change" : "Add location"}
+            </Button>
             {location && (
               <Button size="sm" variant="ghost" onClick={() => void clearLocation()}>
                 Remove

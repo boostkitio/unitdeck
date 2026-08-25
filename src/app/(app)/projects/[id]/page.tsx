@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
-import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -540,15 +539,6 @@ function BookedBy({
         </p>
       )}
 
-      {project.clientContact &&
-        (project.clientContact.phone || project.clientContact.email) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-            <span className="text-foreground">{project.clientContact.contactName}</span>
-            {project.clientContact.role && <span>{project.clientContact.role}</span>}
-            {project.clientContact.phone && <PhoneLink phone={project.clientContact.phone} />}
-            {project.clientContact.email && <EmailLink email={project.clientContact.email} />}
-          </div>
-        )}
     </div>
   );
 }
