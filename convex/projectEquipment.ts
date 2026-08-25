@@ -1,6 +1,8 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
+import { Doc, Id } from "./_generated/dataModel";
+import { normaliseStatus } from "./lib/projectStatus";
 
 const statusValidator = v.union(v.literal("needed"), v.literal("confirmed"));
 const sectionValidator = v.union(v.literal("equipment"), v.literal("additional"));
@@ -128,5 +130,123 @@ export const remove = mutation({
     if (!row || row.orgId !== org._id) throw new Error("Equipment not found");
     await ctx.db.delete(args.id);
     return null;
+  },
+});
+
+export type EquipmentClash = {
+  equipmentId: Id<"equipment">;
+  item: string;
+  /** This project's line for it, when it is already listed here. */
+  rowId: Id<"projectEquipment"> | null;
+  others: {
+    projectId: Id<"projects">;
+    projectName: string;
+    status: string;
+    /** The days both productions want it, which is what makes it a clash. */
+    dates: string[];
+  }[];
+};
+
+/**
+ * Kit this production wants that another production wants on the same day.
+ *
+ * Only inventory can clash: two lines reading "1.2k HMI" are two hires, but
+ * one `equipmentId` is one physical object and it cannot be in two places at
+ * once. Free text is deliberately ignored rather than matched on name, which
+ * would raise a clash every time two shoots hired the same model of light.
+ *
+ * Archived productions are left out — a job that has been and gone is not
+ * competing for anything.
+ */
+export const clashesForProject = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args): Promise<EquipmentClash[]> => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) return [];
+
+    // Shoot days for the whole org in one pass, grouped by production: a
+    // clash is a question about two projects' calendars at once.
+    const shootDays = await ctx.db
+      .query("shootDays")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(4000);
+    const datesByProject = new Map<string, Set<string>>();
+    for (const day of shootDays) {
+      const key = String(day.projectId);
+      const dates = datesByProject.get(key);
+      if (dates) dates.add(day.date);
+      else datesByProject.set(key, new Set([day.date]));
+    }
+
+    const myDates = datesByProject.get(String(args.projectId));
+    if (!myDates || myDates.size === 0) return [];
+
+    const rows = await ctx.db
+      .query("projectEquipment")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(4000);
+
+    // What this production has, and which line holds it.
+    const mine = new Map<string, Id<"projectEquipment">>();
+    for (const row of rows) {
+      if (row.projectId !== args.projectId || !row.equipmentId) continue;
+      if (!mine.has(String(row.equipmentId))) mine.set(String(row.equipmentId), row._id);
+    }
+
+    const byEquipment = new Map<string, EquipmentClash>();
+    const projectCache = new Map<string, Doc<"projects"> | null>();
+
+    for (const row of rows) {
+      if (row.projectId === args.projectId || !row.equipmentId) continue;
+
+      const other = datesByProject.get(String(row.projectId));
+      if (!other) continue;
+      const shared = [...myDates].filter((date) => other.has(date)).sort();
+      if (shared.length === 0) continue;
+
+      const projectKey = String(row.projectId);
+      if (!projectCache.has(projectKey)) {
+        projectCache.set(projectKey, await ctx.db.get(row.projectId));
+      }
+      const otherProject = projectCache.get(projectKey);
+      if (!otherProject || otherProject.archived === true) continue;
+
+      const key = String(row.equipmentId);
+      const existing = byEquipment.get(key);
+      const entry: EquipmentClash = existing ?? {
+        equipmentId: row.equipmentId,
+        item: row.item,
+        rowId: mine.get(key) ?? null,
+        others: [],
+      };
+      if (!entry.others.some((o) => o.projectId === row.projectId)) {
+        entry.others.push({
+          projectId: row.projectId,
+          projectName: otherProject.name,
+          status: normaliseStatus(otherProject.status),
+          dates: shared,
+        });
+      }
+      byEquipment.set(key, entry);
+    }
+
+    return [...byEquipment.values()].sort((a, b) => a.item.localeCompare(b.item));
+  },
+});
+
+/** Takes several lines off in one go, for clearing a clash in one action. */
+export const removeMany = mutation({
+  args: { ids: v.array(v.id("projectEquipment")) },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    let removed = 0;
+    for (const id of args.ids) {
+      const row = await ctx.db.get(id);
+      if (!row || row.orgId !== org._id) continue;
+      await ctx.db.delete(id);
+      removed++;
+    }
+    return { removed };
   },
 });

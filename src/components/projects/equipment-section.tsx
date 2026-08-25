@@ -5,7 +5,10 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Doc, Id } from "../../../convex/_generated/dataModel";
-import { type EquipmentSection as SectionKey } from "../../../convex/projectEquipment";
+import {
+  type EquipmentClash,
+  type EquipmentSection as SectionKey,
+} from "../../../convex/projectEquipment";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -29,6 +32,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { matchesSearch } from "@/lib/search";
+import { formatShootDate } from "@/lib/format-date";
+import { PROJECT_STATUSES } from "@/lib/project-status";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -60,6 +65,7 @@ function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | 
  */
 export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
   const equipment = useQuery(api.projectEquipment.listForProject, { projectId });
+  const clashes = useQuery(api.projectEquipment.clashesForProject, { projectId });
 
   const [applying, setApplying] = useState(false);
   const [adding, setAdding] = useState<SectionKey | null>(null);
@@ -77,6 +83,8 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
 
   return (
     <div className="mt-12 space-y-6">
+      {clashes && clashes.length > 0 && <ClashWarning clashes={clashes} />}
+
       <EquipmentList
         title="Equipment"
         rows={standard}
@@ -116,6 +124,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
           projectId={projectId}
           section={adding}
           taken={(rows ?? []).map((row) => row.equipmentId)}
+          clashes={clashes ?? []}
           onClose={() => setAdding(null)}
         />
       )}
@@ -125,6 +134,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
           section={editing.section}
           row={editing}
           taken={(rows ?? []).map((row) => row.equipmentId)}
+          clashes={clashes ?? []}
           onClose={() => setEditing(null)}
         />
       )}
@@ -277,16 +287,119 @@ function EquipmentList({
 }
 
 /**
+ * Two productions cannot take the same camera out on the same day. This says
+ * which pieces are double-booked, where the other booking is, and offers to
+ * take them off this production — the list you are actually editing. Nothing
+ * is touched on the other production: that is somebody else's call.
+ */
+function ClashWarning({
+  clashes,
+  onRemoved,
+}: {
+  clashes: EquipmentClash[];
+  onRemoved?: () => void;
+}) {
+  const removeMany = useMutation(api.projectEquipment.removeMany);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  // Only kit this production actually holds is a clash. The rest is what the
+  // picker warns about before you add it.
+  const booked = clashes.filter((clash) => clash.rowId !== null);
+  if (booked.length === 0) return null;
+
+  async function remove(ids: Id<"projectEquipment">[]) {
+    setBusy(true);
+    try {
+      const result = await removeMany({ ids });
+      toast.success(
+        `${result.removed} item${result.removed === 1 ? "" : "s"} removed from this project.`,
+      );
+      onRemoved?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove them.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-400/50 bg-amber-50 p-3 dark:border-amber-500/30 dark:bg-amber-950/30">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-amber-900 dark:text-amber-200">
+          <span className="font-medium">{booked.length}</span> item
+          {booked.length === 1 ? " is" : "s are"} also booked to another shoot on the same day.
+        </p>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>
+            {open ? "Hide" : "Show"}
+          </Button>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void remove(booked.map((c) => c.rowId).filter((id): id is Id<"projectEquipment"> => id !== null))
+            }
+          >
+            Remove {booked.length === 1 ? "it" : `all ${booked.length}`}
+          </Button>
+        </div>
+      </div>
+
+      {open && (
+        <ul className="mt-3 space-y-2">
+          {booked.map((clash) => (
+            <li
+              key={clash.equipmentId}
+              className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-border bg-background p-2"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">{clash.item}</span>
+                {clash.others.map((other) => (
+                  <span
+                    key={other.projectId}
+                    className="block truncate text-xs text-muted-foreground"
+                  >
+                    {other.projectName} ({statusLabel(other.status)}) ·{" "}
+                    {other.dates.map(formatShootDate).join(", ")}
+                  </span>
+                ))}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => void remove([clash.rowId!])}
+              >
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** The booking status of the other production, in the words the app uses. */
+function statusLabel(status: string): string {
+  return PROJECT_STATUSES.find((s) => s.value === status)?.label ?? status;
+}
+
+/**
  * Searchable list of the org's kit, minus what is already on this production.
  * Adding a piece you own should be a search and a click, the same as booking a
  * crew member — typing its name again invites typos and loses the department.
  */
 function EquipmentPicker({
   taken,
+  clashes,
   disabled,
   onPick,
 }: {
   taken: (Id<"equipment"> | undefined)[];
+  /** Kit another production wants on one of these shoot days. */
+  clashes: EquipmentClash[];
   disabled: boolean;
   onPick: (equipmentId: Id<"equipment">) => void;
 }) {
@@ -305,6 +418,13 @@ function EquipmentPicker({
     () =>
       available.filter((row) => matchesSearch(search, [row.dept, row.item, row.serialNumber])),
     [available, search],
+  );
+
+  // Said before the click rather than after: adding it is still allowed, but
+  // you should know it is spoken for.
+  const clashByEquipment = useMemo(
+    () => new Map(clashes.map((clash) => [String(clash.equipmentId), clash])),
+    [clashes],
   );
 
   if (equipment === undefined) {
@@ -359,6 +479,16 @@ function EquipmentPicker({
                 <span className="block w-full truncate text-xs text-muted-foreground">
                   {row.serialNumber ? `Serial ${row.serialNumber}` : "No serial number"}
                 </span>
+                {clashByEquipment.get(row._id) && (
+                  <span className="block w-full truncate text-xs text-amber-700 dark:text-amber-400">
+                    Also on{" "}
+                    {clashByEquipment
+                      .get(row._id)!
+                      .others.map((o) => o.projectName)
+                      .join(", ")}{" "}
+                    that day
+                  </span>
+                )}
               </button>
             </li>
           ))}
@@ -373,6 +503,7 @@ function EquipmentDialog({
   section,
   row,
   taken,
+  clashes,
   onClose,
 }: {
   projectId: Id<"projects">;
@@ -380,6 +511,7 @@ function EquipmentDialog({
   row?: EquipmentRow;
   /** Inventory already on this project, so the picker does not offer it twice. */
   taken: (Id<"equipment"> | undefined)[];
+  clashes: EquipmentClash[];
   onClose: () => void;
 }) {
   const add = useMutation(api.projectEquipment.add);
@@ -483,7 +615,12 @@ function EquipmentDialog({
 
         {!row && mode === "pick" ? (
           <div className="py-2">
-            <EquipmentPicker taken={taken} disabled={saving} onPick={(id) => void pick(id)} />
+            <EquipmentPicker
+              taken={taken}
+              clashes={clashes}
+              disabled={saving}
+              onPick={(id) => void pick(id)}
+            />
           </div>
         ) : (
         <div className="space-y-4 py-2">
