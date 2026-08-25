@@ -160,3 +160,50 @@ test("unfilled roles sort above booked crew", async () => {
   const crew = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
   expect(crew.map((m) => m.name)).toEqual([null, "Sam Reed"]);
 });
+
+test("talent are booked like crew and kept apart from them", async () => {
+  const { ids, asA } = await setup();
+
+  await asA.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    personId: ids.person,
+    kind: "talent",
+  });
+  await asA.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    role: "Gaffer",
+    kind: "crew",
+  });
+
+  const rows = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
+  expect(rows.find((r) => r.personId !== null)?.kind).toBe("talent");
+  expect(rows.find((r) => r.personId === null)?.kind).toBe("crew");
+});
+
+test("a booking made before talent existed reads as crew", async () => {
+  const { t, ids, asA } = await setup();
+  await t.run(async (ctx) => {
+    const project = (await ctx.db.get(ids.project))!;
+    await ctx.db.insert("projectCrew", {
+      orgId: project.orgId,
+      projectId: ids.project,
+      personId: ids.person,
+    });
+  });
+
+  const rows = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
+  expect(rows[0].kind).toBe("crew");
+});
+
+test("a booking can be moved between crew and talent", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    personId: ids.person,
+  });
+
+  await asA.mutation(api.projectCrew.update, { id, kind: "talent" });
+
+  const rows = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
+  expect(rows[0].kind).toBe("talent");
+});

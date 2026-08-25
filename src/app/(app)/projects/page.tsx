@@ -42,10 +42,11 @@ import { cn } from "@/lib/utils";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { BriefDialog } from "@/components/agents/brief-dialog";
 
-type SortKey = "name" | "client" | "location" | "date" | "status";
+type SortKey = "job" | "name" | "client" | "location" | "date" | "status";
 
 /** The shape the table sorts on; the query returns a superset of this. */
 type SortableProject = {
+  jobNumber: string | null;
   name: string;
   clientName: string | null;
   locationName: string | null;
@@ -57,6 +58,15 @@ type SortableProject = {
 const STATUS_ORDER = new Map(PROJECT_STATUSES.map((s, i) => [s.value as string, i]));
 
 /**
+ * Where a project lives. The job number reads far better in an address bar
+ * than a document id, and the page accepts either, so a project without one
+ * yet still opens.
+ */
+function projectHref(p: { _id: string; jobNumber: string | null }): string {
+  return `/projects/${encodeURIComponent(p.jobNumber ?? p._id)}`;
+}
+
+/**
  * The date shown for a project: its next shoot day, falling back to the last
  * one on the books once the whole production is behind us.
  */
@@ -66,6 +76,8 @@ function rowDate(p: SortableProject): string | null {
 
 function sortValue(p: SortableProject, key: SortKey): string | number | null {
   switch (key) {
+    case "job":
+      return p.jobNumber;
     case "name":
       return p.name;
     case "location":
@@ -89,9 +101,24 @@ export default function ProjectsPage() {
   );
   const archived = useQuery(api.projects.list, organization ? { archivedOnly: true } : "skip");
   const legacyCount = useQuery(api.projects.legacyStatusCount, organization ? {} : "skip");
+  const unnumbered = useQuery(api.projects.unnumberedCount, organization ? {} : "skip");
+  const assignJobNumbers = useMutation(api.projects.assignJobNumbers);
+  const [numbering, setNumbering] = useState(false);
   const migrateStatuses = useMutation(api.projects.migrateStatuses);
   const [migrating, setMigrating] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
+
+  async function handleAssignJobNumbers() {
+    setNumbering(true);
+    try {
+      const result = await assignJobNumbers({});
+      toast.success(`Numbered ${result.numbered} project${result.numbered === 1 ? "" : "s"}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not number them.");
+    } finally {
+      setNumbering(false);
+    }
+  }
 
   async function handleMigrate() {
     setMigrating(true);
@@ -146,6 +173,26 @@ export default function ProjectsPage() {
         </div>
       )}
 
+      {unnumbered !== undefined && unnumbered > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {unnumbered} project{unnumbered === 1 ? "" : "s"}
+            </span>{" "}
+            {unnumbered === 1 ? "has" : "have"} no job number, so {unnumbered === 1 ? "it is" : "they are"}{" "}
+            still addressed by a document id. Numbering runs oldest first.
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleAssignJobNumbers}
+            disabled={numbering}
+          >
+            {numbering ? "Numbering…" : "Give them job numbers"}
+          </Button>
+        </div>
+      )}
+
       <div className="mt-6">
         {sorted === undefined ? (
           <div className="space-y-2">
@@ -161,6 +208,13 @@ export default function ProjectsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <SortableHead
+                  label="Job"
+                  sortKey="job"
+                  sort={sort}
+                  onSort={toggle}
+                  className="w-24"
+                />
                 <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
                 <SortableHead label="Client" sortKey="client" sort={sort} onSort={toggle} />
                 <SortableHead label="Location" sortKey="location" sort={sort} onSort={toggle} />
@@ -175,13 +229,16 @@ export default function ProjectsPage() {
                 return (
                   <TableRow
                     key={p._id}
-                    onClick={() => router.push(`/projects/${p._id}`)}
+                    onClick={() => router.push(projectHref(p))}
                     className="cursor-pointer"
                   >
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {p.jobNumber ?? "\u00b7"}
+                    </TableCell>
                     <TableCell>
                       {/* Kept as a real link so the row is reachable by keyboard */}
                       <Link
-                        href={`/projects/${p._id}`}
+                        href={projectHref(p)}
                         className="font-medium hover:underline"
                         onClick={(e) => e.stopPropagation()}
                       >

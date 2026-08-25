@@ -33,10 +33,13 @@ import { cn } from "@/lib/utils";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
 
-type CrewSortKey = "name" | "role" | "status" | "email" | "phone";
+type CrewSortKey = "kind" | "name" | "role" | "status" | "email" | "phone";
 
 function crewSortValue(member: ProjectCrewMember, key: CrewSortKey): string | number | null {
   switch (key) {
+    case "kind":
+      // Crew first, then talent — the order a call sheet reads in.
+      return member.kind === "talent" ? 1 : 0;
     case "name":
       return member.name;
     case "role":
@@ -96,7 +99,7 @@ export function CrewSection({
   return (
     <Card className="mt-12">
       <CardHeader>
-        <CardTitle>Crew</CardTitle>
+        <CardTitle>Crew &amp; talent</CardTitle>
         <CardAction>
           <div className="flex items-center gap-2">
             <Button
@@ -108,7 +111,7 @@ export function CrewSection({
               Forward
             </Button>
             <Button size="sm" onClick={() => setAdding(true)}>
-              Add crew
+              Add crew or talent
             </Button>
           </div>
         </CardAction>
@@ -121,7 +124,7 @@ export function CrewSection({
           </div>
         ) : crew.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            Nobody on this production yet. Add crew from your{" "}
+            Nobody on this production yet. Add crew or talent from your{" "}
             <Link href="/people" className="underline underline-offset-2 text-foreground">
               people
             </Link>{" "}
@@ -131,6 +134,13 @@ export function CrewSection({
           <Table>
             <TableHeader>
               <TableRow>
+                <SortableHead
+                  label="Type"
+                  sortKey="kind"
+                  sort={sort}
+                  onSort={toggle}
+                  className="w-24"
+                />
                 <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
                 <SortableHead label="Role" sortKey="role" sort={sort} onSort={toggle} />
                 <SortableHead
@@ -148,6 +158,18 @@ export function CrewSection({
             <TableBody>
               {sortedCrew.map((member) => (
                 <TableRow key={member._id}>
+                  <TableCell>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-medium",
+                        member.kind === "talent"
+                          ? "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {member.kind === "talent" ? "Talent" : "Crew"}
+                    </span>
+                  </TableCell>
                   <TableCell className="font-medium">
                     {member.name ?? (
                       <span className="text-muted-foreground italic">Nobody booked</span>
@@ -358,6 +380,7 @@ function AddCrewDialog({
   const createPerson = useMutation(api.people.create);
 
   const [mode, setMode] = useState<"existing" | "new" | "role">("existing");
+  const [kind, setKind] = useState<"crew" | "talent">("crew");
   const [saving, setSaving] = useState(false);
 
   // New-person fields, so someone can be added without leaving the dialog.
@@ -372,7 +395,7 @@ function AddCrewDialog({
   async function choose(personId: Id<"people">) {
     setSaving(true);
     try {
-      await addCrew({ projectId, personId });
+      await addCrew({ projectId, personId, kind });
       toast.success("Crew member added.");
       onClose();
     } catch (err) {
@@ -399,7 +422,7 @@ function AddCrewDialog({
         email: email.trim() || undefined,
         phone: phone.trim() || undefined,
       });
-      await addCrew({ projectId, personId });
+      await addCrew({ projectId, personId, kind });
       toast.success(`${name.trim()} added to your people list and this project.`);
       onClose();
     } catch (err) {
@@ -416,7 +439,7 @@ function AddCrewDialog({
     }
     setSaving(true);
     try {
-      await addCrew({ projectId, role: openRole });
+      await addCrew({ projectId, role: openRole, kind });
       toast.success(`${openRole.trim()} added — nobody booked into it yet.`);
       onClose();
     } catch (err) {
@@ -430,8 +453,28 @@ function AddCrewDialog({
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
       <DialogContent className="max-h-[85vh] w-full max-w-xl overflow-y-auto sm:p-5">
         <DialogHeader>
-          <DialogTitle>Add crew to this project</DialogTitle>
+          <DialogTitle>Add to this project</DialogTitle>
         </DialogHeader>
+
+        {/* Talent are booked exactly like crew, so it is the same three routes
+            in with a different heading over the result. */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Adding</span>
+          <Button
+            size="sm"
+            variant={kind === "crew" ? "secondary" : "ghost"}
+            onClick={() => setKind("crew")}
+          >
+            Crew
+          </Button>
+          <Button
+            size="sm"
+            variant={kind === "talent" ? "secondary" : "ghost"}
+            onClick={() => setKind("talent")}
+          >
+            Talent
+          </Button>
+        </div>
 
         <div className="flex flex-wrap gap-2 border-b border-border pb-3">
           <Button
@@ -614,6 +657,7 @@ function EditCrewDialog({
   const updateCrew = useMutation(api.projectCrew.update);
   const [role, setRole] = useState(member.role);
   const [notes, setNotes] = useState(member.notes ?? "");
+  const [kind, setKind] = useState<"crew" | "talent">(member.kind);
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -624,6 +668,7 @@ function EditCrewDialog({
         // Blank clears the override and falls back to their usual role.
         role: role.trim() || null,
         notes: notes.trim() || null,
+        kind,
       });
       toast.success("Saved.");
       onClose();
@@ -651,6 +696,25 @@ function EditCrewDialog({
               onChange={(e) => setRole(e.target.value)}
               placeholder="Leave blank to use their usual role"
             />
+          </div>
+          <div className="space-y-2">
+            <Label>Type</Label>
+            <div className="flex gap-2">
+              <Button
+                variant={kind === "crew" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setKind("crew")}
+              >
+                Crew
+              </Button>
+              <Button
+                variant={kind === "talent" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setKind("talent")}
+              >
+                Talent
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="edit-crew-notes">Notes (optional)</Label>

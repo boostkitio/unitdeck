@@ -4,6 +4,8 @@ import {
   internalQuery,
   mutation,
   query,
+  MutationCtx,
+  QueryCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -67,6 +69,7 @@ export const list = query({
         return {
           ...p,
           clientName: p.clientId ? ((await ctx.db.get(p.clientId))?.name ?? null) : null,
+          jobNumber: p.jobNumber ?? null,
           locationName: p.locationId ? ((await ctx.db.get(p.locationId))?.name ?? null) : null,
           status: normaliseStatus(p.status),
           archived: isArchived(p),
@@ -93,36 +96,121 @@ function headlineShootDate(dates: string[], today: string): string | null {
   return sorted.find((date) => date >= today) ?? sorted[sorted.length - 1];
 }
 
+
+/**
+ * The next job number for an organisation.
+ *
+ * Numbers are strings so a house scheme like "KLX-0042" is as valid as plain
+ * counting, which means "next" is only meaningful for the ones that are just
+ * digits: the highest of those, plus one. A company using its own scheme
+ * simply types over what it is given.
+ */
+async function nextJobNumber(ctx: MutationCtx, orgId: Id<"organisations">): Promise<string> {
+  const projects = await ctx.db
+    .query("projects")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .take(2000);
+
+  let highest = 0;
+  for (const project of projects) {
+    const number = project.jobNumber?.trim();
+    if (!number || !/^\d+$/.test(number)) continue;
+    highest = Math.max(highest, Number(number));
+  }
+  // Four digits so they sort and read consistently from the start.
+  return String(highest + 1).padStart(4, "0");
+}
+
+/** Rejects a job number already in use, which the URL depends on. */
+async function assertJobNumberFree(
+  ctx: MutationCtx,
+  orgId: Id<"organisations">,
+  jobNumber: string,
+  ignore?: Id<"projects">,
+) {
+  const clash = await ctx.db
+    .query("projects")
+    .withIndex("by_org_and_job_number", (q) => q.eq("orgId", orgId).eq("jobNumber", jobNumber))
+    .take(2);
+  if (clash.some((p) => p._id !== ignore)) {
+    throw new Error(`Job number ${jobNumber} is already in use`);
+  }
+}
+
+/**
+ * Finds a project by whatever the URL holds — its job number, or the document
+ * id links used before job numbers existed. Keeping both readable means old
+ * links, bookmarks and anything already sent out still work.
+ */
+export const getByRef = query({
+  args: { ref: v.string() },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const byNumber = await ctx.db
+      .query("projects")
+      .withIndex("by_org_and_job_number", (q) =>
+        q.eq("orgId", org._id).eq("jobNumber", args.ref.trim())
+      )
+      .first();
+    let project = byNumber;
+    if (!project) {
+      // Not a job number, so try it as a document id — which is what every
+      // link made before job numbers existed contains. A ref that is not an
+      // id at all makes this throw, and "not found" is the right answer.
+      try {
+        project = await ctx.db.get(args.ref as Id<"projects">);
+      } catch {
+        project = null;
+      }
+    }
+    if (!project || project.orgId !== org._id) return null;
+    return await withRelations(ctx, project);
+  },
+});
+
+/** The project with everything the detail page reads alongside it. */
+async function withRelations(ctx: QueryCtx, project: Doc<"projects">) {
+  const location = project.locationId ? await ctx.db.get(project.locationId) : null;
+
+  const days = await ctx.db
+    .query("shootDays")
+    .withIndex("by_project", (q) => q.eq("projectId", project._id))
+    .take(200);
+  const forecastDate = headlineShootDate(
+    days.map((d) => d.date),
+    new Date().toISOString().slice(0, 10),
+  );
+
+  const client = project.clientId ? await ctx.db.get(project.clientId) : null;
+  return {
+    ...project,
+    clientName: client?.name ?? null,
+    // Whoever you actually ring at the client, carried onto the project so
+    // it is not a trip to another tab mid-shoot.
+    clientContact: client
+      ? {
+          contactName: client.contactName ?? null,
+          phone: client.phone ?? null,
+          email: client.email ?? null,
+        }
+      : null,
+    status: normaliseStatus(project.status),
+    archived: isArchived(project),
+    location,
+    // The day and place the header reports on. The client compares these
+    // with `forecast` to know whether what it is showing is still current.
+    forecastDate,
+    forecastLocationId: location?.lat !== undefined ? location._id : null,
+  };
+}
+
 export const get = query({
   args: { id: v.id("projects") },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.id);
     if (!project || project.orgId !== org._id) return null;
-    const location = project.locationId ? await ctx.db.get(project.locationId) : null;
-
-    const days = await ctx.db
-      .query("shootDays")
-      .withIndex("by_project", (q) => q.eq("projectId", args.id))
-      .take(200);
-    const forecastDate = headlineShootDate(
-      days.map((d) => d.date),
-      new Date().toISOString().slice(0, 10),
-    );
-
-    return {
-      ...project,
-      clientName: project.clientId
-        ? ((await ctx.db.get(project.clientId))?.name ?? null)
-        : null,
-      status: normaliseStatus(project.status),
-      archived: isArchived(project),
-      location,
-      // The day and place the header reports on. The client compares these
-      // with `forecast` to know whether what it is showing is still current.
-      forecastDate,
-      forecastLocationId: location?.lat !== undefined ? location._id : null,
-    };
+    return await withRelations(ctx, project);
   },
 });
 
@@ -143,6 +231,7 @@ export const create = mutation({
       orgId: org._id,
       name: args.name.trim(),
       clientId: args.clientId,
+      jobNumber: await nextJobNumber(ctx, org._id),
       status: "not_booked",
       briefSummary: args.briefSummary,
     });
@@ -154,6 +243,7 @@ export const update = mutation({
     id: v.id("projects"),
     name: v.optional(v.string()),
     clientId: v.optional(v.union(v.id("clients"), v.null())),
+    jobNumber: v.optional(v.string()),
     status: v.optional(statusValidator),
     briefSummary: v.optional(v.string()),
     locationId: v.optional(v.union(v.id("locations"), v.null())),
@@ -176,6 +266,13 @@ export const update = mutation({
       } else {
         patch.clientId = undefined;
       }
+    }
+    if (args.jobNumber !== undefined) {
+      const jobNumber = args.jobNumber.trim();
+      if (jobNumber.length === 0) throw new Error("A job number cannot be blank");
+      // It addresses the project in the URL, so two cannot share one.
+      await assertJobNumberFree(ctx, org._id, jobNumber, args.id);
+      patch.jobNumber = jobNumber;
     }
     if (args.status !== undefined) patch.status = args.status;
     if (args.briefSummary !== undefined) patch.briefSummary = args.briefSummary;
@@ -293,6 +390,45 @@ export const remove = mutation({
 
     await ctx.db.delete(args.id);
     return { deleted: deleted + 1 };
+  },
+});
+
+/** How many projects are still without a job number. */
+export const unnumberedCount = query({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const { org } = await requireOrg(ctx);
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(2000);
+    return projects.filter((p) => !p.jobNumber?.trim()).length;
+  },
+});
+
+/**
+ * Numbers the projects that predate job numbers, oldest first, so the numbers
+ * run in the order the work came in rather than alphabetically or at random.
+ */
+export const assignJobNumbers = mutation({
+  args: {},
+  handler: async (ctx): Promise<{ numbered: number }> => {
+    const { org } = await requireOrg(ctx);
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(2000);
+
+    const unnumbered = projects
+      .filter((p) => !p.jobNumber?.trim())
+      .sort((a, b) => a._creationTime - b._creationTime);
+
+    let next = Number(await nextJobNumber(ctx, org._id));
+    for (const project of unnumbered) {
+      await ctx.db.patch(project._id, { jobNumber: String(next).padStart(4, "0") });
+      next++;
+    }
+    return { numbered: unnumbered.length };
   },
 });
 

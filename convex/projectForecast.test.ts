@@ -97,3 +97,62 @@ test("another org cannot read a project's forecast target", async () => {
   const asB = t.withIdentity({ subject: "user_b", org_id: "org_b" });
   expect(await asB.query(api.projects.get, { id: ids.project })).toBeNull();
 });
+
+test("a project is addressable by its job number, and still by its id", async () => {
+  const { ids, asA } = await setup();
+  await asA.mutation(api.projects.assignJobNumbers, {});
+
+  const byId = await asA.query(api.projects.getByRef, { ref: ids.project });
+  expect(byId?.jobNumber).toBe("0001");
+  // Links made before job numbers existed still resolve.
+  const byNumber = await asA.query(api.projects.getByRef, { ref: "0001" });
+  expect(byNumber?._id).toBe(ids.project);
+});
+
+test("a reference that is neither a job number nor an id is not found", async () => {
+  const { asA } = await setup();
+  expect(await asA.query(api.projects.getByRef, { ref: "nonsense" })).toBeNull();
+});
+
+test("a new project is given the next job number", async () => {
+  const { asA } = await setup();
+  await asA.mutation(api.projects.assignJobNumbers, {});
+
+  const second = await asA.mutation(api.projects.create, { name: "Music video" });
+  const project = await asA.query(api.projects.get, { id: second });
+  expect(project?.jobNumber).toBe("0002");
+});
+
+test("two projects cannot share a job number", async () => {
+  const { ids, asA } = await setup();
+  await asA.mutation(api.projects.assignJobNumbers, {});
+  const second = await asA.mutation(api.projects.create, { name: "Music video" });
+
+  await expect(
+    asA.mutation(api.projects.update, { id: second, jobNumber: "0001" }),
+  ).rejects.toThrow(/already in use/);
+  // Setting a project's own number again is not a clash.
+  await asA.mutation(api.projects.update, { id: ids.project, jobNumber: "0001" });
+});
+
+test("a house numbering scheme is accepted", async () => {
+  const { ids, asA } = await setup();
+  await asA.mutation(api.projects.update, { id: ids.project, jobNumber: "KLX-0042" });
+
+  expect((await asA.query(api.projects.getByRef, { ref: "KLX-0042" }))?._id).toBe(ids.project);
+  // Counting continues from the numeric ones, ignoring the house scheme.
+  const next = await asA.mutation(api.projects.create, { name: "Music video" });
+  expect((await asA.query(api.projects.get, { id: next }))?.jobNumber).toBe("0001");
+});
+
+test("another org cannot resolve this project by reference", async () => {
+  const { t, ids, asA } = await setup();
+  await asA.mutation(api.projects.assignJobNumbers, {});
+  await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+  });
+  const asB = t.withIdentity({ subject: "user_b", org_id: "org_b" });
+
+  expect(await asB.query(api.projects.getByRef, { ref: "0001" })).toBeNull();
+  expect(await asB.query(api.projects.getByRef, { ref: ids.project })).toBeNull();
+});

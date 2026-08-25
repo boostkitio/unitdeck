@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { type FunctionReturnType } from "convex/server";
@@ -9,6 +10,7 @@ import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
 import { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,13 +47,14 @@ import { DocumentsSection } from "@/components/documents/documents-section";
 
 // Inferred from the query so the normalised status and resolved archived flag
 // stay accurate rather than drifting from a hand-written shape.
-type ProjectWithRelations = NonNullable<FunctionReturnType<typeof api.projects.get>>;
+type ProjectWithRelations = NonNullable<FunctionReturnType<typeof api.projects.getByRef>>;
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  // The URL holds a job number now, and a document id on links made before
+  // job numbers existed. The query reads either.
   const { id } = use(params);
-  const projectId = id as Id<"projects">;
   const { organization } = useOrganization();
-  const project = useQuery(api.projects.get, organization ? { id: projectId } : "skip");
+  const project = useQuery(api.projects.getByRef, organization ? { ref: id } : "skip");
   const clients = useQuery(api.clients.list, organization ? {} : "skip");
 
   if (project === undefined) {
@@ -83,6 +86,7 @@ function ProjectEditor({
   const deleteProject = useMutation(api.projects.remove);
 
   const [name, setName] = useState(project.name);
+  const [jobNumber, setJobNumber] = useState(project.jobNumber ?? "");
   const [briefSummary, setBriefSummary] = useState(project.briefSummary ?? "");
 
   const saveName = useCallback(
@@ -103,6 +107,27 @@ function ProjectEditor({
   const nameToSave = name.trim().length === 0 ? project.name : name;
   const nameState = useDebouncedSave(nameToSave, project.name, saveName);
   const briefState = useDebouncedSave(briefSummary, project.briefSummary ?? "", saveBrief);
+
+  /**
+   * The job number addresses the project in the URL, so a change moves the
+   * page with it rather than leaving the address pointing at the old one.
+   */
+  async function saveJobNumber() {
+    const next = jobNumber.trim();
+    if (next === (project.jobNumber ?? "")) return;
+    if (next.length === 0) {
+      setJobNumber(project.jobNumber ?? "");
+      return;
+    }
+    try {
+      await updateProject({ id: project._id, jobNumber: next });
+      toast.success(`Job number ${next}.`);
+      router.replace(`/projects/${encodeURIComponent(next)}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save the job number.");
+      setJobNumber(project.jobNumber ?? "");
+    }
+  }
 
   /**
    * The dropdown offers Archived alongside the booking statuses, so choosing
@@ -142,6 +167,19 @@ function ProjectEditor({
       {/* The title is the name field — editing it here is the only place it is set */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 px-2 pb-1">
+            <label htmlFor="project-job-number" className="text-xs text-muted-foreground">
+              Job
+            </label>
+            <input
+              id="project-job-number"
+              value={jobNumber}
+              onChange={(e) => setJobNumber(e.target.value)}
+              onBlur={() => void saveJobNumber()}
+              placeholder="Unnumbered"
+              className="w-28 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-mono text-xs tracking-tight outline-none transition-colors hover:border-border focus:border-border focus:bg-background"
+            />
+          </div>
           <label htmlFor="project-name" className="sr-only">
             Project name
           </label>
@@ -200,6 +238,30 @@ function ProjectEditor({
                 ))}
               </SelectContent>
             </Select>
+            {/* Who you actually ring at the client, on the project rather than
+                a tab away. */}
+            {project.clientContact &&
+              (project.clientContact.contactName ||
+                project.clientContact.phone ||
+                project.clientContact.email) && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                  {project.clientContact.contactName && (
+                    <span className="text-foreground">{project.clientContact.contactName}</span>
+                  )}
+                  {project.clientContact.phone && (
+                    <PhoneLink phone={project.clientContact.phone} />
+                  )}
+                  {project.clientContact.email && (
+                    <EmailLink email={project.clientContact.email} />
+                  )}
+                  <Link
+                    href="/clients"
+                    className="text-xs underline underline-offset-2 hover:text-foreground"
+                  >
+                    Edit
+                  </Link>
+                </div>
+              )}
           </div>
 
           <div className="space-y-2">

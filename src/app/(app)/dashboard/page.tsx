@@ -254,7 +254,7 @@ export default function DashboardPage() {
               {active.map((p) => (
                 <li key={p._id}>
                   <Link
-                    href={`/projects/${p._id}`}
+                    href={`/projects/${encodeURIComponent(p.jobNumber ?? p._id)}`}
                     className="flex items-center justify-between gap-3 py-2.5 hover:text-foreground"
                   >
                     <span className="truncate font-medium text-foreground">{p.name}</span>

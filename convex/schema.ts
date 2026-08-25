@@ -81,6 +81,11 @@ export default defineSchema({
     // Where the production is based. Individual shoot days can still carry
     // their own locations for call sheets; this is the project-level one.
     locationId: v.optional(v.id("locations")),
+    // The company's own reference for the job, used in the URL in place of a
+    // document id. A string rather than a number so a house scheme like
+    // "KLX-0042" works as well as plain counting. Optional because projects
+    // created before it exists have none until they are numbered.
+    jobNumber: v.optional(v.string()),
     // Last forecast fetched for the project's shoot day at its location, so
     // the header can render straight away instead of hitting the weather
     // service on every view. `date` and `locationId` say what it is for, which
@@ -103,7 +108,8 @@ export default defineSchema({
     ),
   })
     .index("by_org", ["orgId"])
-    .index("by_org_and_status", ["orgId", "status"]),
+    .index("by_org_and_status", ["orgId", "status"])
+    .index("by_org_and_job_number", ["orgId", "jobNumber"]),
 
   // Crew booked onto a production. `people` is the org-wide contact book; this
   // is the per-project booking, so one person can sit on several productions.
@@ -111,6 +117,10 @@ export default defineSchema({
   projectCrew: defineTable({
     orgId: v.id("organisations"),
     projectId: v.id("projects"),
+    // Talent are booked exactly like crew — a person, a role, contact details
+    // — so they are the same row with a different heading over it. Absent
+    // reads as crew, which is what every existing booking is.
+    kind: v.optional(v.union(v.literal("crew"), v.literal("talent"))),
     // Absent means the role is booked but nobody is in it yet — a reminder to
     // find someone. `role` is then required, since nothing else names the row.
     personId: v.optional(v.id("people")),

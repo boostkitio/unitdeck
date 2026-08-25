@@ -16,6 +16,8 @@ export type ProjectCrewMember = {
   phone: string | null;
   notes: string | null;
   status: CrewStatus;
+  /** Talent and crew are booked the same way; this says which list it is in. */
+  kind: "crew" | "talent";
 };
 
 const crewStatusValidator = v.union(v.literal("pencilled"), v.literal("confirmed"));
@@ -51,6 +53,7 @@ export const listForProject = query({
           phone: null,
           notes: booking.notes ?? null,
           status: booking.status ?? "pencilled",
+          kind: booking.kind ?? "crew",
         });
         continue;
       }
@@ -66,6 +69,7 @@ export const listForProject = query({
         notes: booking.notes ?? null,
         // Bookings made before the field existed are pencilled, not confirmed.
         status: booking.status ?? "pencilled",
+        kind: booking.kind ?? "crew",
       });
     }
     // Roles still to fill sort to the top: they are the outstanding work.
@@ -87,6 +91,7 @@ export const add = mutation({
     personId: v.optional(v.id("people")),
     role: v.optional(v.string()),
     notes: v.optional(v.string()),
+    kind: v.optional(v.union(v.literal("crew"), v.literal("talent"))),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -102,6 +107,7 @@ export const add = mutation({
         role: args.role.trim(),
         notes: args.notes?.trim() || undefined,
         status: "pencilled",
+        kind: args.kind,
       });
     }
 
@@ -124,6 +130,7 @@ export const add = mutation({
       role: args.role?.trim() || undefined,
       notes: args.notes?.trim() || undefined,
       status: "pencilled",
+      kind: args.kind,
     });
   },
 });
@@ -158,6 +165,7 @@ export const update = mutation({
     role: v.optional(v.union(v.string(), v.null())),
     notes: v.optional(v.union(v.string(), v.null())),
     status: v.optional(crewStatusValidator),
+    kind: v.optional(v.union(v.literal("crew"), v.literal("talent"))),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -169,6 +177,8 @@ export const update = mutation({
     if (args.role !== undefined) patch.role = args.role?.trim() || undefined;
     if (args.notes !== undefined) patch.notes = args.notes?.trim() || undefined;
     if (args.status !== undefined) patch.status = args.status;
+    // Moves a booking between the crew list and the talent list.
+    if (args.kind !== undefined) patch.kind = args.kind;
 
     await ctx.db.patch(args.id, patch);
     return null;
