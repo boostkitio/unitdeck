@@ -185,3 +185,86 @@ test("changing the client clears who booked it", async () => {
   expect(project?.bookedByContact).toBe(0);
   expect(project?.clientContact?.contactName).toBe("Ali");
 });
+
+test("a production carries only the client contacts that are on it", async () => {
+  const { asA } = await setup();
+  const clientId = await asA.mutation(api.clients.create, { name: "Acme Films" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Sam Reed", role: "Producer" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Jo Patel", role: "Marketing" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Ali Khan", role: "Accounts" });
+
+  const projectId = await asA.mutation(api.projects.create, { name: "Brand film" });
+  await asA.mutation(api.projects.update, { id: projectId, clientId });
+
+  // Nobody has pruned the list, so everybody is on it — what it did before
+  // there was a choice.
+  let project = await asA.query(api.projects.get, { id: projectId });
+  expect(project?.clientContacts.map((c) => c.name)).toEqual(["Sam Reed", "Jo Patel", "Ali Khan"]);
+
+  // Taking accounts off the shoot leaves the rest on it.
+  await asA.mutation(api.projects.setClientContact, { id: projectId, index: 2, on: false });
+  project = await asA.query(api.projects.get, { id: projectId });
+  expect(project?.clientContacts.map((c) => c.name)).toEqual(["Sam Reed", "Jo Patel"]);
+
+  // And leaves them in the client's book, which is the whole point.
+  const client = await asA.query(api.clients.get, { id: clientId });
+  expect(client?.contacts.map((c) => c.name)).toEqual(["Sam Reed", "Jo Patel", "Ali Khan"]);
+
+  // Putting them back on works too.
+  await asA.mutation(api.projects.setClientContact, { id: projectId, index: 2, on: true });
+  project = await asA.query(api.projects.get, { id: projectId });
+  expect(project?.clientContacts.map((c) => c.name)).toEqual(["Sam Reed", "Jo Patel", "Ali Khan"]);
+});
+
+test("deleting a contact from the book does not repoint a production at somebody else", async () => {
+  const { asA } = await setup();
+  const clientId = await asA.mutation(api.clients.create, { name: "Acme Films" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Sam Reed" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Jo Patel" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Ali Khan" });
+
+  const projectId = await asA.mutation(api.projects.create, { name: "Brand film" });
+  await asA.mutation(api.projects.update, { id: projectId, clientId });
+  await asA.mutation(api.projects.setClientContact, { id: projectId, index: 0, on: false });
+  await asA.mutation(api.projects.update, { id: projectId, bookedByContact: 2 });
+
+  // Jo and Ali are on the shoot; Ali booked it. Remove Jo from the book and
+  // everyone after her moves up a place.
+  await asA.mutation(api.clients.removeContact, { id: clientId, index: 1 });
+
+  const project = await asA.query(api.projects.get, { id: projectId });
+  expect(project?.clientContacts.map((c) => c.name)).toEqual(["Ali Khan"]);
+  expect(project?.clientContact?.contactName).toBe("Ali Khan");
+});
+
+test("removing whoever booked the job leaves it booked by nobody in particular", async () => {
+  const { asA } = await setup();
+  const clientId = await asA.mutation(api.clients.create, { name: "Acme Films" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Sam Reed" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Jo Patel" });
+
+  const projectId = await asA.mutation(api.projects.create, { name: "Brand film" });
+  await asA.mutation(api.projects.update, { id: projectId, clientId });
+  await asA.mutation(api.projects.update, { id: projectId, bookedByContact: 1 });
+
+  await asA.mutation(api.clients.removeContact, { id: clientId, index: 1 });
+
+  const project = await asA.query(api.projects.get, { id: projectId });
+  // Falls back to the first contact rather than pointing at a stranger.
+  expect(project?.clientContact?.contactName).toBe("Sam Reed");
+});
+
+test("another org cannot change who is on your production", async () => {
+  const { t, asA } = await setup();
+  const clientId = await asA.mutation(api.clients.create, { name: "Acme Films", contactName: "Sam" });
+  const projectId = await asA.mutation(api.projects.create, { name: "Brand film" });
+  await asA.mutation(api.projects.update, { id: projectId, clientId });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+  });
+  const asB = t.withIdentity({ subject: "user_b", org_id: "org_b" });
+
+  await expect(
+    asB.mutation(api.projects.setClientContact, { id: projectId, index: 0, on: false }),
+  ).rejects.toThrow(/not found/i);
+});

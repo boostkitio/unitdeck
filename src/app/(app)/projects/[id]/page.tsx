@@ -269,8 +269,10 @@ function ProjectEditor({
       <CrewSection projectId={project._id} projectName={project.name} kind="crew" />
       <CrewSection projectId={project._id} projectName={project.name} kind="talent" />
       <ProjectClientSection
+        projectId={project._id}
         clientId={project.clientId ?? null}
         clientName={project.clientName}
+        onShoot={project.clientContacts}
       />
       <ScheduleSection projectId={project._id} />
       <EquipmentSection projectId={project._id} />

@@ -225,13 +225,18 @@ export const saveContact = mutation({
       phone: args.phone,
       email: args.email,
     };
+    let at: number;
     if (args.index === undefined || args.index < 0 || args.index >= contacts.length) {
+      at = contacts.length;
       contacts.push(next);
     } else {
+      at = args.index;
       contacts[args.index] = next;
     }
-    await writeContacts(ctx, args.id, contacts);
-    return null;
+    const written = await writeContacts(ctx, args.id, contacts);
+    // Where they ended up, so a caller adding somebody can put them straight
+    // onto the production they were adding them for.
+    return Math.min(at, Math.max(written.length - 1, 0));
   },
 });
 
@@ -243,9 +248,45 @@ export const removeContact = mutation({
     if (args.index < 0 || args.index >= contacts.length) throw new Error("Contact not found");
     contacts.splice(args.index, 1);
     await writeContacts(ctx, args.id, contacts);
+    await closeGapInProjects(ctx, args.id, args.index);
     return null;
   },
 });
+
+/**
+ * Everyone after a removed contact moves up one, so every project that
+ * pointed past them is now pointing at the wrong person.
+ *
+ * Positions are how a production names a client's contacts, which is what
+ * makes this necessary: the alternative is a project quietly listing
+ * whoever happened to move into the gap.
+ */
+async function closeGapInProjects(ctx: MutationCtx, clientId: Id<"clients">, removed: number) {
+  const client = await ownedClient(ctx, clientId);
+  const projects = await ctx.db
+    .query("projects")
+    .withIndex("by_org", (q) => q.eq("orgId", client.orgId))
+    .take(1000);
+  for (const project of projects) {
+    if (project.clientId !== clientId) continue;
+    const patch: Record<string, unknown> = {};
+
+    if (project.clientContacts !== undefined) {
+      patch.clientContacts = project.clientContacts
+        .filter((i) => i !== removed)
+        .map((i) => (i > removed ? i - 1 : i));
+    }
+    if (project.bookedByContact !== undefined) {
+      patch.bookedByContact =
+        project.bookedByContact === removed
+          ? undefined
+          : project.bookedByContact > removed
+            ? project.bookedByContact - 1
+            : project.bookedByContact;
+    }
+    if (Object.keys(patch).length > 0) await ctx.db.patch(project._id, patch);
+  }
+}
 
 // One transaction's worth. The client sends larger files in successive batches.
 const MAX_IMPORT_ROWS = 200;

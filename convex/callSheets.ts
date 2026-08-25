@@ -131,7 +131,16 @@ async function buildFromProject(
       };
     });
 
-  const clientRows = (client ? contactsOf(client) : []).map((contact, i) => ({
+  // Only the people actually on this production: a client's accounts contact
+  // does not belong on a call sheet.
+  const everyone = client ? contactsOf(client) : [];
+  const onShoot =
+    project.clientContacts === undefined
+      ? everyone
+      : project.clientContacts
+          .filter((i) => i >= 0 && i < everyone.length)
+          .map((i) => everyone[i]);
+  const clientRows = onShoot.map((contact, i) => ({
     id: `client-${i + 1}`,
     name: contact.name,
     role: contact.role ?? "Client",

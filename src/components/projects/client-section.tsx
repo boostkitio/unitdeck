@@ -61,34 +61,67 @@ const MAILTO_SAFE_LENGTH = 1800;
  * column sits empty rather than shifting everything after it out of line.
  */
 export function ProjectClientSection({
+  projectId,
   clientId,
   clientName,
+  onShoot,
 }: {
+  projectId: Id<"projects">;
   clientId: Id<"clients"> | null;
   clientName: string | null;
+  /** Who this production has on it, already resolved. */
+  onShoot: ClientContact[];
 }) {
   const client = useQuery(api.clients.get, clientId ? { id: clientId } : "skip");
-  const removeContact = useMutation(api.clients.removeContact);
+  const setOnShoot = useMutation(api.projects.setClientContact);
   const { sort, toggle } = useTableSort<ContactSortKey>({ key: "name", dir: "asc" });
 
   const [editing, setEditing] = useState<IndexedContact | null>(null);
   const [adding, setAdding] = useState(false);
   const [forwarding, setForwarding] = useState(false);
 
-  const contacts = useMemo(() => {
-    // Indexed before sorting: the position in the stored list is what a save
-    // writes back to, and sorting the table must not move it.
-    const indexed = (client?.contacts ?? []).map((c, index) => ({ ...c, index }));
-    return sortRows(indexed, sort, contactSortValue);
-  }, [client, sort]);
+  // Positions are how a contact is addressed, so they are taken from the
+  // company's book — the shoot's own list is a subset of it.
+  const book = useMemo(
+    () => (client?.contacts ?? []).map((c, index) => ({ ...c, index })),
+    [client],
+  );
+  const onShootKeys = useMemo(
+    () => new Set(onShoot.map((c) => `${c.name}|${c.email ?? ""}|${c.phone ?? ""}`)),
+    [onShoot],
+  );
+  const contacts = useMemo(
+    () =>
+      sortRows(
+        book.filter((c) => onShootKeys.has(`${c.name}|${c.email ?? ""}|${c.phone ?? ""}`)),
+        sort,
+        contactSortValue,
+      ),
+    [book, onShootKeys, sort],
+  );
+  const available = useMemo(
+    () => book.filter((c) => !onShootKeys.has(`${c.name}|${c.email ?? ""}|${c.phone ?? ""}`)),
+    [book, onShootKeys],
+  );
 
+  /**
+   * Takes somebody off this production. Not out of the client's book — they
+   * are still the client's producer, they are simply not on this job.
+   */
   async function handleRemove(contact: IndexedContact) {
-    if (!clientId) return;
     try {
-      await removeContact({ id: clientId, index: contact.index });
-      toast.success(`${contact.name} removed.`);
+      await setOnShoot({ id: projectId, index: contact.index, on: false });
+      toast.success(`${contact.name} taken off this production.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove them.");
+    }
+  }
+
+  async function handleAdd(index: number) {
+    try {
+      await setOnShoot({ id: projectId, index, on: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add them.");
     }
   }
 
@@ -134,7 +167,8 @@ export function ProjectClientSection({
           </p>
         ) : contacts.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            No contacts for {client.name} yet. Add the first with the button above.
+            Nobody from {client.name} on this production yet. Add whoever is involved with
+            the button above.
           </p>
         ) : (
           <>
@@ -184,7 +218,9 @@ export function ProjectClientSection({
               </TableBody>
             </Table>
             <p className="mt-3 text-xs text-muted-foreground">
-              Edits here change {client.name} everywhere — see the whole book on your{" "}
+              Remove takes somebody off this production only — they stay in{" "}
+              {client.name}&rsquo;s contacts. Edit changes them everywhere; the whole book
+              is on your{" "}
               <Link href="/clients" className="underline underline-offset-2">
                 clients
               </Link>{" "}
@@ -194,17 +230,23 @@ export function ProjectClientSection({
         )}
       </CardContent>
 
-      {clientId && (adding || editing) && (
+      {clientId && adding && (
+        <AddContactDialog
+          clientId={clientId}
+          clientName={client?.name ?? clientName ?? "this client"}
+          available={available}
+          onPick={(index) => void handleAdd(index)}
+          onClose={() => setAdding(false)}
+        />
+      )}
+      {clientId && editing && (
         <ContactDialog
           // Remounted per contact so the fields hold that person, not
           // whoever the dialog was last opened on.
-          key={editing ? `edit-${editing.index}` : "add"}
+          key={`edit-${editing.index}`}
           clientId={clientId}
           contact={editing}
-          onClose={() => {
-            setAdding(false);
-            setEditing(null);
-          }}
+          onClose={() => setEditing(null)}
         />
       )}
       {forwarding && client && (
@@ -221,11 +263,14 @@ export function ProjectClientSection({
 function ContactDialog({
   clientId,
   contact,
+  onAdded,
   onClose,
 }: {
   clientId: Id<"clients">;
   /** Null to add somebody new. */
   contact: IndexedContact | null;
+  /** Called with the new contact's position when one is written here. */
+  onAdded?: (index: number) => void;
   onClose: () => void;
 }) {
   const save = useMutation(api.clients.saveContact);
@@ -242,7 +287,7 @@ function ContactDialog({
     }
     setSaving(true);
     try {
-      await save({
+      const index = await save({
         id: clientId,
         index: contact?.index,
         name: name.trim(),
@@ -250,6 +295,9 @@ function ContactDialog({
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
       });
+      // Somebody written here is wanted on this production too, not merely
+      // filed in the client's book.
+      if (!contact && onAdded && typeof index === "number") onAdded(index);
       toast.success("Saved.");
       onClose();
     } catch (err) {
@@ -419,6 +467,74 @@ function ForwardContactsDialog({
             </Button>
             <Button render={<a href={mailtoHref} />}>Open in email client</Button>
           </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Who at the client is on this shoot.
+ *
+ * The company's book is the list to pick from; a client of any size has an
+ * accounts contact and a legal contact who will never be on set, and putting
+ * them on a call sheet helps nobody. Somebody genuinely new can be written
+ * here too, which adds them to the book and to the shoot at once.
+ */
+function AddContactDialog({
+  clientId,
+  clientName,
+  available,
+  onPick,
+  onClose,
+}: {
+  clientId: Id<"clients">;
+  clientName: string;
+  available: IndexedContact[];
+  onPick: (index: number) => void;
+  onClose: () => void;
+}) {
+  const [writing, setWriting] = useState(available.length === 0);
+
+  if (writing) {
+    return <ContactDialog clientId={clientId} contact={null} onAdded={onPick} onClose={onClose} />;
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Who at {clientName} is on this production?</DialogTitle>
+        </DialogHeader>
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {available.map((contact) => (
+            <li key={contact.index} className="flex items-center gap-3 px-3 py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{contact.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {[contact.role, contact.email, contact.phone].filter(Boolean).join(" · ") ||
+                    "No details yet"}
+                </span>
+              </span>
+              <Button
+                size="sm"
+                onClick={() => {
+                  onPick(contact.index);
+                  onClose();
+                }}
+              >
+                Add
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <DialogFooter className="sm:justify-between">
+          <Button variant="secondary" onClick={() => setWriting(true)}>
+            Somebody new
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -84,6 +84,11 @@ export default defineSchema({
     // client's contact list. A position rather than a name so correcting a
     // typo in the name does not quietly unset who booked it.
     bookedByContact: v.optional(v.number()),
+    // Which of the client's contacts are on this production, by the same
+    // positions. Absent means nobody has pruned the list, so all of them are
+    // — which is what it did before there was a choice. Taking one off writes
+    // the list out in full, minus that one.
+    clientContacts: v.optional(v.array(v.number())),
     name: v.string(),
     // Booking status. The first three are current; the rest are the old
     // pipeline statuses, kept valid so existing documents still pass schema

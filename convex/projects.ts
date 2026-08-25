@@ -187,16 +187,25 @@ async function withRelations(ctx: QueryCtx, project: Doc<"projects">) {
   // Who booked the job, out of everybody at that client. Falls back to the
   // first contact, which is who it was before there was a choice, and to
   // nothing at all if that contact has since been removed.
-  const clientContacts = client ? contactsOf(client) : [];
+  const allContacts = client ? contactsOf(client) : [];
+  // Absent means nobody has pruned the list, so everybody at the company is
+  // on it — which is what it did before there was a choice. Out-of-range
+  // positions are dropped rather than pointing at whoever moved up.
+  const clientContacts =
+    project.clientContacts === undefined
+      ? allContacts
+      : project.clientContacts
+          .filter((i) => i >= 0 && i < allContacts.length)
+          .map((i) => allContacts[i]);
   const bookedByIndex =
     project.bookedByContact !== undefined &&
     project.bookedByContact >= 0 &&
-    project.bookedByContact < clientContacts.length
+    project.bookedByContact < allContacts.length
       ? project.bookedByContact
-      : clientContacts.length > 0
+      : allContacts.length > 0
         ? 0
         : null;
-  const bookedBy = bookedByIndex === null ? null : clientContacts[bookedByIndex];
+  const bookedBy = bookedByIndex === null ? null : allContacts[bookedByIndex];
   return {
     ...project,
     clientName: client?.name ?? null,
@@ -211,6 +220,10 @@ async function withRelations(ctx: QueryCtx, project: Doc<"projects">) {
         }
       : null,
     bookedByContact: bookedByIndex,
+    // Who is on this production, resolved: the card shows these and nobody
+    // else, and removing one takes them off the shoot rather than out of the
+    // client's book.
+    clientContacts,
     status: normaliseStatus(project.status),
     archived: isArchived(project),
     location,
@@ -222,6 +235,44 @@ async function withRelations(ctx: QueryCtx, project: Doc<"projects">) {
     forecastLocationId: location ? location._id : null,
   };
 }
+
+/**
+ * Put one of the client's contacts on this production, or take one off.
+ *
+ * Taking somebody off a shoot is not the same as deleting them from the
+ * client's book — they are still the client's producer, they are just not on
+ * this job. Conflating the two lost people's details, which is what this
+ * exists to stop.
+ */
+export const setClientContact = mutation({
+  args: { id: v.id("projects"), index: v.number(), on: v.boolean() },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.id);
+    if (!project || project.orgId !== org._id) throw new Error("Project not found");
+    const client = project.clientId ? await ctx.db.get(project.clientId) : null;
+    if (!client) throw new Error("This production has no client");
+    const all = contactsOf(client);
+    if (args.index < 0 || args.index >= all.length) throw new Error("Contact not found");
+
+    // Absent means everybody, so the first change writes that out in full and
+    // then applies itself — otherwise taking one off would look like adding
+    // one and leave the rest behind.
+    const current =
+      project.clientContacts === undefined
+        ? all.map((_, i) => i)
+        : project.clientContacts.filter((i) => i >= 0 && i < all.length);
+
+    const next = args.on
+      ? current.includes(args.index)
+        ? current
+        : [...current, args.index].sort((a, b) => a - b)
+      : current.filter((i) => i !== args.index);
+
+    await ctx.db.patch(args.id, { clientContacts: next });
+    return null;
+  },
+});
 
 export const get = query({
   args: { id: v.id("projects") },
