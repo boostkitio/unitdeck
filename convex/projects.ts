@@ -67,6 +67,7 @@ export const list = query({
         return {
           ...p,
           clientName: p.clientId ? ((await ctx.db.get(p.clientId))?.name ?? null) : null,
+          locationName: p.locationId ? ((await ctx.db.get(p.locationId))?.name ?? null) : null,
           status: normaliseStatus(p.status),
           archived: isArchived(p),
           // Earliest shoot day still to come, and the last one on the books.

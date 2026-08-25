@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { batch, matchHeaders, parseCsv, parseCsvRecords, parseCsvTable, pickColumn } from "./csv";
+import {
+  batch,
+  csvCell,
+  matchHeaders,
+  parseCsv,
+  parseCsvRecords,
+  parseCsvTable,
+  pickColumn,
+  toCsv,
+} from "./csv";
 
 describe("parseCsv", () => {
   it("splits plain rows", () => {
@@ -196,5 +205,43 @@ describe("parseCsvTable issues", () => {
   it("warns when a row has more values than there are columns", () => {
     const table = parseCsvTable("Item,Dept\nFX9,Camera,stray");
     expect(table.issues.join(" ")).toMatch(/more values than there are columns/i);
+  });
+});
+
+describe("toCsv", () => {
+  it("writes a header and rows", () => {
+    expect(toCsv(["Item", "Dept"], [["FX9", "Camera"]])).toBe("Item,Dept\r\nFX9,Camera");
+  });
+
+  it("quotes only what needs quoting", () => {
+    expect(csvCell("plain")).toBe("plain");
+    expect(csvCell("has,comma")).toBe('"has,comma"');
+    expect(csvCell('has "quotes"')).toBe('"has ""quotes"""');
+    expect(csvCell("has\nnewline")).toBe('"has\nnewline"');
+  });
+
+  it("writes nothing for a missing value", () => {
+    expect(csvCell(undefined)).toBe("");
+    expect(csvCell(null)).toBe("");
+  });
+
+  it("keeps numbers as numbers", () => {
+    expect(csvCell(1200)).toBe("1200");
+  });
+
+  it("round-trips back through the parser", () => {
+    // The point of the export is that it can be imported again.
+    const csv = toCsv(
+      ["Item", "Notes"],
+      [
+        ["Sony FX9", 'Body A, "spare" battery'],
+        ["Tripod", "Sticks\nand head"],
+      ],
+    );
+    const table = parseCsvTable(csv);
+    expect(table.records).toEqual([
+      { item: "Sony FX9", notes: 'Body A, "spare" battery' },
+      { item: "Tripod", notes: "Sticks\nand head" },
+    ]);
   });
 });

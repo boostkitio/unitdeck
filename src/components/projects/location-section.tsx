@@ -198,15 +198,31 @@ export function LocationSection({
             </div>
 
             {query && (
-              <div className="overflow-hidden rounded-lg border border-border">
+              /* The whole map opens Google Maps. An iframe swallows clicks, so
+                 the link sits over it and the frame itself is made inert —
+                 the embed's own panning is worth less than the tile being the
+                 obvious way through to directions. */
+              <div className="group relative overflow-hidden rounded-lg border border-border">
                 <iframe
                   title={`Map of ${location.name}`}
                   src={mapEmbedSrc(query)}
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
-                  className="aspect-video w-full"
+                  className="pointer-events-none aspect-video w-full"
                   allowFullScreen
+                  tabIndex={-1}
                 />
+                <a
+                  href={mapLink(query)}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Open ${location.name} in Google Maps`}
+                  className="absolute inset-0 flex items-end justify-end p-2 transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  <span className="rounded-md bg-background/90 px-2 py-1 text-xs font-medium opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                    Open in Google Maps
+                  </span>
+                </a>
               </div>
             )}
           </div>

@@ -42,12 +42,13 @@ import { cn } from "@/lib/utils";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { BriefDialog } from "@/components/agents/brief-dialog";
 
-type SortKey = "name" | "client" | "date" | "status";
+type SortKey = "name" | "client" | "location" | "date" | "status";
 
 /** The shape the table sorts on; the query returns a superset of this. */
 type SortableProject = {
   name: string;
   clientName: string | null;
+  locationName: string | null;
   status: string;
   nextShootDate: string | null;
   lastShootDate: string | null;
@@ -67,6 +68,8 @@ function sortValue(p: SortableProject, key: SortKey): string | number | null {
   switch (key) {
     case "name":
       return p.name;
+    case "location":
+      return p.locationName;
     case "client":
       return p.clientName;
     case "date":
@@ -160,6 +163,7 @@ export default function ProjectsPage() {
               <TableRow>
                 <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
                 <SortableHead label="Client" sortKey="client" sort={sort} onSort={toggle} />
+                <SortableHead label="Location" sortKey="location" sort={sort} onSort={toggle} />
                 <SortableHead label="Shoot date" sortKey="date" sort={sort} onSort={toggle} />
                 <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggle} />
               </TableRow>
@@ -185,6 +189,9 @@ export default function ProjectsPage() {
                       </Link>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{p.clientName ?? "\u00b7"}</TableCell>
+                    <TableCell className="max-w-48 truncate text-muted-foreground">
+                      {p.locationName ?? "\u00b7"}
+                    </TableCell>
                     <TableCell
                       className={cn("tabular-nums", (isPast || date === null) && "text-muted-foreground")}
                     >

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvImportDialog, type CsvColumnSpec } from "@/components/csv-import-dialog";
+import { CsvExportButton } from "@/components/csv-export-button";
 import { Textarea } from "@/components/ui/textarea";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
@@ -190,6 +191,18 @@ export default function PeoplePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <CsvExportButton
+            filename="people"
+            headers={["Name", "Role", "Email", "Phone", "Day rate", "Notes"]}
+            rows={(people ?? []).map((p) => [
+              p.name,
+              p.role,
+              p.email,
+              p.phone,
+              p.dayRate,
+              p.notes,
+            ])}
+          />
           <Button variant="secondary" onClick={() => setImportOpen(true)}>
             Import CSV
           </Button>

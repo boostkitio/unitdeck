@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchInput } from "@/components/search-input";
+import { CsvExportButton } from "@/components/csv-export-button";
 import { matchesSearch } from "@/lib/search";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 
@@ -80,7 +81,32 @@ export default function LocationsPage() {
     <div>
       <div className="flex items-center justify-between">
         <h1 className="font-heading text-2xl font-semibold tracking-tight">Locations</h1>
-        <Button onClick={() => setEditing("new")}>Add location</Button>
+        <div className="flex items-center gap-2">
+          <CsvExportButton
+            filename="locations"
+            headers={[
+              "Name",
+              "Address",
+              "Nearest A&E",
+              "Nearest police station",
+              "Nearest station",
+              "what3words",
+              "Sat nav",
+              "Notes",
+            ]}
+            rows={(locations ?? []).map((l) => [
+              l.name,
+              l.address,
+              l.nearestHospital,
+              l.nearestPoliceStation,
+              l.nearestStation,
+              l.w3w,
+              l.satNav,
+              l.notes,
+            ])}
+          />
+          <Button onClick={() => setEditing("new")}>Add location</Button>
+        </div>
       </div>
       <div className="mt-6">
         {locations !== undefined && locations.length > 0 && (
@@ -393,17 +419,30 @@ function LocationDialog({
             />
           </div>
 
-          {/* Embedded Google Map */}
+          {/* Embedded Google Map — the tile itself opens Google Maps, so the
+              frame is inert and the link sits over it. */}
           {mapEmbedSrc && (
             <div className="space-y-1">
-              <iframe
-                title="Map"
-                src={mapEmbedSrc}
-                className="h-48 w-full rounded-md border border-border"
-                loading="eager"
-                referrerPolicy="no-referrer-when-downgrade"
-                allowFullScreen={false}
-              />
+              <div className="group relative">
+                <iframe
+                  title="Map"
+                  src={mapEmbedSrc}
+                  className="pointer-events-none h-48 w-full rounded-md border border-border"
+                  loading="eager"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  allowFullScreen={false}
+                  tabIndex={-1}
+                />
+                {mapLinkHref && (
+                  <a
+                    href={mapLinkHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open in Google Maps"
+                    className="absolute inset-0 rounded-md transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  />
+                )}
+              </div>
               {mapLinkHref && (
                 <a
                   href={mapLinkHref}

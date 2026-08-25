@@ -242,3 +242,22 @@ export function batch<T>(items: T[], size: number): T[][] {
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
 }
+
+/**
+ * One CSV cell, quoted only when it has to be.
+ *
+ * A value containing a comma, quote or newline must be quoted or the file
+ * cannot be read back — which matters here because these exports are meant to
+ * go straight back into the importer.
+ */
+export function csvCell(value: string | number | undefined | null): string {
+  if (value === undefined || value === null) return "";
+  const text = String(value);
+  if (!/[",\r\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+/** A whole CSV file from a header row and its data rows. */
+export function toCsv(headers: string[], rows: (string | number | undefined | null)[][]): string {
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+}

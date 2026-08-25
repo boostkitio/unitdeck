@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvImportDialog, type CsvColumnSpec } from "@/components/csv-import-dialog";
+import { CsvExportButton } from "@/components/csv-export-button";
 import { SearchInput } from "@/components/search-input";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { matchesSearch } from "@/lib/search";
@@ -236,6 +237,27 @@ export default function EquipmentPage() {
         </div>
         {view === "items" && (
           <div className="flex items-center gap-2">
+            <CsvExportButton
+              filename="equipment"
+              headers={[
+                "Dept",
+                "Item",
+                "Serial number",
+                "Weight (kg)",
+                "Value when new",
+                "Current value",
+                "Country of manufacture",
+              ]}
+              rows={(equipment ?? []).map((row) => [
+                row.dept,
+                row.item,
+                row.serialNumber,
+                row.weightKg,
+                row.valueNew,
+                row.valueCurrent,
+                row.countryOfManufacture,
+              ])}
+            />
             <Button variant="secondary" onClick={() => setImportOpen(true)}>
               Import CSV
             </Button>
