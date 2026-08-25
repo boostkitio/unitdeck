@@ -1,4 +1,4 @@
-import type { CallSheetData } from "../../../convex/lib/callSheetData";
+import type { CallSheetData, LocationEntry } from "../../../convex/lib/callSheetData";
 import { groupEquipmentBySupplier, callStrip } from "./format";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 
@@ -51,6 +51,19 @@ export function CallSheetDocument({
               {data.clientName ? ` for ${data.clientName}` : ""}
             </p>
             <h1 className="mt-1 text-[20pt] font-bold leading-tight">{data.title}</h1>
+            {/* Where it is, right under what it is. Anyone glancing at the top
+                of a call sheet is looking for one of those two things. */}
+            {data.locations[0] && (
+              <p className="mt-0.5 text-[8.5pt] text-neutral-600">
+                <span className="font-semibold">{data.locations[0].name}</span>
+                {data.locations[0].address && (
+                  <span> · {data.locations[0].address.replace(/\s*\n\s*/g, ", ")}</span>
+                )}
+                {data.locations.length > 1 && (
+                  <span> · +{data.locations.length - 1} more below</span>
+                )}
+              </p>
+            )}
           </div>
           <div className="text-right">
             <p className="text-[14pt] font-bold">Call sheet</p>
@@ -79,48 +92,9 @@ export function CallSheetDocument({
         </div>
       )}
 
-      {/* Locations */}
-      {data.locations.length > 0 && (
-        <section className="mt-5">
-          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
-            Locations
-          </h2>
-          <div className="mt-2 space-y-2">
-            {data.locations.map((loc, i) => (
-              <div key={loc.id} className="flex gap-3">
-                <span className="font-bold">{i + 1}.</span>
-                <div>
-                  <p className="font-semibold">{loc.name}</p>
-                  <p className="whitespace-pre-line">{loc.address}</p>
-                  <p className="text-[8.5pt] text-neutral-600">
-                    {loc.w3w && <span className="mr-3">{loc.w3w}</span>}
-                    {loc.parkingNotes && <span className="mr-3">Parking: {loc.parkingNotes}</span>}
-                  </p>
-                  {(loc.satNav || loc.publicTransport) && (
-                    <p className="text-[8.5pt] text-neutral-600">
-                      {loc.satNav && <span className="mr-3">Sat nav: {loc.satNav}</span>}
-                      {loc.publicTransport && <span>Transport: {loc.publicTransport}</span>}
-                    </p>
-                  )}
-                  {(loc.nearestHospital || loc.nearestPoliceStation) && (
-                    <p className="text-[8.5pt] text-neutral-600">
-                      In an emergency call 999.
-                      {loc.nearestHospital && <span className="ml-2">Nearest A&amp;E: {loc.nearestHospital}.</span>}
-                      {loc.nearestPoliceStation && (
-                        <span className="ml-2">Nearest police: {loc.nearestPoliceStation}.</span>
-                      )}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* Schedule */}
       {data.schedule.length > 0 && (
-        <section className="mt-5">
+        <section className="mt-5 break-inside-avoid">
           <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
             Schedule
           </h2>
@@ -145,17 +119,17 @@ export function CallSheetDocument({
 
       {/* Crew */}
       {data.crew.length > 0 && (
-        <section className="mt-5">
+        <section className="mt-5 break-inside-avoid">
           <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
             {data.crewSectionTitle ?? "Crew"}
           </h2>
           <table className="mt-2 w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-neutral-400 text-[8pt] uppercase tracking-wider text-neutral-500">
-                <th className="py-1 pr-2 font-semibold">Name</th>
-                <th className="py-1 pr-2 font-semibold">Role</th>
-                <th className="py-1 pr-2 font-semibold">Call</th>
-                <th className="py-1 pr-2 font-semibold">Phone</th>
+                <th className="w-[24%] py-1 pr-2 font-semibold">Name</th>
+                <th className="w-[24%] py-1 pr-2 font-semibold">Role</th>
+                <th className="w-14 py-1 pr-2 font-semibold">Call</th>
+                <th className="w-[22%] py-1 pr-2 font-semibold">Phone</th>
                 <th className="py-1 font-semibold">Notes</th>
               </tr>
             </thead>
@@ -175,19 +149,18 @@ export function CallSheetDocument({
       )}
 
       {(data.contactSections ?? []).map((section) => (
-        <section key={section.id} className="mt-5">
+        <section key={section.id} className="mt-5 break-inside-avoid">
           <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
             {section.title}
           </h2>
           <table className="mt-2 w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-neutral-400 text-[8pt] uppercase tracking-wider text-neutral-500">
-                <th className="py-1 pr-2 font-semibold">Role</th>
-                <th className="py-1 pr-2 font-semibold">Name</th>
-                <th className="py-1 pr-2 font-semibold">Reports to</th>
-                <th className="py-1 pr-2 font-semibold">Phone</th>
+                <th className="w-[22%] py-1 pr-2 font-semibold">Role</th>
+                <th className="w-[22%] py-1 pr-2 font-semibold">Name</th>
+                <th className="w-[20%] py-1 pr-2 font-semibold">Phone</th>
                 <th className="py-1 pr-2 font-semibold">Email</th>
-                <th className="py-1 font-semibold">Call</th>
+                <th className="w-14 py-1 font-semibold">Call</th>
               </tr>
             </thead>
             <tbody>
@@ -195,7 +168,6 @@ export function CallSheetDocument({
                 <tr key={r.id} className="border-b border-neutral-200">
                   <td className="py-1.5 pr-2">{r.role}</td>
                   <td className="py-1.5 pr-2 font-medium">{r.name}</td>
-                  <td className="py-1.5 pr-2 text-neutral-600">{r.reportsTo ?? ""}</td>
                   <td className="py-1.5 pr-2 whitespace-nowrap">
                     {/* Blank fallback: this also renders to PDF, where a
                         placeholder dot would be noise on the printed sheet. */}
@@ -212,9 +184,75 @@ export function CallSheetDocument({
         </section>
       ))}
 
+      {/* Locations */}
+      {data.locations.length > 0 && (
+        <section className="mt-5 break-inside-avoid">
+          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
+            {data.locations.length === 1 ? "Location" : "Locations"}
+          </h2>
+          <div className="mt-2 space-y-3">
+            {data.locations.map((loc, i) => (
+              <div key={loc.id} className="flex gap-3 break-inside-avoid">
+                {/* The map beside the getting-there and emergency detail, so
+                    the two are read together rather than a page apart. */}
+                <LocationMap location={loc} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    {data.locations.length > 1 && <span className="mr-1">{i + 1}.</span>}
+                    {loc.name}
+                  </p>
+                  <p className="whitespace-pre-line">{loc.address}</p>
+                  <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[8.5pt] text-neutral-600">
+                    {loc.w3w && (
+                      <>
+                        <dt className="font-semibold">what3words</dt>
+                        <dd>{loc.w3w}</dd>
+                      </>
+                    )}
+                    {loc.satNav && (
+                      <>
+                        <dt className="font-semibold">Sat nav</dt>
+                        <dd>{loc.satNav}</dd>
+                      </>
+                    )}
+                    {loc.parkingNotes && (
+                      <>
+                        <dt className="font-semibold">Parking</dt>
+                        <dd>{loc.parkingNotes}</dd>
+                      </>
+                    )}
+                    {loc.publicTransport && (
+                      <>
+                        <dt className="font-semibold">Transport</dt>
+                        <dd>{loc.publicTransport}</dd>
+                      </>
+                    )}
+                    {loc.nearestHospital && (
+                      <>
+                        <dt className="font-semibold">Nearest A&amp;E</dt>
+                        <dd>{loc.nearestHospital}</dd>
+                      </>
+                    )}
+                    {loc.nearestPoliceStation && (
+                      <>
+                        <dt className="font-semibold">Nearest police</dt>
+                        <dd>{loc.nearestPoliceStation}</dd>
+                      </>
+                    )}
+                  </dl>
+                  <p className="mt-1 text-[8.5pt] font-semibold text-neutral-700">
+                    In an emergency call 999.
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Key contacts */}
       {data.contacts.length > 0 && (
-        <section className="mt-5">
+        <section className="mt-5 break-inside-avoid">
           <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
             Key contacts
           </h2>
@@ -235,7 +273,7 @@ export function CallSheetDocument({
           data.camera.aspectRatios ||
           data.camera.namingConvention ||
           data.camera.otherNotes) && (
-          <section className="mt-5">
+          <section className="mt-5 break-inside-avoid">
             <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
               Camera
             </h2>
@@ -250,28 +288,38 @@ export function CallSheetDocument({
         )}
 
       {data.equipment && data.equipment.length > 0 && (
-        <section className="mt-5">
+        <section className="mt-5 break-inside-avoid">
           <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
             Equipment
           </h2>
-          <div className="mt-2 space-y-2 text-[9pt]">
-            {groupEquipmentBySupplier(data.equipment).map((group) => (
-              <div key={group.supplier ?? "other"}>
-                <p className="font-semibold">{group.supplier ?? "Other"}</p>
-                <ul className="ml-4 list-disc">
-                  {group.items.map((it) => (
-                    <li key={it.id}>{it.item}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+          <table className="mt-2 w-full border-collapse text-left text-[9pt]">
+            <thead>
+              <tr className="border-b border-neutral-400 text-[8pt] uppercase tracking-wider text-neutral-500">
+                <th className="w-40 py-1 pr-2 font-semibold">Department</th>
+                <th className="py-1 font-semibold">Item</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupEquipmentBySupplier(data.equipment).map((group) =>
+                group.items.map((it, i) => (
+                  <tr key={it.id} className="border-b border-neutral-200">
+                    {/* The department is written once against the run it
+                        heads, the way a kit list is actually read. */}
+                    <td className="py-1 pr-2 align-top font-semibold">
+                      {i === 0 ? (group.supplier ?? "Other") : ""}
+                    </td>
+                    <td className="py-1 align-top">{it.item}</td>
+                  </tr>
+                )),
+              )}
+            </tbody>
+          </table>
         </section>
       )}
 
       {/* Notes + safety */}
       {data.notes && (
-        <section className="mt-5">
+        <section className="mt-5 break-inside-avoid">
           <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
             Notes
           </h2>
@@ -307,5 +355,43 @@ export function CallSheetDocument({
           </section>
         )}
     </div>
+  );
+}
+
+/**
+ * A printed map of the location.
+ *
+ * Google's static map is an image rather than an embed, which is what a sheet
+ * that will be printed and handed round needs. It wants a browser key, and
+ * without one the panel says so plainly rather than printing a broken image
+ * or a grey box nobody can explain.
+ */
+function LocationMap({ location }: { location: LocationEntry }) {
+  const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const centre =
+    location.lat !== undefined && location.lng !== undefined
+      ? `${location.lat},${location.lng}`
+      : location.address.trim() || location.name;
+
+  if (!key) {
+    return (
+      <div className="flex h-[34mm] w-[46mm] shrink-0 items-center justify-center rounded border border-dashed border-neutral-300 p-2 text-center text-[7.5pt] leading-tight text-neutral-500">
+        Add a Google Maps browser key to print a map here
+      </div>
+    );
+  }
+
+  const src =
+    `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(centre)}` +
+    `&zoom=15&size=368x272&scale=2&maptype=roadmap` +
+    `&markers=color:red%7C${encodeURIComponent(centre)}&key=${key}`;
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={`Map of ${location.name}`}
+      className="h-[34mm] w-[46mm] shrink-0 rounded border border-neutral-300 object-cover"
+    />
   );
 }

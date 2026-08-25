@@ -14,7 +14,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import { LEGACY_STATUSES, normaliseStatus } from "./lib/projectStatus";
 import { fetchDailyForecast, fetchTimezone } from "./lib/weather";
 import { formatInZone, sunTimes } from "./lib/sun";
-import { geocodeAddress } from "./lib/geocode";
+import { geocodePlace } from "./lib/geocode";
 import { contactsOf } from "./clients";
 
 // Only current statuses are settable; legacy values remain readable but can
@@ -578,16 +578,25 @@ export const refreshForecast = action({
     // needs them, and a producer who has set a location has done their part.
     let lat = location.lat;
     let lng = location.lng;
+    // Says the weather is for somewhere looser than the address given, which
+    // is worth admitting rather than quietly reporting the next town's sky.
+    let approximate: string | null = null;
     if (lat === undefined || lng === undefined) {
-      const found = await geocodeAddress(location.address).catch(() => null);
-      if (found) {
-        lat = found.lat;
-        lng = found.lng;
-        await ctx.runMutation(internal.locations.saveCoordinates, {
-          id: location._id,
-          lat,
-          lng,
-        });
+      const placed = await geocodePlace(location.address).catch(() => null);
+      if (placed) {
+        lat = placed.lat;
+        lng = placed.lng;
+        if (placed.precise) {
+          // Only an address-level match is written back: the map pin uses
+          // these too, and a pin on the wrong side of town is worse than none.
+          await ctx.runMutation(internal.locations.saveCoordinates, {
+            id: location._id,
+            lat,
+            lng,
+          });
+        } else {
+          approximate = placed.matched;
+        }
       }
     }
 
@@ -624,9 +633,13 @@ export const refreshForecast = action({
           windMaxKph: forecast.windMaxKph,
           sunrise: forecast.sunrise,
           sunset: forecast.sunset,
+          reason: approximate ? `Weather for ${approximate}` : undefined,
         },
       });
-      return { ok: true, reason: "Forecast updated." };
+      return {
+        ok: true,
+        reason: approximate ? `Forecast updated for ${approximate}.` : "Forecast updated.",
+      };
     }
 
     // Either beyond the forecast window or the service did not answer. The sun

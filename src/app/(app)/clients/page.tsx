@@ -90,6 +90,8 @@ export default function ClientsPage() {
   // signs things off, who are rarely the same person.
   const [contacts, setContacts] = useState<ContactDraft[]>([]);
   const [saving, setSaving] = useState(false);
+  // Which companies are showing everybody rather than just the first contact.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const { sort, toggle } = useTableSort<ClientSortKey>({ key: "name", dir: "asc" });
   const [search, setSearch] = useState("");
 
@@ -242,18 +244,41 @@ export default function ClientsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedClients.map((c) => {
+              {sortedClients.flatMap((c) => {
                 const first = primaryContact(c);
-                const others = c.contacts.length - 1;
-                return (
-                  <TableRow key={c._id} className="cursor-pointer" onClick={() => openEdit(c)}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {first?.name ?? "·"}
-                      {others > 0 && (
-                        <span className="ml-1 text-xs">+{others}</span>
+                const others = c.contacts.slice(1);
+                const open = expanded[c._id] ?? false;
+
+                // Clicking the company shows everybody there rather than
+                // opening the editor: reading who you deal with is the common
+                // errand, and editing them is one more click from Edit.
+                const rows = [
+                  <TableRow
+                    key={c._id}
+                    className={others.length > 0 ? "cursor-pointer" : undefined}
+                    onClick={
+                      others.length > 0
+                        ? () => setExpanded((rows) => ({ ...rows, [c._id]: !open }))
+                        : undefined
+                    }
+                  >
+                    <TableCell className="font-medium">
+                      {others.length > 0 && (
+                        <span
+                          aria-hidden
+                          className="mr-1.5 inline-block w-2 text-xs text-muted-foreground"
+                        >
+                          {open ? "▾" : "▸"}
+                        </span>
+                      )}
+                      {c.name}
+                      {others.length > 0 && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                          {c.contacts.length} contacts
+                        </span>
                       )}
                     </TableCell>
+                    <TableCell className="text-muted-foreground">{first?.name ?? "·"}</TableCell>
                     <TableCell className="text-muted-foreground">{first?.role ?? "·"}</TableCell>
                     <TableCell className="text-muted-foreground">
                       <PhoneLink phone={first?.phone} />
@@ -262,10 +287,45 @@ export default function ClientsPage() {
                       <EmailLink email={first?.email} />
                     </TableCell>
                     <TableCell className="max-w-md truncate text-muted-foreground">
-                      {c.notes ?? ""}
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate">{c.notes ?? ""}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(c);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      </span>
                     </TableCell>
-                  </TableRow>
-                );
+                  </TableRow>,
+                ];
+
+                if (open) {
+                  for (const [i, contact] of others.entries()) {
+                    rows.push(
+                      <TableRow key={`${c._id}-${i}`} className="bg-muted/40">
+                        <TableCell />
+                        <TableCell className="text-muted-foreground">{contact.name}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {contact.role ?? "·"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          <PhoneLink phone={contact.phone} />
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          <EmailLink email={contact.email} />
+                        </TableCell>
+                        <TableCell />
+                      </TableRow>,
+                    );
+                  }
+                }
+
+                return rows;
               })}
             </TableBody>
           </Table>

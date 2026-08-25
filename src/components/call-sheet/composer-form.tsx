@@ -8,7 +8,6 @@ import type {
   CameraInfo,
   ContactSection,
   CrewRow,
-  EquipmentRow,
   ScheduleBlock,
   SectionRow,
 } from "../../../convex/lib/callSheetData";
@@ -720,63 +719,6 @@ export function ComposerForm({
             }
           />
         </div>
-      </section>
-
-      {/* Equipment */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Equipment</h3>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() =>
-              set({
-                equipment: [
-                  ...(data.equipment ?? []),
-                  { id: newId("eq"), item: "" } satisfies EquipmentRow,
-                ],
-              })
-            }
-          >
-            Add item
-          </Button>
-        </div>
-        {(data.equipment ?? []).map((eq) => (
-          <div key={eq.id} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
-            <Input
-              placeholder="Item"
-              value={eq.item}
-              onChange={(e) =>
-                set({
-                  equipment: (data.equipment ?? []).map((x) =>
-                    x.id === eq.id ? { ...x, item: e.target.value } : x
-                  ),
-                })
-              }
-            />
-            <Input
-              placeholder="Supplier (optional)"
-              value={eq.supplier ?? ""}
-              onChange={(e) =>
-                set({
-                  equipment: (data.equipment ?? []).map((x) =>
-                    x.id === eq.id ? { ...x, supplier: e.target.value || undefined } : x
-                  ),
-                })
-              }
-            />
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-red-600"
-              onClick={() =>
-                set({ equipment: (data.equipment ?? []).filter((x) => x.id !== eq.id) })
-              }
-            >
-              Remove
-            </Button>
-          </div>
-        ))}
       </section>
 
       {/* Notes */}

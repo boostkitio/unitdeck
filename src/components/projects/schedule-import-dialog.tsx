@@ -56,6 +56,7 @@ export function ScheduleImportDialog({
   // changes, since the line numbers then mean something else.
   const [dayOverrides, setDayOverrides] = useState<Record<number, string>>({});
   const [replace, setReplace] = useState(false);
+  const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const ordered = useMemo(
@@ -69,12 +70,41 @@ export function ScheduleImportDialog({
     setDayOverrides({});
   }
 
+  /**
+   * A PDF or a Word file is read on the server, where the libraries that can
+   * read them live; anything else is already text. Nothing is stored either
+   * way — the text comes straight back into the box below.
+   */
   async function onFile(file: File | undefined) {
     if (!file) return;
+    const name = file.name.toLowerCase();
+    const needsReading = name.endsWith(".pdf") || name.endsWith(".docx") || name.endsWith(".doc");
+    setReading(true);
     try {
-      readText(await file.text());
+      if (!needsReading) {
+        readText(await file.text());
+        return;
+      }
+      if (name.endsWith(".doc")) {
+        toast.error("That is the old Word format. Save it as .docx, or open it and paste.");
+        return;
+      }
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/schedule/extract", { method: "POST", body });
+      const result = (await res.json()) as { text?: string; error?: string };
+      if (!res.ok || !result.text) {
+        toast.error(result.error ?? "Could not read that file.");
+        return;
+      }
+      readText(result.text);
+      toast.success(`Read ${file.name}. Check the lines below before adding them.`);
     } catch {
       toast.error("Could not read that file. Open it and paste the text instead.");
+    } finally {
+      setReading(false);
+      // Cleared so picking the same file again still fires a change.
+      if (fileRef.current) fileRef.current.value = "";
     }
   }
 
@@ -135,12 +165,17 @@ export function ScheduleImportDialog({
                 <input
                   ref={fileRef}
                   type="file"
-                  accept=".txt,.csv,.tsv,.md,text/plain,text/csv"
+                  accept=".pdf,.docx,.txt,.csv,.tsv,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/csv"
                   className="hidden"
                   onChange={(e) => void onFile(e.target.files?.[0])}
                 />
-                <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-                  Upload a file
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={reading}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  {reading ? "Reading…" : "Upload a file"}
                 </Button>
               </div>
             </div>
@@ -156,10 +191,10 @@ export function ScheduleImportDialog({
               className="font-mono text-xs"
             />
             <p className="text-xs text-muted-foreground">
-              Paste straight out of Word, an email or a spreadsheet. Times can be written
-              07:00, 7.30, 7am or 0700, and a heading like “Day 2” or “Tuesday 13 May” puts
-              everything under it on that day. Uploading works for plain text and CSV — for a
-              Word file or a PDF, open it and paste.
+              Upload a PDF, a Word file, a spreadsheet export or plain text — or paste
+              straight out of an email. Times can be written 07:00, 7.30, 7am or 0700, and a
+              heading like “Day 2” or “Tuesday 13 May” puts everything under it on that day.
+              A scanned schedule is a picture rather than text, so that one has to be typed.
             </p>
           </div>
 

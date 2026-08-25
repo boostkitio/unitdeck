@@ -223,12 +223,16 @@ function Composer({
 
       {/* Editor + live preview */}
       <div className="flex min-h-0 flex-1">
-        <div className="w-full shrink-0 overflow-y-auto border-r border-border bg-card p-6 md:w-[420px]">
+        {/* The settings are what you are actually working in, so they get the
+            room; the sheet is a check that it reads right, so it sits tighter. */}
+        <div className="w-full shrink-0 overflow-y-auto border-r border-border bg-card p-6 md:w-[480px] lg:w-[560px]">
           <ComposerForm data={data} onChange={onChange} />
         </div>
-        <div className="hidden flex-1 overflow-y-auto bg-muted p-8 md:block">
-          <div className="origin-top scale-[0.85] shadow-xl">
-            <CallSheetDocument data={data} versionLabel={`v${draft.version} draft`} />
+        <div className="hidden min-w-0 flex-1 overflow-y-auto bg-muted p-6 md:block">
+          <div className="origin-top scale-[0.62] lg:scale-[0.7]">
+            <div className="shadow-xl">
+              <CallSheetDocument data={data} versionLabel={`v${draft.version} draft`} />
+            </div>
           </div>
         </div>
       </div>

@@ -167,6 +167,8 @@ async function buildFromProject(
       locationId: l._id,
       name: l.name,
       address: l.address,
+      lat: l.lat,
+      lng: l.lng,
       w3w: l.w3w,
       parkingNotes: l.parkingNotes,
       nearestHospital: l.nearestHospital,

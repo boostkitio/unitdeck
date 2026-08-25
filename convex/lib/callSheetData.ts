@@ -32,6 +32,10 @@ export const locationEntryValidator = v.object({
   locationId: v.optional(v.id("locations")),
   name: v.string(),
   address: v.string(),
+  // Carried onto the sheet so it can print a map. Absent for a location that
+  // has never been placed, and for every sheet drafted before maps were on it.
+  lat: v.optional(v.number()),
+  lng: v.optional(v.number()),
   w3w: v.optional(v.string()),
   parkingNotes: v.optional(v.string()),
   nearestHospital: v.optional(v.string()),
