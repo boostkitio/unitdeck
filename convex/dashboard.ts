@@ -133,11 +133,17 @@ export const attention = query({
     const crewByProject = groupByProject(crewRows);
     const kitByProject = groupByProject(kitRows);
 
-    // Shoot days that have a running order against them, so the ones that do
-    // not can be spotted.
+    // What has a running order against it. An item names a shoot day when one
+    // was picked, but the day selector offers "any" and defaults to it — so a
+    // running order typed straight down the page, or brought in from a
+    // document, belongs to the production rather than to one of its days.
+    // Both count: a project with general items has a running order for every
+    // day of it, which is exactly what those items are.
     const daysWithSchedule = new Set<Id<"shootDays">>();
+    const projectsWithSchedule = new Set<Id<"projects">>();
     for (const row of scheduleRows) {
       if (row.shootDayId) daysWithSchedule.add(row.shootDayId);
+      else projectsWithSchedule.add(row.projectId);
     }
 
     // Names for the people who have yet to confirm — a line saying who it is
@@ -335,7 +341,7 @@ export const attention = query({
       }
 
       // Shooting soon with no running order.
-      if (imminent) {
+      if (imminent && !projectsWithSchedule.has(project._id)) {
         const bare = projectDays.filter(
           (d) => d.date <= imminentUntil && !daysWithSchedule.has(d._id)
         );

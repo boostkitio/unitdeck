@@ -680,3 +680,70 @@ test("a shoot months out is not missing what gets settled late", async () => {
   expect(kinds).not.toContain("no_location");
   expect(kinds).not.toContain("no_schedule");
 });
+
+test("a running order typed without picking a day still counts as a schedule", async () => {
+  const t = convexTest(schema, modules);
+  const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+  const ids = await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org P", clerkOrgId: "org_p" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: soon, locationIds: [] });
+    return { org, project };
+  });
+  const asP = t.withIdentity({ subject: "user_p", org_id: "org_p" });
+
+  // Nothing typed yet: the day is bare.
+  expect((await asP.query(api.dashboard.attention, {})).map((i) => i.kind)).toContain(
+    "no_schedule",
+  );
+
+  // Typed straight down the page. The day selector offers "any" and defaults
+  // to it, so these items belong to the production, not to one of its days —
+  // which is exactly the running order the panel was failing to see.
+  await asP.mutation(api.schedule.add, { projectId: ids.project, time: "07:00", item: "Crew call" });
+  await asP.mutation(api.schedule.add, { projectId: ids.project, time: "08:00", item: "First setup" });
+
+  const kinds = (await asP.query(api.dashboard.attention, {})).map((i) => i.kind);
+  expect(kinds).not.toContain("no_schedule");
+});
+
+test("a day of a multi-day shoot with no running order of its own is still chased", async () => {
+  const t = convexTest(schema, modules);
+  const dayOne = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+  const dayTwo = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+  const ids = await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org Q", clerkOrgId: "org_q" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    const one = await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: dayOne,
+      locationIds: [],
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: dayTwo, locationIds: [] });
+    return { project, one };
+  });
+  const asQ = t.withIdentity({ subject: "user_q", org_id: "org_q" });
+
+  // Day one is written up against that day specifically; day two is not.
+  await asQ.mutation(api.schedule.add, {
+    projectId: ids.project,
+    shootDayId: ids.one,
+    time: "07:00",
+    item: "Crew call",
+  });
+
+  const items = await asQ.query(api.dashboard.attention, {});
+  const bare = items.filter((i) => i.kind === "no_schedule");
+  expect(bare).toHaveLength(1);
+  expect(bare[0].label).toBe("1 shoot day with no running order");
+  expect(bare[0].date).toBe(dayTwo);
+});
