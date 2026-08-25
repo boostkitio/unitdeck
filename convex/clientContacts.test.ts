@@ -305,3 +305,59 @@ test("another org cannot change who is on your production", async () => {
   ).rejects.toThrow(/not found/i);
   expect(await asB.query(api.projectClients.listForProject, { projectId })).toEqual([]);
 });
+
+describe("a client written from the project", () => {
+  test("goes into the clients database and books the job in one go", async () => {
+    const { asA } = await setup();
+    const projectId = await asA.mutation(api.projects.create, { name: "Brand film" });
+
+    // What the "Add a new client" dialog on the project does: create the
+    // client, then name its first contact as whoever booked the job.
+    const clientId = await asA.mutation(api.clients.create, {
+      name: "Acme",
+      contacts: [
+        { name: "Ada Vaughn", role: "Producer", phone: "07700 900000", email: "ada@acme.test" },
+      ],
+      notes: "Pays on time",
+    });
+    await asA.mutation(api.projects.update, { id: projectId, clientId, bookedByContact: 0 });
+
+    // It is a real client record, not something attached to this production.
+    const clients = await asA.query(api.clients.list, {});
+    const acme = clients.find((c) => c._id === clientId)!;
+    expect(acme.name).toBe("Acme");
+    expect(acme.notes).toBe("Pays on time");
+    expect(acme.contacts).toEqual([
+      {
+        id: expect.any(String),
+        name: "Ada Vaughn",
+        role: "Producer",
+        phone: "07700 900000",
+        email: "ada@acme.test",
+      },
+    ]);
+
+    // And the project names them. The position resolves against the client
+    // being set in the same call, not the one the project had before — which
+    // is the whole reason this can be done in one step.
+    const project = await asA.query(api.projects.get, { id: projectId });
+    expect(project?.clientId).toBe(clientId);
+    expect(project?.bookedByContact).toBe(0);
+    expect(project?.bookedByContactId).toBe(acme.contacts[0].id);
+  });
+
+  test("a client written with no contact leaves nobody named as having booked it", async () => {
+    const { asA } = await setup();
+    const projectId = await asA.mutation(api.projects.create, { name: "Brand film" });
+
+    const clientId = await asA.mutation(api.clients.create, { name: "Acme" });
+    await asA.mutation(api.projects.update, { id: projectId, clientId, bookedByContact: null });
+
+    // Reads resolve the stored position against the client's book, so nobody
+    // named comes back as null rather than as a stale index.
+    const project = await asA.query(api.projects.get, { id: projectId });
+    expect(project?.clientId).toBe(clientId);
+    expect(project?.bookedByContact).toBeNull();
+    expect(project?.bookedByContactId).toBeUndefined();
+  });
+});
