@@ -34,6 +34,7 @@ import type * as projectCrew from "../projectCrew.js";
 import type * as projectEquipment from "../projectEquipment.js";
 import type * as projectFiles from "../projectFiles.js";
 import type * as projects from "../projects.js";
+import type * as schedule from "../schedule.js";
 import type * as setMode from "../setMode.js";
 import type * as shootDays from "../shootDays.js";
 import type * as tools from "../tools.js";
@@ -73,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   projectEquipment: typeof projectEquipment;
   projectFiles: typeof projectFiles;
   projects: typeof projects;
+  schedule: typeof schedule;
   setMode: typeof setMode;
   shootDays: typeof shootDays;
   tools: typeof tools;

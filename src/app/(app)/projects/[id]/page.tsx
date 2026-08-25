@@ -42,6 +42,7 @@ import { ProjectForecast } from "@/components/projects/project-forecast";
 import { ShootDatesEditor } from "@/components/projects/shoot-dates-editor";
 import { LocationSection } from "@/components/projects/location-section";
 import { CrewSection } from "@/components/projects/crew-section";
+import { ScheduleSection } from "@/components/projects/schedule-section";
 import { EquipmentSection } from "@/components/projects/equipment-section";
 import { DocumentsSection } from "@/components/documents/documents-section";
 
@@ -308,6 +309,7 @@ function ProjectEditor({
       </Card>
 
       <LocationSection projectId={project._id} location={project.location} />
+      <ScheduleSection projectId={project._id} />
       <CrewSection projectId={project._id} projectName={project.name} />
       <EquipmentSection projectId={project._id} />
       <DocumentsSection projectId={project._id} />

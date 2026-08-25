@@ -275,6 +275,25 @@ export default defineSchema({
     .index("by_org_and_date", ["orgId", "date"])
     .index("by_project", ["projectId"]),
 
+  // The running order for a production: what happens when. Kept per project
+  // rather than inside a call sheet, because the schedule exists long before
+  // anyone drafts one and is useful on its own.
+  scheduleItems: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.id("projects"),
+    // Which shoot day this belongs to. Absent for something that applies to
+    // the production generally rather than to one day.
+    shootDayId: v.optional(v.id("shootDays")),
+    // "07:00". Absent for an item whose time is not settled yet, which sorts
+    // to the end of its day rather than the start.
+    time: v.optional(v.string()),
+    item: v.string(),
+    notes: v.optional(v.string()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"])
+    .index("by_shoot_day", ["shootDayId"]),
+
   callSheets: defineTable({
     orgId: v.id("organisations"),
     shootDayId: v.id("shootDays"),
