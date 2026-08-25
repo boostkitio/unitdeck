@@ -260,7 +260,7 @@ test("a kit clash is raised on both productions, whatever their status", async (
   const items = await asA.query(api.dashboard.attention, {});
   const clashes = items.filter((i) => i.kind === "kit_clash");
   expect(clashes).toHaveLength(2);
-  expect(clashes[0].label).toMatch(/Sony FX9 double-booked — 2 wanted, 1 owned/);
+  expect(clashes[0].label).toBe("1 item double-booked with another shoot");
   expect(clashes.map((c) => c.projectName).sort()).toEqual(["Brand film", "Music video"]);
 });
 
@@ -292,4 +292,43 @@ test("kit that goes round is not raised on the dashboard", async () => {
 
   const items = await asA.query(api.dashboard.attention, {});
   expect(items.filter((i) => i.kind === "kit_clash")).toEqual([]);
+});
+
+test("a shoot overbooked on many items is one line, not many", async () => {
+  const t = convexTest(schema, modules);
+  const soon = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org A", clerkOrgId: "org_a" });
+    const kit: string[] = [];
+    for (const item of ["Sony FX9", "Tripod", "Follow focus", "Matte box"]) {
+      kit.push(await ctx.db.insert("equipment", { orgId: org, item }));
+    }
+    for (const name of ["Brand film", "Music video"]) {
+      const project = await ctx.db.insert("projects", { orgId: org, name, status: "confirmed" });
+      await ctx.db.insert("shootDays", {
+        orgId: org,
+        projectId: project,
+        date: soon,
+        locationIds: [],
+      });
+      for (const equipmentId of kit) {
+        const equipment = (await ctx.db.get(equipmentId as never))!;
+        await ctx.db.insert("projectEquipment", {
+          orgId: org,
+          projectId: project,
+          item: (equipment as { item: string }).item,
+          equipmentId: equipmentId as never,
+          status: "confirmed",
+        });
+      }
+    }
+  });
+  const asA = t.withIdentity({ subject: "user_a", org_id: "org_a" });
+
+  const clashes = (await asA.query(api.dashboard.attention, {})).filter(
+    (i) => i.kind === "kit_clash",
+  );
+  // One line per production, counting the items — not four lines each.
+  expect(clashes).toHaveLength(2);
+  expect(clashes[0].label).toBe("4 items double-booked with another shoot");
 });

@@ -483,3 +483,86 @@ test("a line can carry a cost, and a negative one is refused", async () => {
     /zero or more/,
   );
 });
+
+test("the same package on two shoots the same day clashes on every item", async () => {
+  // The case that showed this up: one package applied to both jobs. Every
+  // line points at a specific piece of kit, so both productions are holding
+  // the same objects — even where several like them are spare.
+  const { t, ids, asA, extra } = await setupClash();
+  const kit = await t.run(async (ctx) => {
+    const ids: Id<"equipment">[] = [];
+    for (const item of ["Sony FX9", "Tripod", "Follow focus"]) {
+      // Two of each, so nothing is short by count alone.
+      ids.push(await ctx.db.insert("equipment", { orgId: extra.orgId, item }));
+      await ctx.db.insert("equipment", { orgId: extra.orgId, item });
+    }
+    return ids;
+  });
+  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
+  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
+
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "A-cam" });
+  for (const equipmentId of kit) {
+    await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, equipmentId });
+  }
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: ids.project,
+  });
+  await asA.mutation(api.equipmentPackages.applyToProject, {
+    packageId: pkgId,
+    projectId: extra.other,
+  });
+
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+
+  // Every item in the package, not just the ones that happen to run short.
+  expect(clashes).toHaveLength(3);
+  expect(clashes.every((c) => c.sameUnit)).toBe(true);
+  expect(clashes.map((c) => c.item).sort()).toEqual(["Follow focus", "Sony FX9", "Tripod"]);
+});
+
+test("two productions taking different units of the same model is fine", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  const units = await t.run(async (ctx) => [
+    await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Tripod" }),
+    await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Tripod" }),
+  ]);
+  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
+  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
+  await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    equipmentId: units[0],
+  });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, equipmentId: units[1] });
+
+  // Different objects, enough to go round: not a clash.
+  expect(
+    await asA.query(api.projectEquipment.clashesForProject, { projectId: ids.project }),
+  ).toEqual([]);
+});
+
+test("the same unit clashes even when others like it are spare", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  const unit = await t.run(async (ctx) => {
+    const first = await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Tripod" });
+    for (let i = 0; i < 4; i++) {
+      await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Tripod" });
+    }
+    return first;
+  });
+  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
+  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, equipmentId: unit });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, equipmentId: unit });
+
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes).toHaveLength(1);
+  expect(clashes[0].sameUnit).toBe(true);
+  // Five owned, two wanted: the count alone says nothing is wrong.
+  expect(clashes[0].stock).toBe(5);
+});

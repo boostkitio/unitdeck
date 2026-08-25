@@ -155,6 +155,12 @@ export type EquipmentClash = {
   mine: number;
   /** Lines on this production, so a clash can be cleared from here. */
   rowIds: Id<"projectEquipment">[];
+  /**
+   * True when the very same piece of kit — the same inventory record — is
+   * booked on both. That is a clash whether or not there are others like it
+   * spare, because both productions are holding the same object.
+   */
+  sameUnit: boolean;
   others: {
     projectId: Id<"projects">;
     projectName: string;
@@ -233,15 +239,20 @@ export const clashesForProject = query({
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(4000);
 
-    // What this production wants, and which lines ask for it.
-    const wanted = new Map<string, { count: number; rowIds: Id<"projectEquipment">[] }>();
+    // What this production wants, which lines ask for it, and which exact
+    // pieces of kit it has claimed.
+    const wanted = new Map<
+      string,
+      { count: number; rowIds: Id<"projectEquipment">[]; units: Set<string> }
+    >();
     for (const row of rows) {
       if (row.projectId !== args.projectId) continue;
       const key = itemKey(row.item);
       if (!stock.has(key)) continue; // Hired in: no fixed number to run out of.
-      const entry = wanted.get(key) ?? { count: 0, rowIds: [] };
+      const entry = wanted.get(key) ?? { count: 0, rowIds: [], units: new Set<string>() };
       entry.count += row.quantity ?? 1;
       entry.rowIds.push(row._id);
+      if (row.equipmentId) entry.units.add(String(row.equipmentId));
       wanted.set(key, entry);
     }
     if (wanted.size === 0) return [];
@@ -250,7 +261,16 @@ export const clashesForProject = query({
     const projectCache = new Map<string, Doc<"projects"> | null>();
     const demandElsewhere = new Map<
       string,
-      Map<string, { projectName: string; status: string; count: number; dates: string[] }>
+      Map<
+        string,
+        {
+          projectName: string;
+          status: string;
+          count: number;
+          dates: string[];
+          units: Set<string>;
+        }
+      >
     >();
 
     for (const row of rows) {
@@ -276,8 +296,10 @@ export const clashesForProject = query({
         status: normaliseStatus(otherProject.status),
         count: 0,
         dates: shared,
+        units: new Set<string>(),
       };
       entry.count += row.quantity ?? 1;
+      if (row.equipmentId) entry.units.add(String(row.equipmentId));
       byProject.set(projectKey, entry);
       demandElsewhere.set(key, byProject);
     }
@@ -289,8 +311,21 @@ export const clashesForProject = query({
 
       const held = stock.get(key)!;
       const elsewhere = [...byProject.values()].reduce((sum, o) => sum + o.count, 0);
-      // Enough to go round is not a clash, however many productions want it.
-      if (mine.count + elsewhere <= held.count) continue;
+
+      // Two ways this goes wrong, and they are not the same thing.
+      //
+      // The same physical item booked on both: whichever production takes it,
+      // the other has nothing, and owning five more like it does not help
+      // because neither production asked for those. Applying one package to
+      // two shoots does exactly this, to every piece of kit in it.
+      const sameUnit = [...byProject.values()].some((other) =>
+        [...other.units].some((unit) => mine.units.has(unit))
+      );
+
+      // Or simply more wanted than exists, however the lines were written.
+      const overflow = mine.count + elsewhere > held.count;
+
+      if (!sameUnit && !overflow) continue;
 
       clashes.push({
         key,
@@ -298,6 +333,7 @@ export const clashesForProject = query({
         stock: held.count,
         mine: mine.count,
         rowIds: mine.rowIds,
+        sameUnit,
         others: [...byProject.entries()].map(([projectId, o]) => ({
           projectId: projectId as Id<"projects">,
           projectName: o.projectName,

@@ -179,7 +179,9 @@ export default function DashboardPage() {
             ) : attention.length > 0 ? (
               // Items first: the count in the tile above must never disagree
               // with what this panel shows.
-              <ul className="divide-y divide-border">
+              // Capped and scrollable: a busy week should not push the whole
+              // page down, and the panel beside it stays the same height.
+              <ul className="max-h-80 divide-y divide-border overflow-y-auto">
                 {attention.map((item, i) => (
                   <li key={i} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="min-w-0">

@@ -371,7 +371,9 @@ function ClashWarning({ clashes }: { clashes: EquipmentClash[] }) {
                 <span className="block truncate text-sm font-medium">
                   {clash.item}{" "}
                   <span className="font-normal text-muted-foreground">
-                    — you own {clash.stock}, {clash.mine} wanted here
+                    {clash.sameUnit
+                      ? "— the same one is booked on both"
+                      : `— you own ${clash.stock}, ${clash.mine} wanted here`}
                   </span>
                 </span>
                 {clash.others.map((other) => (

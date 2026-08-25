@@ -1,20 +1,53 @@
 "use client";
 
+import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
+import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 
+type ContactRow = {
+  name: string;
+  role?: string;
+  phone?: string;
+  email?: string;
+};
+
+type ContactSortKey = "name" | "role" | "email" | "phone";
+
+function contactSortValue(contact: ContactRow, key: ContactSortKey): string | number | null {
+  switch (key) {
+    case "name":
+      return contact.name;
+    case "role":
+      return contact.role ?? null;
+    case "email":
+      return contact.email ?? null;
+    case "phone":
+      return contact.phone ?? null;
+  }
+}
+
 /**
- * The client's people, in their own box.
+ * The client's people, laid out exactly like crew and talent.
  *
- * Crew, talent and client are the three lists a call sheet needs, and they are
- * kept apart here for the same reason they are kept apart there. The details
- * live on the client record rather than being copied onto the production, so
- * changing a phone number once changes it everywhere.
+ * The three boxes are read together — they are the three lists a call sheet
+ * needs — so they share a table, the same columns in the same order, the same
+ * widths and the same buttons. A client contact has no booking status, so that
+ * column sits empty rather than shifting everything after it out of line.
  */
 export function ProjectClientSection({
   clientId,
@@ -24,21 +57,26 @@ export function ProjectClientSection({
   clientName: string | null;
 }) {
   const client = useQuery(api.clients.get, clientId ? { id: clientId } : "skip");
+  const { sort, toggle } = useTableSort<ContactSortKey>({ key: "name", dir: "asc" });
+  const contacts = useMemo(
+    () => sortRows((client?.contacts ?? []) as ContactRow[], sort, contactSortValue),
+    [client, sort],
+  );
 
   return (
     <Card className="mt-12">
       <CardHeader>
         <CardTitle>Client</CardTitle>
-        {clientId && (
-          <CardAction>
-            <Link
-              href="/clients"
-              className="text-sm underline underline-offset-2 text-muted-foreground hover:text-foreground"
-            >
-              Edit contacts
-            </Link>
-          </CardAction>
-        )}
+        <CardAction>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" render={<Link href="/clients" />}>
+              All clients
+            </Button>
+            <Button size="sm" render={<Link href="/clients" />}>
+              {clientId ? "Edit contacts" : "Choose a client"}
+            </Button>
+          </div>
+        </CardAction>
       </CardHeader>
       <CardContent>
         {!clientId ? (
@@ -54,39 +92,49 @@ export function ProjectClientSection({
           <p className="py-6 text-center text-sm text-muted-foreground">
             {clientName ?? "That client"} is no longer in your clients list.
           </p>
+        ) : contacts.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No contacts for {client.name} yet. Add them on your{" "}
+            <Link href="/clients" className="underline underline-offset-2 text-foreground">
+              clients
+            </Link>{" "}
+            list.
+          </p>
         ) : (
-          <div className="space-y-3">
-            <p className="font-medium">{client.name}</p>
-            {client.contacts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No contacts yet.{" "}
-                <Link href="/clients" className="underline underline-offset-2">
-                  Add one
-                </Link>{" "}
-                and they will show here.
-              </p>
-            ) : (
-              <ul className="divide-y divide-border rounded-md border border-border">
-                {client.contacts.map((contact, i) => (
-                  <li
-                    key={`${contact.name}-${i}`}
-                    className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-3 py-2"
-                  >
-                    <span className="min-w-0">
-                      <span className="text-sm font-medium">{contact.name}</span>
-                      {contact.role && (
-                        <span className="ml-2 text-xs text-muted-foreground">{contact.role}</span>
-                      )}
-                    </span>
-                    <span className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                      <PhoneLink phone={contact.phone} fallback="" />
-                      <EmailLink email={contact.email} fallback="" />
-                    </span>
-                  </li>
+          <>
+            <p className="mb-3 text-sm font-medium">{client.name}</p>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
+                  <SortableHead label="Role" sortKey="role" sort={sort} onSort={toggle} />
+                  {/* Kept so the columns line up with crew and talent. */}
+                  <TableHead className="w-32" />
+                  <SortableHead label="Email" sortKey="email" sort={sort} onSort={toggle} />
+                  <SortableHead label="Phone" sortKey="phone" sort={sort} onSort={toggle} />
+                  <TableHead className="w-px" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {contacts.map((contact, i) => (
+                  <TableRow key={`${contact.name}-${i}`}>
+                    <TableCell className="font-medium">{contact.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {contact.role ?? "·"}
+                    </TableCell>
+                    <TableCell />
+                    <TableCell className="text-muted-foreground">
+                      <EmailLink email={contact.email} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <PhoneLink phone={contact.phone} />
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
                 ))}
-              </ul>
-            )}
-          </div>
+              </TableBody>
+            </Table>
+          </>
         )}
       </CardContent>
     </Card>

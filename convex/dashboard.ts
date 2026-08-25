@@ -53,8 +53,6 @@ export const attention = query({
       .take(500);
     const upcoming = days.filter((d) => byId.has(d.projectId));
 
-    // Readable names for the kit, keyed the way clashes are counted.
-    const itemNames = new Map<string, string>();
 
     // Crew is booked per project rather than per day, so it is resolved once
     // per project and reused across that project's shoot days.
@@ -126,8 +124,9 @@ export const attention = query({
     }
 
     // Kit booked on two productions at once. Counted the same way the project
-    // page counts it — what everyone shooting that day wants against what the
-    // company owns — so the dashboard and the project never disagree.
+    // page counts it, so the dashboard and the project never disagree — and
+    // raised once per production as a count, because twenty lines all saying
+    // the same thing about the same shoot is not twenty problems.
     const kitRows = await ctx.db
       .query("projectEquipment")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
@@ -142,7 +141,6 @@ export const attention = query({
       if (kit.archived) continue;
       const key = itemKey(kit.item);
       stock.set(key, (stock.get(key) ?? 0) + 1);
-      if (!itemNames.has(key)) itemNames.set(key, kit.item);
     }
 
     // Every production with an upcoming day, and the days it holds. Unlike the
@@ -162,55 +160,70 @@ export const attention = query({
       else datesByProject.set(key, new Set([day.date]));
     }
 
-    // What each production wants of each thing, on the days it is shooting.
-    const demand = new Map<string, Map<string, number>>();
+    // What each production wants of each thing, and which exact pieces of kit
+    // it has claimed.
+    const demand = new Map<string, Map<string, { count: number; units: Set<string> }>>();
     for (const row of kitRows) {
       const projectKey = String(row.projectId);
       if (!datesByProject.has(projectKey)) continue;
       const key = itemKey(row.item);
       if (!stock.has(key)) continue; // Hired in: nothing fixed to run out of.
-      const byItem = demand.get(key) ?? new Map<string, number>();
-      byItem.set(projectKey, (byItem.get(projectKey) ?? 0) + (row.quantity ?? 1));
+      const byItem = demand.get(key) ?? new Map<string, { count: number; units: Set<string> }>();
+      const entry = byItem.get(projectKey) ?? { count: 0, units: new Set<string>() };
+      entry.count += row.quantity ?? 1;
+      if (row.equipmentId) entry.units.add(String(row.equipmentId));
+      byItem.set(projectKey, entry);
       demand.set(key, byItem);
     }
 
-    // One item raised once per production it overbooks, on the day it happens.
-    const raised = new Set<string>();
+    // How many items each production is overbooked on, and the day it bites.
+    const clashCount = new Map<string, { count: number; date: string }>();
     for (const [key, byProject] of demand) {
       if (byProject.size < 2) continue;
       const held = stock.get(key)!;
 
-      for (const [projectKey, wanted] of byProject) {
+      for (const [projectKey, mine] of byProject) {
         const myDates = datesByProject.get(projectKey)!;
         let clashingOn: string | null = null;
-        let total = wanted;
+        let total = mine.count;
+        let sameUnit = false;
 
-        for (const [otherKey, otherWanted] of byProject) {
+        for (const [otherKey, other] of byProject) {
           if (otherKey === projectKey) continue;
           const otherDates = datesByProject.get(otherKey)!;
           const shared = [...myDates].filter((d) => otherDates.has(d)).sort();
           if (shared.length === 0) continue;
-          total += otherWanted;
+          total += other.count;
+          if ([...other.units].some((unit) => mine.units.has(unit))) sameUnit = true;
           if (!clashingOn || shared[0] < clashingOn) clashingOn = shared[0];
         }
-        if (clashingOn === null || total <= held) continue;
+        if (clashingOn === null) continue;
+        if (!sameUnit && total <= held) continue;
 
-        const project = liveProjects.get(projectKey)!;
-        const day = days.find((d) => String(d.projectId) === projectKey && d.date === clashingOn);
-        if (!day) continue;
-        const marker = `${projectKey}:${key}`;
-        if (raised.has(marker)) continue;
-        raised.add(marker);
-
-        items.push({
-          projectId: project._id,
-          projectName: project.name,
-          shootDayId: day._id,
-          date: clashingOn,
-          kind: "kit_clash",
-          label: `${itemNames.get(key) ?? key} double-booked — ${total} wanted, ${held} owned`,
-        });
+        const running = clashCount.get(projectKey);
+        if (running) {
+          running.count++;
+          if (clashingOn < running.date) running.date = clashingOn;
+        } else {
+          clashCount.set(projectKey, { count: 1, date: clashingOn });
+        }
       }
+    }
+
+    for (const [projectKey, clash] of clashCount) {
+      const project = liveProjects.get(projectKey)!;
+      const day = days.find(
+        (d) => String(d.projectId) === projectKey && d.date === clash.date
+      );
+      if (!day) continue;
+      items.push({
+        projectId: project._id,
+        projectName: project.name,
+        shootDayId: day._id,
+        date: clash.date,
+        kind: "kit_clash",
+        label: `${clash.count} item${clash.count === 1 ? "" : "s"} double-booked with another shoot`,
+      });
     }
 
     // Weather is the one thing that genuinely differs day by day, so it stays
