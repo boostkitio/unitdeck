@@ -32,6 +32,7 @@ import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head
 import { cn } from "@/lib/utils";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
+import { ReleaseComposer } from "@/components/documents/release-composer";
 
 type CrewSortKey = "name" | "role" | "status" | "email" | "phone";
 
@@ -68,6 +69,8 @@ export function CrewSection({
   const [editing, setEditing] = useState<ProjectCrewMember | null>(null);
   const [forwarding, setForwarding] = useState(false);
   const [filling, setFilling] = useState<ProjectCrewMember | null>(null);
+  const [releaseId, setReleaseId] = useState<Id<"documents"> | null>(null);
+  const [makingRelease, setMakingRelease] = useState<Id<"people"> | null>(null);
 
   const unfilled = (crew ?? []).filter((m) => m.personId === null).length;
   const outstanding = (crew ?? []).filter(
@@ -77,6 +80,36 @@ export function CrewSection({
   const sortedCrew = useMemo(() => sortRows(crew ?? [], sort, crewSortValue), [crew, sort]);
   const removeCrew = useMutation(api.projectCrew.remove);
   const updateCrew = useMutation(api.projectCrew.update);
+  const ensureRelease = useMutation(api.documents.ensureForPerson);
+  // Only the talent card needs releases, so only it asks for them.
+  const releases = useQuery(
+    api.documents.listForProject,
+    kind === "talent" ? { projectId } : "skip",
+  );
+
+  /** The release already raised for somebody on this production, if any. */
+  function releaseFor(personId: Id<"people"> | null) {
+    if (!personId) return undefined;
+    return (releases ?? []).find(
+      (doc) => doc.signer.personId === personId && doc.status !== "voided",
+    );
+  }
+
+  /**
+   * Open the release for this person, raising it first if there is not one.
+   * Everything on it — their name, their email, the production, the producer
+   * — is already known here, so none of it is asked for again.
+   */
+  async function openRelease(personId: Id<"people">) {
+    setMakingRelease(personId);
+    try {
+      setReleaseId(await ensureRelease({ projectId, personId }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not start the release.");
+    } finally {
+      setMakingRelease(null);
+    }
+  }
 
   async function toggleStatus(member: ProjectCrewMember) {
     try {
@@ -197,6 +230,13 @@ export function CrewSection({
                           Book someone
                         </Button>
                       )}
+                      {kind === "talent" && member.personId !== null && (
+                        <ReleaseCell
+                          release={releaseFor(member.personId)}
+                          busy={makingRelease === member.personId}
+                          onOpen={() => void openRelease(member.personId!)}
+                        />
+                      )}
                       <Button variant="ghost" size="sm" onClick={() => setEditing(member)}>
                         Edit
                       </Button>
@@ -258,6 +298,9 @@ export function CrewSection({
           existing={crew ?? []}
           onClose={() => setFilling(null)}
         />
+      )}
+      {releaseId && (
+        <ReleaseComposer id={releaseId} onClose={() => setReleaseId(null)} />
       )}
       {forwarding && crew !== undefined && (
         <ForwardCrewDialog
@@ -866,5 +909,39 @@ function ForwardCrewDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The release for one of the talent, at whatever stage it has reached.
+ *
+ * A draft is still being written, so it opens for editing. Once it has gone
+ * out it is a legal document rather than a form, and what happens to it —
+ * chasing, previewing, downloading the signed copy — belongs in Documents
+ * further down the page. This says where it has got to and stops there.
+ */
+function ReleaseCell({
+  release,
+  busy,
+  onOpen,
+}: {
+  release: { status: string } | undefined;
+  busy: boolean;
+  onOpen: () => void;
+}) {
+  if (release && release.status !== "draft") {
+    return (
+      <span
+        title="See Documents below to preview, chase or download it"
+        className="px-2 text-xs text-muted-foreground"
+      >
+        Release {release.status}
+      </span>
+    );
+  }
+  return (
+    <Button variant="ghost" size="sm" disabled={busy} onClick={onOpen}>
+      {busy ? "Opening…" : release ? "Edit release" : "Release"}
+    </Button>
   );
 }

@@ -369,7 +369,10 @@ function PeopleSection({ title, rows }: { title: string; rows: PersonRow[] }) {
       <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
         {title}
       </h2>
-      <table className="mt-2 w-full border-collapse text-left">
+      {/* Fixed layout, not auto: three separate tables sized to their own
+          content land their columns in three different places down the page.
+          Only a fixed layout makes the widths mean the same thing in each. */}
+      <table className="mt-2 w-full table-fixed border-collapse text-left">
         <thead>
           <tr className="border-b border-neutral-400 text-[8pt] uppercase tracking-wider text-neutral-500">
             <th className="w-[24%] py-1 pr-2 font-semibold">Role</th>
@@ -381,9 +384,9 @@ function PeopleSection({ title, rows }: { title: string; rows: PersonRow[] }) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id} className="border-b border-neutral-200">
-              <td className="py-1.5 pr-2">{row.role}</td>
-              <td className="py-1.5 pr-2">
+            <tr key={row.id} className="border-b border-neutral-200 align-top">
+              <td className="py-1.5 pr-2 break-words">{row.role}</td>
+              <td className="py-1.5 pr-2 break-words">
                 <span className="font-medium">{row.name}</span>
                 {/* Kept off the columns so all three tables match, but not
                     thrown away: "brings own kit" is worth printing. */}
@@ -396,8 +399,10 @@ function PeopleSection({ title, rows }: { title: string; rows: PersonRow[] }) {
                     placeholder dot would be noise on the printed sheet. */}
                 <PhoneLink phone={row.phone} fallback="" />
               </td>
-              <td className="py-1.5 pr-2">
-                <EmailLink email={row.email} fallback="" />
+              <td className="py-1.5 pr-2 break-words">
+                {/* A fixed column clips rather than grows, and a truncated
+                    address on a printed sheet is unusable — so it wraps. */}
+                <EmailLink email={row.email} fallback="" className="whitespace-normal break-all" />
               </td>
               <td className="py-1.5 font-semibold">{row.callTime ?? ""}</td>
             </tr>

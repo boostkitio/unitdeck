@@ -53,7 +53,7 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not download the signed PDF.");
+      toast.error(err instanceof Error ? err.message : "Could not download the PDF.");
     } finally {
       setDownloadingId(null);
     }
@@ -119,16 +119,21 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
                     {doc.status === "sent" && doc.inviteDelivery?.status === "failed" && (
                       <RetryInviteButton id={doc._id} />
                     )}
-                    {doc.status === "signed" && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={downloadingId === doc._id}
-                        onClick={() => downloadSignedPdf(doc)}
-                      >
-                        {downloadingId === doc._id ? "Downloading…" : "Download signed PDF"}
-                      </Button>
-                    )}
+                    {/* Downloadable at any stage: a release often goes to set
+                        on paper, and waiting for a signature to be able to
+                        print the thing being signed is the wrong way round. */}
+                    <Button
+                      size="sm"
+                      variant={doc.status === "signed" ? "secondary" : "ghost"}
+                      disabled={downloadingId === doc._id}
+                      onClick={() => downloadSignedPdf(doc)}
+                    >
+                      {downloadingId === doc._id
+                        ? "Downloading…"
+                        : doc.status === "signed"
+                          ? "Download signed PDF"
+                          : "Download PDF"}
+                    </Button>
                   </div>
                 </li>
               ))}

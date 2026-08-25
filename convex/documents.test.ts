@@ -222,3 +222,83 @@ test("markViewed sets viewedAt once and is idempotent", async () => {
   await t.mutation(api.documents.markViewed, { token });
   expect((await asA.query(api.documents.get, { id }))?.viewedAt).toBe(viewedAt);
 });
+
+test("a release is raised from the talent already on the production", async () => {
+  const { t, ids, asA } = await setup();
+  const actor = await t.run(async (ctx) => {
+    const producer = await ctx.db.insert("people", {
+      orgId: ids.orgA,
+      name: "Nia Roberts",
+      role: "Producer",
+    });
+    const talent = await ctx.db.insert("people", {
+      orgId: ids.orgA,
+      name: "Jo Patel",
+      kind: "talent",
+      role: "Lead",
+      email: "jo@agency.test",
+      phone: "07700 900222",
+    });
+    await ctx.db.insert("projectCrew", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      personId: producer,
+      status: "confirmed",
+    });
+    await ctx.db.insert("projectCrew", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      kind: "talent",
+      personId: talent,
+      status: "confirmed",
+    });
+    return talent;
+  });
+
+  const id = await asA.mutation(api.documents.ensureForPerson, {
+    projectId: ids.projectA,
+    personId: actor,
+  });
+  const doc = await asA.query(api.documents.get, { id });
+
+  // Everything on it was already known; none of it was asked for again.
+  expect(doc?.data).toMatchObject({
+    talentName: "Jo Patel",
+    talentEmail: "jo@agency.test",
+    talentPhone: "07700 900222",
+    producerName: "Nia Roberts",
+  });
+  expect(doc?.signer).toMatchObject({ name: "Jo Patel", email: "jo@agency.test" });
+  expect(doc?.status).toBe("draft");
+});
+
+test("asking twice reopens the release rather than raising a second", async () => {
+  const { t, ids, asA } = await setup();
+  const actor = await t.run(async (ctx) =>
+    ctx.db.insert("people", { orgId: ids.orgA, name: "Jo Patel", kind: "talent", role: "Lead" }),
+  );
+
+  const first = await asA.mutation(api.documents.ensureForPerson, {
+    projectId: ids.projectA,
+    personId: actor,
+  });
+  const second = await asA.mutation(api.documents.ensureForPerson, {
+    projectId: ids.projectA,
+    personId: actor,
+  });
+
+  expect(second).toBe(first);
+  expect(await asA.query(api.documents.listForProject, { projectId: ids.projectA })).toHaveLength(1);
+});
+
+test("another org cannot raise a release on your production", async () => {
+  const { t, ids, asB } = await setup();
+  const actor = await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+    return ctx.db.insert("people", { orgId: ids.orgA, name: "Jo Patel", role: "Lead" });
+  });
+
+  await expect(
+    asB.mutation(api.documents.ensureForPerson, { projectId: ids.projectA, personId: actor }),
+  ).rejects.toThrow(/not found/i);
+});

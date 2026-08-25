@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { talentReleaseDataValidator } from "./lib/documentData";
 import { talentReleaseInviteEmail, signedCopyEmail, sendEmail } from "./lib/email";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
 function newToken(): string {
@@ -18,9 +18,33 @@ async function requireOwnedDoc(ctx: QueryCtx | MutationCtx, id: Id<"documents">)
   return { org, doc };
 }
 
+/**
+ * Whoever is producing, out of the crew already booked on the job.
+ *
+ * A release names the producer, and the production knows who that is — so
+ * asking again is asking for something already on the page.
+ */
+async function producerOn(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">
+): Promise<string> {
+  const crew = await ctx.db
+    .query("projectCrew")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .take(300);
+  for (const row of crew) {
+    if (!row.personId) continue;
+    const person = await ctx.db.get(row.personId);
+    if (!person) continue;
+    const role = (row.role ?? person.role ?? "").toLowerCase();
+    if (role.includes("producer")) return person.name;
+  }
+  return "";
+}
+
 export const create = mutation({
   args: { projectId: v.id("projects"), personId: v.optional(v.id("people")) },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"documents">> => {
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== org._id) throw new Error("Project not found");
@@ -38,13 +62,42 @@ export const create = mutation({
         talentName,
         talentEmail,
         talentPhone: person?.phone,
-        producerName: "",
+        producerName: await producerOn(ctx, args.projectId),
         productionCompany: org.name,
         productionTitle: project.name,
         governingLaw: "England and Wales",
       },
       signer: { name: talentName, email: talentEmail ?? "", personId: args.personId },
       signToken: newToken(),
+    });
+  },
+});
+
+/**
+ * The release for one person on one production, made if it does not exist.
+ *
+ * Addressed by the person rather than by document id so pressing the button
+ * twice reopens the release rather than starting a second one — a talent with
+ * two releases on a job is a question nobody wants at the point of signing.
+ */
+export const ensureForPerson = mutation({
+  args: { projectId: v.id("projects"), personId: v.id("people") },
+  handler: async (ctx, args): Promise<Id<"documents">> => {
+    const { org } = await requireOrg(ctx);
+    const existing = await ctx.db
+      .query("documents")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(200);
+    const mine = existing.find(
+      (doc) =>
+        doc.orgId === org._id &&
+        doc.signer.personId === args.personId &&
+        doc.status !== "voided"
+    );
+    if (mine) return mine._id;
+    return await ctx.runMutation(api.documents.create, {
+      projectId: args.projectId,
+      personId: args.personId,
     });
   },
 });
