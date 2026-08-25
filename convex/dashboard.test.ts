@@ -16,10 +16,7 @@ const modules = import.meta.glob("./**/*.ts");
  * by their own tests below.
  */
 /** The typed harness these tests run against, so the helper below sees the schema. */
-type Harness = ReturnType<typeof makeHarness>;
-function makeHarness() {
-  return convexTest(schema, modules);
-}
+type Harness = ReturnType<typeof convexTest<typeof schema.tables>>;
 
 async function settleEverythingElse(t: Harness) {
   await t.run(async (ctx) => {

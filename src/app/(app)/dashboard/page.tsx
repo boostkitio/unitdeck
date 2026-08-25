@@ -165,12 +165,20 @@ export default function DashboardPage() {
 
       {/* Two-column row: attention + schedule */}
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Needs attention */}
-        <Card>
+        {/*
+          Needs attention. On two columns the card is taken out of flow, so the
+          calendar beside it is the only thing setting the row's height and the
+          card fills it. Left in flow the card would push the row taller with
+          every item added — the list growing forever and never scrolling, and
+          the calendar stretched to match. On one column nothing sets a height,
+          so it is capped instead.
+        */}
+        <div className="relative">
+        <Card className="max-h-[32rem] lg:absolute lg:inset-0 lg:max-h-none">
           <CardHeader>
             <CardTitle>Needs attention</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm">
+          <CardContent className="flex min-h-0 flex-1 flex-col text-sm">
             {attention === undefined || active === undefined ? (
               <div className="space-y-2">
                 <Skeleton className="h-5 w-3/4" />
@@ -179,9 +187,9 @@ export default function DashboardPage() {
             ) : attention.length > 0 ? (
               // Items first: the count in the tile above must never disagree
               // with what this panel shows.
-              // Capped and scrollable: a busy week should not push the whole
-              // page down, and the panel beside it stays the same height.
-              <ul className="max-h-80 divide-y divide-border overflow-y-auto">
+              // Fills the card, then scrolls — rather than stopping short of
+              // the bottom with the height already spoken for.
+              <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
                 {attention.map((item, i) => (
                   <li key={i} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="min-w-0">
@@ -218,6 +226,7 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
+        </div>
 
         <ShootCalendar />
       </div>
