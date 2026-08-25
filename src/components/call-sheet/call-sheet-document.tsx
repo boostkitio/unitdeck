@@ -92,31 +92,6 @@ export function CallSheetDocument({
         </div>
       )}
 
-      {/* Schedule */}
-      {data.schedule.length > 0 && (
-        <section className="mt-5 break-inside-avoid">
-          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
-            Schedule
-          </h2>
-          <table className="mt-2 w-full border-collapse">
-            <tbody>
-              {data.schedule.map((block) => (
-                <tr key={block.id} className="border-b border-neutral-200">
-                  <td className="w-28 py-1.5 pr-3 align-top font-semibold whitespace-nowrap">
-                    {block.start}
-                    {block.end ? ` – ${block.end}` : ""}
-                  </td>
-                  <td className="py-1.5 align-top">
-                    <p className="font-medium">{block.title}</p>
-                    {block.notes && <p className="text-[8.5pt] text-neutral-600">{block.notes}</p>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
       {/* Crew */}
       {data.crew.length > 0 && (
         <section className="mt-5 break-inside-avoid">
@@ -184,6 +159,48 @@ export function CallSheetDocument({
         </section>
       ))}
 
+      {/* Key contacts */}
+      {data.contacts.length > 0 && (
+        <section className="mt-5 break-inside-avoid">
+          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
+            Key contacts
+          </h2>
+          <div className="mt-2 flex flex-wrap gap-x-8 gap-y-1">
+            {data.contacts.map((c) => (
+              <p key={c.id}>
+                <span className="font-semibold">{c.name}</span> ({c.role}){" "}
+                <PhoneLink phone={c.phone} fallback="" />
+              </p>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Schedule */}
+      {data.schedule.length > 0 && (
+        <section className="mt-5 break-inside-avoid">
+          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
+            Schedule
+          </h2>
+          <table className="mt-2 w-full border-collapse">
+            <tbody>
+              {data.schedule.map((block) => (
+                <tr key={block.id} className="border-b border-neutral-200">
+                  <td className="w-28 py-1.5 pr-3 align-top font-semibold whitespace-nowrap">
+                    {block.start}
+                    {block.end ? ` – ${block.end}` : ""}
+                  </td>
+                  <td className="py-1.5 align-top">
+                    <p className="font-medium">{block.title}</p>
+                    {block.notes && <p className="text-[8.5pt] text-neutral-600">{block.notes}</p>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
       {/* Locations */}
       {data.locations.length > 0 && (
         <section className="mt-5 break-inside-avoid">
@@ -250,43 +267,6 @@ export function CallSheetDocument({
         </section>
       )}
 
-      {/* Key contacts */}
-      {data.contacts.length > 0 && (
-        <section className="mt-5 break-inside-avoid">
-          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
-            Key contacts
-          </h2>
-          <div className="mt-2 flex flex-wrap gap-x-8 gap-y-1">
-            {data.contacts.map((c) => (
-              <p key={c.id}>
-                <span className="font-semibold">{c.name}</span> ({c.role}){" "}
-                <PhoneLink phone={c.phone} fallback="" />
-              </p>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {data.camera &&
-        (data.camera.recordingFormat ||
-          data.camera.frameRate ||
-          data.camera.aspectRatios ||
-          data.camera.namingConvention ||
-          data.camera.otherNotes) && (
-          <section className="mt-5 break-inside-avoid">
-            <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
-              Camera
-            </h2>
-            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[9pt]">
-              {data.camera.recordingFormat && (<><dt className="font-semibold">Recording format</dt><dd>{data.camera.recordingFormat}</dd></>)}
-              {data.camera.frameRate && (<><dt className="font-semibold">Frame rate</dt><dd>{data.camera.frameRate}</dd></>)}
-              {data.camera.aspectRatios && (<><dt className="font-semibold">Aspect ratios</dt><dd>{data.camera.aspectRatios}</dd></>)}
-              {data.camera.namingConvention && (<><dt className="font-semibold">Naming convention</dt><dd>{data.camera.namingConvention}</dd></>)}
-              {data.camera.otherNotes && (<><dt className="font-semibold">Other notes</dt><dd>{data.camera.otherNotes}</dd></>)}
-            </dl>
-          </section>
-        )}
-
       {data.equipment && data.equipment.length > 0 && (
         <section className="mt-5 break-inside-avoid">
           <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
@@ -316,6 +296,26 @@ export function CallSheetDocument({
           </table>
         </section>
       )}
+
+      {data.camera &&
+        (data.camera.recordingFormat ||
+          data.camera.frameRate ||
+          data.camera.aspectRatios ||
+          data.camera.namingConvention ||
+          data.camera.otherNotes) && (
+          <section className="mt-5 break-inside-avoid">
+            <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
+              Camera
+            </h2>
+            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[9pt]">
+              {data.camera.recordingFormat && (<><dt className="font-semibold">Recording format</dt><dd>{data.camera.recordingFormat}</dd></>)}
+              {data.camera.frameRate && (<><dt className="font-semibold">Frame rate</dt><dd>{data.camera.frameRate}</dd></>)}
+              {data.camera.aspectRatios && (<><dt className="font-semibold">Aspect ratios</dt><dd>{data.camera.aspectRatios}</dd></>)}
+              {data.camera.namingConvention && (<><dt className="font-semibold">Naming convention</dt><dd>{data.camera.namingConvention}</dd></>)}
+              {data.camera.otherNotes && (<><dt className="font-semibold">Other notes</dt><dd>{data.camera.otherNotes}</dd></>)}
+            </dl>
+          </section>
+        )}
 
       {/* Notes + safety */}
       {data.notes && (
