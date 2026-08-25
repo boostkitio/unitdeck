@@ -224,19 +224,23 @@ async function setupClash() {
       name: "Music video",
       status: "pencilled",
     });
-    const fx9 = await ctx.db.insert("equipment", {
-      orgId: project.orgId,
-      item: "Sony FX9",
-      dept: "Camera",
-    });
-    const tripod = await ctx.db.insert("equipment", {
-      orgId: project.orgId,
-      item: "Tripod",
-      dept: "Grip",
-    });
-    return { orgId: project.orgId, other, fx9, tripod };
+    return { orgId: project.orgId, other };
   });
   return { ...base, extra };
+}
+
+/** Adds `count` identical pieces of kit to the company inventory. */
+async function own(
+  t: Awaited<ReturnType<typeof setup>>["t"],
+  orgId: Id<"organisations">,
+  item: string,
+  count: number,
+) {
+  await t.run(async (ctx) => {
+    for (let i = 0; i < count; i++) {
+      await ctx.db.insert("equipment", { orgId, item, dept: "Camera" });
+    }
+  });
 }
 
 async function shootOn(
@@ -250,56 +254,108 @@ async function shootOn(
   });
 }
 
-test("kit wanted by two productions on the same day is a clash", async () => {
+test("two productions wanting the one camera on the same day is a clash", async () => {
   const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sony FX9", 1);
   await shootOn(t, extra.orgId, ids.project, "2026-09-01");
   await shootOn(t, extra.orgId, extra.other, "2026-09-01");
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: ids.project,
-    equipmentId: extra.fx9,
-  });
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: extra.other,
-    equipmentId: extra.fx9,
-  });
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Sony FX9" });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "Sony FX9" });
 
   const clashes = await asA.query(api.projectEquipment.clashesForProject, {
     projectId: ids.project,
   });
 
   expect(clashes).toHaveLength(1);
-  expect(clashes[0].item).toBe("Sony FX9");
-  expect(clashes[0].rowId).not.toBeNull();
+  expect(clashes[0]).toMatchObject({ item: "Sony FX9", stock: 1, mine: 1 });
   expect(clashes[0].others[0]).toMatchObject({
     projectName: "Music video",
     status: "pencilled",
+    count: 1,
     dates: ["2026-09-01"],
   });
 });
 
-test("the same kit on different days is not a clash", async () => {
+test("kit typed by hand clashes just as kit picked from the list does", async () => {
+  // The whole reason the previous version under-reported: it only saw lines
+  // that pointed at an inventory row, and most of a real list does not.
   const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sony FX9", 1);
   await shootOn(t, extra.orgId, ids.project, "2026-09-01");
-  await shootOn(t, extra.orgId, extra.other, "2026-09-02");
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: ids.project,
-    equipmentId: extra.fx9,
-  });
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: extra.other,
-    equipmentId: extra.fx9,
-  });
+  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "  sony fx9 " });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "SONY FX9" });
 
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes).toHaveLength(1);
+});
+
+test("two of a thing you own two of is not a clash", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Tripod", 2);
+  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
+  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Tripod" });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "Tripod" });
+
+  // Two productions each taking one of the two tripods is how kit is meant
+  // to be used, and calling it a clash is what made the list meaningless.
   expect(
     await asA.query(api.projectEquipment.clashesForProject, { projectId: ids.project }),
   ).toEqual([]);
 });
 
-test("two hired-in lines with the same name are not a clash", async () => {
+test("a third production asking for the second tripod is a clash", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Tripod", 2);
+  const third = await t.run(async (ctx) =>
+    ctx.db.insert("projects", { orgId: extra.orgId, name: "Doc", status: "confirmed" }),
+  );
+  for (const projectId of [ids.project, extra.other, third]) {
+    await shootOn(t, extra.orgId, projectId, "2026-09-01");
+    await asA.mutation(api.projectEquipment.add, { projectId, item: "Tripod" });
+  }
+
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes).toHaveLength(1);
+  expect(clashes[0].stock).toBe(2);
+  expect(clashes[0].others).toHaveLength(2);
+});
+
+test("quantity counts, not just the number of lines", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sandbag", 4);
+  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
+  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
+  await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    item: "Sandbag",
+    quantity: 3,
+  });
+  await asA.mutation(api.projectEquipment.add, {
+    projectId: extra.other,
+    item: "Sandbag",
+    quantity: 2,
+  });
+
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes).toHaveLength(1);
+  expect(clashes[0]).toMatchObject({ stock: 4, mine: 3 });
+  expect(clashes[0].others[0].count).toBe(2);
+});
+
+test("kit you do not own cannot run out", async () => {
   const { t, ids, asA, extra } = await setupClash();
   await shootOn(t, extra.orgId, ids.project, "2026-09-01");
   await shootOn(t, extra.orgId, extra.other, "2026-09-01");
-  // Free text: two shoots hiring the same model of light is normal.
+  // Nothing in the inventory called this: it is hired in, and there is no
+  // fixed number of those.
   await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "1.2k HMI" });
   await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "1.2k HMI" });
 
@@ -308,18 +364,26 @@ test("two hired-in lines with the same name are not a clash", async () => {
   ).toEqual([]);
 });
 
+test("the same kit on different days is not a clash", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sony FX9", 1);
+  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
+  await shootOn(t, extra.orgId, extra.other, "2026-09-02");
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Sony FX9" });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "Sony FX9" });
+
+  expect(
+    await asA.query(api.projectEquipment.clashesForProject, { projectId: ids.project }),
+  ).toEqual([]);
+});
+
 test("an archived production is not competing for anything", async () => {
   const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sony FX9", 1);
   await shootOn(t, extra.orgId, ids.project, "2026-09-01");
   await shootOn(t, extra.orgId, extra.other, "2026-09-01");
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: ids.project,
-    equipmentId: extra.fx9,
-  });
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: extra.other,
-    equipmentId: extra.fx9,
-  });
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Sony FX9" });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "Sony FX9" });
   await t.run(async (ctx) => await ctx.db.patch(extra.other, { archived: true }));
 
   expect(
@@ -327,55 +391,56 @@ test("an archived production is not competing for anything", async () => {
   ).toEqual([]);
 });
 
-test("kit booked elsewhere is flagged before it is added here", async () => {
-  const { t, ids, asA, extra } = await setupClash();
-  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
-  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
-  // Only the other production has it, so the picker can warn in advance.
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: extra.other,
-    equipmentId: extra.tripod,
-  });
-
-  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
-    projectId: ids.project,
-  });
-  expect(clashes).toHaveLength(1);
-  expect(clashes[0].item).toBe("Tripod");
-  // Nothing to remove here yet: it is a warning, not a double booking.
-  expect(clashes[0].rowId).toBeNull();
-});
-
 test("a production with no shoot dates cannot clash with anything", async () => {
   const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sony FX9", 1);
   await shootOn(t, extra.orgId, extra.other, "2026-09-01");
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: ids.project,
-    equipmentId: extra.fx9,
-  });
-  await asA.mutation(api.projectEquipment.add, {
-    projectId: extra.other,
-    equipmentId: extra.fx9,
-  });
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Sony FX9" });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "Sony FX9" });
 
   expect(
     await asA.query(api.projectEquipment.clashesForProject, { projectId: ids.project }),
   ).toEqual([]);
 });
 
-test("removeMany clears several lines and ignores another org's", async () => {
+test("a clash names every line on this production asking for the thing", async () => {
   const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sony FX9", 1);
+  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
+  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
   const a = await asA.mutation(api.projectEquipment.add, {
     projectId: ids.project,
-    equipmentId: extra.fx9,
+    item: "Sony FX9",
   });
   const b = await asA.mutation(api.projectEquipment.add, {
     projectId: ids.project,
-    equipmentId: extra.tripod,
+    item: "Sony FX9",
+  });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "Sony FX9" });
+
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes[0].rowIds.sort()).toEqual([a, b].sort());
+});
+
+test("removeMany clears several lines and ignores another org's", async () => {
+  const { t, ids, asA } = await setup();
+  const a = await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    item: "Sony FX9",
+  });
+  const b = await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    item: "Tripod",
   });
   const theirs = await t.run(async (ctx) => {
     const orgB = await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
-    const proj = await ctx.db.insert("projects", { orgId: orgB, name: "Theirs", status: "confirmed" });
+    const proj = await ctx.db.insert("projects", {
+      orgId: orgB,
+      name: "Theirs",
+      status: "confirmed",
+    });
     return await ctx.db.insert("projectEquipment", {
       orgId: orgB,
       projectId: proj,
@@ -390,94 +455,8 @@ test("removeMany clears several lines and ignores another org's", async () => {
   expect(
     await asA.query(api.projectEquipment.listForProject, { projectId: ids.project }),
   ).toEqual([]);
-  // The other org's row is untouched.
   const survivor = await t.run(async (ctx) => await ctx.db.get(theirs));
   expect(survivor).not.toBeNull();
-});
-
-test("kit listed before the inventory link can be matched up by name", async () => {
-  const { t, ids, asA, extra } = await setupClash();
-  // A line as it would have been written before equipmentId existed.
-  await t.run(async (ctx) => {
-    await ctx.db.insert("projectEquipment", {
-      orgId: extra.orgId,
-      projectId: ids.project,
-      item: "sony fx9",
-      status: "confirmed",
-    });
-  });
-
-  expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(1);
-  expect(await asA.mutation(api.projectEquipment.linkToInventory, {})).toEqual({ linked: 1 });
-
-  const rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
-  expect(rows[0].equipmentId).toBe(extra.fx9);
-  // The department comes across with it.
-  expect(rows[0].dept).toBe("Camera");
-  expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(0);
-});
-
-test("a name two pieces of kit answer to is left alone", async () => {
-  const { t, ids, asA, extra } = await setupClash();
-  await t.run(async (ctx) => {
-    // Two tripods, both called Tripod: guessing which one a line meant would
-    // invent a clash between productions each holding their own.
-    await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Tripod" });
-    await ctx.db.insert("projectEquipment", {
-      orgId: extra.orgId,
-      projectId: ids.project,
-      item: "Tripod",
-      status: "confirmed",
-    });
-  });
-
-  expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(0);
-  expect(await asA.mutation(api.projectEquipment.linkToInventory, {})).toEqual({ linked: 0 });
-});
-
-test("matching up makes an existing double booking visible", async () => {
-  const { t, ids, asA, extra } = await setupClash();
-  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
-  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
-  // Both productions listed the same camera the old way.
-  await t.run(async (ctx) => {
-    for (const projectId of [ids.project, extra.other]) {
-      await ctx.db.insert("projectEquipment", {
-        orgId: extra.orgId,
-        projectId,
-        item: "Sony FX9",
-        status: "confirmed",
-      });
-    }
-  });
-
-  // Invisible until the lines are joined to the kit they name.
-  expect(
-    await asA.query(api.projectEquipment.clashesForProject, { projectId: ids.project }),
-  ).toEqual([]);
-
-  await asA.mutation(api.projectEquipment.linkToInventory, {});
-
-  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
-    projectId: ids.project,
-  });
-  expect(clashes).toHaveLength(1);
-  expect(clashes[0].rowId).not.toBeNull();
-});
-
-test("archived kit is not used for matching", async () => {
-  const { t, ids, asA, extra } = await setupClash();
-  await t.run(async (ctx) => {
-    await ctx.db.patch(extra.fx9, { archived: true });
-    await ctx.db.insert("projectEquipment", {
-      orgId: extra.orgId,
-      projectId: ids.project,
-      item: "Sony FX9",
-      status: "confirmed",
-    });
-  });
-
-  expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(0);
 });
 
 test("a line can carry a cost, and a negative one is refused", async () => {
@@ -500,10 +479,7 @@ test("a line can carry a cost, and a negative one is refused", async () => {
   rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
   expect(rows[0].cost).toBeUndefined();
 
-  await expect(
-    asA.mutation(api.projectEquipment.update, { id, cost: -5 }),
-  ).rejects.toThrow(/zero or more/);
-  await expect(
-    asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Grip", cost: -1 }),
-  ).rejects.toThrow(/zero or more/);
+  await expect(asA.mutation(api.projectEquipment.update, { id, cost: -5 })).rejects.toThrow(
+    /zero or more/,
+  );
 });

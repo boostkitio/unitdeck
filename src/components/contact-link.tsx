@@ -1,17 +1,50 @@
+"use client";
+
+import { useState } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 /**
- * Contact details look like links, because they are.
+ * Contact details as a link, with a copy button beside them.
  *
- * They used to render as plain muted text that underlined on hover, sitting in
- * a clickable row. Clicking one correctly suppressed the row's dialog and
- * handed off to the mail client or dialler — but with nothing on screen to say
- * it was a link, and the handoff invisible if the browser has no handler
- * registered, it read as a dead click. Underlining them permanently says what
- * they are before they are clicked.
+ * The link alone is not enough. `mailto:` and `tel:` hand off to the operating
+ * system, and a page running inside a sandboxed iframe — an embedded browser
+ * pane, a preview panel — has that navigation blocked outright. The click does
+ * nothing, silently, however well the machine's mail client is set up. Copying
+ * the address always works, so there is a way through either way.
  */
 const linkClass =
   "underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground";
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy(event: React.MouseEvent) {
+    // Rows and cards are often clickable; copying should not also open them.
+    event.stopPropagation();
+    event.preventDefault();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      toast.success(`${label} copied.`);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Could not copy — your browser blocked it.");
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => void copy(e)}
+      title={`Copy ${label.toLowerCase()}`}
+      aria-label={`Copy ${label.toLowerCase()}`}
+      className="shrink-0 rounded px-1 text-xs text-muted-foreground opacity-0 transition-opacity group-hover/contact:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none"
+    >
+      {copied ? "✓" : "Copy"}
+    </button>
+  );
+}
 
 /**
  * Some diallers reject spaces in a tel: URI, so they are stripped from the
@@ -30,15 +63,17 @@ export function PhoneLink({
     return <span className="text-muted-foreground">{fallback}</span>;
   }
   return (
-    <a
-      href={`tel:${phone.replace(/\s/g, "")}`}
-      title={`Call ${phone}`}
-      className={cn(linkClass, className)}
-      // Rows and cards are often clickable; dialling should not also navigate.
-      onClick={(e) => e.stopPropagation()}
-    >
-      {phone}
-    </a>
+    <span className="group/contact inline-flex min-w-0 items-baseline gap-1">
+      <a
+        href={`tel:${phone.replace(/\s/g, "")}`}
+        title={`Call ${phone}`}
+        className={cn("min-w-0 truncate", linkClass, className)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {phone}
+      </a>
+      <CopyButton value={phone.trim()} label="Number" />
+    </span>
   );
 }
 
@@ -56,13 +91,16 @@ export function EmailLink({
   }
   const address = email.trim();
   return (
-    <a
-      href={`mailto:${address}`}
-      title={`Email ${address}`}
-      className={cn(linkClass, className)}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {email}
-    </a>
+    <span className="group/contact inline-flex min-w-0 items-baseline gap-1">
+      <a
+        href={`mailto:${address}`}
+        title={`Email ${address}`}
+        className={cn("min-w-0 truncate", linkClass, className)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {email}
+      </a>
+      <CopyButton value={address} label="Address" />
+    </span>
   );
 }

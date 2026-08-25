@@ -68,7 +68,6 @@ function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | 
 export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
   const equipment = useQuery(api.projectEquipment.listForProject, { projectId });
   const clashes = useQuery(api.projectEquipment.clashesForProject, { projectId });
-  const unlinked = useQuery(api.projectEquipment.unlinkedCount, {});
 
   const [applying, setApplying] = useState(false);
   const [adding, setAdding] = useState<SectionKey | null>(null);
@@ -86,7 +85,6 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
 
   return (
     <div className="mt-12 space-y-6">
-      {unlinked !== undefined && unlinked > 0 && <LinkInventoryPrompt count={unlinked} />}
       {clashes && clashes.length > 0 && <ClashWarning clashes={clashes} />}
 
       <EquipmentList
@@ -311,73 +309,28 @@ function EquipmentList({
 }
 
 /**
- * Kit listed before project lines recorded which inventory item they were
- * cannot be checked for clashes, and silently missing a double booking is
- * exactly the failure this is meant to prevent. Offer to join them up.
+ * What this production wants that it cannot have, because the productions
+ * shooting the same day want more of it than the company owns.
+ *
+ * Says the numbers, because "clash" on its own is not actionable: three
+ * wanted, two owned tells you what to hire. "Remove" takes this production's
+ * lines off — nothing is touched on the other production, since which shoot
+ * gives way is a decision rather than something to guess.
  */
-function LinkInventoryPrompt({ count }: { count: number }) {
-  const link = useMutation(api.projectEquipment.linkToInventory);
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setBusy(true);
-    try {
-      const result = await link({});
-      toast.success(
-        `${result.linked} line${result.linked === 1 ? "" : "s"} matched to your equipment list.`,
-      );
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not match them up.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 p-3">
-      <p className="text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">{count}</span> equipment line
-        {count === 1 ? "" : "s"} across your projects{count === 1 ? " is" : " are"} not matched
-        to your equipment list, so {count === 1 ? "it cannot" : "they cannot"} be checked for
-        clashes.
-      </p>
-      <Button size="sm" variant="secondary" disabled={busy} onClick={() => void run()}>
-        {busy ? "Matching…" : "Match them up"}
-      </Button>
-    </div>
-  );
-}
-
-/**
- * Two productions cannot take the same camera out on the same day. This says
- * which pieces are double-booked, where the other booking is, and offers to
- * take them off this production — the list you are actually editing. Nothing
- * is touched on the other production: that is somebody else's call.
- */
-function ClashWarning({
-  clashes,
-  onRemoved,
-}: {
-  clashes: EquipmentClash[];
-  onRemoved?: () => void;
-}) {
+function ClashWarning({ clashes }: { clashes: EquipmentClash[] }) {
   const removeMany = useMutation(api.projectEquipment.removeMany);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
 
-  // Only kit this production actually holds is a clash. The rest is what the
-  // picker warns about before you add it.
-  const booked = clashes.filter((clash) => clash.rowId !== null);
-  if (booked.length === 0) return null;
+  if (clashes.length === 0) return null;
 
   async function remove(ids: Id<"projectEquipment">[]) {
     setBusy(true);
     try {
       const result = await removeMany({ ids });
       toast.success(
-        `${result.removed} item${result.removed === 1 ? "" : "s"} removed from this project.`,
+        `${result.removed} line${result.removed === 1 ? "" : "s"} removed from this project.`,
       );
-      onRemoved?.();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove them.");
     } finally {
@@ -389,8 +342,9 @@ function ClashWarning({
     <div className="rounded-lg border border-amber-400/50 bg-amber-50 p-3 dark:border-amber-500/30 dark:bg-amber-950/30">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-amber-900 dark:text-amber-200">
-          <span className="font-medium">{booked.length}</span> item
-          {booked.length === 1 ? " is" : "s are"} also booked to another shoot on the same day.
+          <span className="font-medium">{clashes.length}</span>{" "}
+          {clashes.length === 1 ? "item is" : "items are"} overbooked — more is wanted on the
+          day than you own.
         </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>
@@ -399,30 +353,33 @@ function ClashWarning({
           <Button
             size="sm"
             disabled={busy}
-            onClick={() =>
-              void remove(booked.map((c) => c.rowId).filter((id): id is Id<"projectEquipment"> => id !== null))
-            }
+            onClick={() => void remove(clashes.flatMap((c) => c.rowIds))}
           >
-            Remove {booked.length === 1 ? "it" : `all ${booked.length}`}
+            Remove {clashes.length === 1 ? "it" : `all ${clashes.length}`}
           </Button>
         </div>
       </div>
 
       {open && (
         <ul className="mt-3 space-y-2">
-          {booked.map((clash) => (
+          {clashes.map((clash) => (
             <li
-              key={clash.equipmentId}
+              key={clash.key}
               className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-border bg-background p-2"
             >
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{clash.item}</span>
+                <span className="block truncate text-sm font-medium">
+                  {clash.item}{" "}
+                  <span className="font-normal text-muted-foreground">
+                    — you own {clash.stock}, {clash.mine} wanted here
+                  </span>
+                </span>
                 {clash.others.map((other) => (
                   <span
                     key={other.projectId}
                     className="block truncate text-xs text-muted-foreground"
                   >
-                    {other.projectName} ({statusLabel(other.status)}) ·{" "}
+                    {other.count} on {other.projectName} ({statusLabel(other.status)}) ·{" "}
                     {other.dates.map(formatShootDate).join(", ")}
                   </span>
                 ))}
@@ -431,7 +388,7 @@ function ClashWarning({
                 variant="ghost"
                 size="sm"
                 disabled={busy}
-                onClick={() => void remove([clash.rowId!])}
+                onClick={() => void remove(clash.rowIds)}
               >
                 Remove
               </Button>
@@ -484,8 +441,8 @@ function EquipmentPicker({
 
   // Said before the click rather than after: adding it is still allowed, but
   // you should know it is spoken for.
-  const clashByEquipment = useMemo(
-    () => new Map(clashes.map((clash) => [String(clash.equipmentId), clash])),
+  const clashByItem = useMemo(
+    () => new Map(clashes.map((clash) => [clash.key, clash])),
     [clashes],
   );
 
@@ -541,14 +498,9 @@ function EquipmentPicker({
                 <span className="block w-full truncate text-xs text-muted-foreground">
                   {row.serialNumber ? `Serial ${row.serialNumber}` : "No serial number"}
                 </span>
-                {clashByEquipment.get(row._id) && (
+                {clashByItem.get(row.item.trim().toLowerCase().replace(/\s+/g, " ")) && (
                   <span className="block w-full truncate text-xs text-amber-700 dark:text-amber-400">
-                    Also on{" "}
-                    {clashByEquipment
-                      .get(row._id)!
-                      .others.map((o) => o.projectName)
-                      .join(", ")}{" "}
-                    that day
+                    Already overbooked on this day
                   </span>
                 )}
               </button>

@@ -1,4 +1,4 @@
-import { QueryCtx, mutation, query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { Doc, Id } from "./_generated/dataModel";
@@ -146,28 +146,48 @@ export const remove = mutation({
 });
 
 export type EquipmentClash = {
-  equipmentId: Id<"equipment">;
+  /** Normalised item name — what the clash is about. */
+  key: string;
   item: string;
-  /** This project's line for it, when it is already listed here. */
-  rowId: Id<"projectEquipment"> | null;
+  /** How many of it the company owns. */
+  stock: number;
+  /** How many this production wants. */
+  mine: number;
+  /** Lines on this production, so a clash can be cleared from here. */
+  rowIds: Id<"projectEquipment">[];
   others: {
     projectId: Id<"projects">;
     projectName: string;
     status: string;
+    /** How many that production wants. */
+    count: number;
     /** The days both productions want it, which is what makes it a clash. */
     dates: string[];
   }[];
 };
 
+/** Case and spacing are not what makes two lines the same piece of kit. */
+function itemKey(item: string): string {
+  return item.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 /**
- * Kit this production wants that another production wants on the same day.
+ * Kit this production wants that it cannot have, because the productions
+ * shooting the same day want more of it than the company owns.
  *
- * Only inventory can clash: two lines reading "1.2k HMI" are two hires, but
- * one `equipmentId` is one physical object and it cannot be in two places at
- * once. Free text is deliberately ignored rather than matched on name, which
- * would raise a clash every time two shoots hired the same model of light.
+ * Counting, not matching. The earlier version compared the inventory row a
+ * line pointed at, which meant a line pointing at nothing — anything typed by
+ * hand, anything imported, anything whose name more than one piece of kit
+ * answers to — could never clash, and most of a real kit list is exactly that.
+ * It also called it a clash when two productions each took one of the two
+ * tripods the company owns, which is not a clash at all.
  *
- * Archived productions are left out — a job that has been and gone is not
+ * So: add up what every production sharing a day wants of a thing, compare it
+ * with how many exist, and report the ones that do not go round. Kit with no
+ * inventory record is a hire-in — there is no fixed number of those, so it
+ * cannot run out.
+ *
+ * Archived productions are left out: a job that has been and gone is not
  * competing for anything.
  */
 export const clashesForProject = query({
@@ -178,7 +198,7 @@ export const clashesForProject = query({
     if (!project || project.orgId !== org._id) return [];
 
     // Shoot days for the whole org in one pass, grouped by production: a
-    // clash is a question about two projects' calendars at once.
+    // clash is a question about two productions' calendars at once.
     const shootDays = await ctx.db
       .query("shootDays")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
@@ -194,23 +214,49 @@ export const clashesForProject = query({
     const myDates = datesByProject.get(String(args.projectId));
     if (!myDates || myDates.size === 0) return [];
 
+    // How many of each thing the company actually owns.
+    const inventory = await ctx.db
+      .query("equipment")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(5000);
+    const stock = new Map<string, { count: number; item: string }>();
+    for (const kit of inventory) {
+      if (kit.archived) continue;
+      const key = itemKey(kit.item);
+      const held = stock.get(key);
+      if (held) held.count++;
+      else stock.set(key, { count: 1, item: kit.item });
+    }
+
     const rows = await ctx.db
       .query("projectEquipment")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(4000);
 
-    // What this production has, and which line holds it.
-    const mine = new Map<string, Id<"projectEquipment">>();
+    // What this production wants, and which lines ask for it.
+    const wanted = new Map<string, { count: number; rowIds: Id<"projectEquipment">[] }>();
     for (const row of rows) {
-      if (row.projectId !== args.projectId || !row.equipmentId) continue;
-      if (!mine.has(String(row.equipmentId))) mine.set(String(row.equipmentId), row._id);
+      if (row.projectId !== args.projectId) continue;
+      const key = itemKey(row.item);
+      if (!stock.has(key)) continue; // Hired in: no fixed number to run out of.
+      const entry = wanted.get(key) ?? { count: 0, rowIds: [] };
+      entry.count += row.quantity ?? 1;
+      entry.rowIds.push(row._id);
+      wanted.set(key, entry);
     }
+    if (wanted.size === 0) return [];
 
-    const byEquipment = new Map<string, EquipmentClash>();
+    // What everyone else shooting on one of our days wants of the same things.
     const projectCache = new Map<string, Doc<"projects"> | null>();
+    const demandElsewhere = new Map<
+      string,
+      Map<string, { projectName: string; status: string; count: number; dates: string[] }>
+    >();
 
     for (const row of rows) {
-      if (row.projectId === args.projectId || !row.equipmentId) continue;
+      if (row.projectId === args.projectId) continue;
+      const key = itemKey(row.item);
+      if (!wanted.has(key)) continue;
 
       const other = datesByProject.get(String(row.projectId));
       if (!other) continue;
@@ -224,26 +270,46 @@ export const clashesForProject = query({
       const otherProject = projectCache.get(projectKey);
       if (!otherProject || otherProject.archived === true) continue;
 
-      const key = String(row.equipmentId);
-      const existing = byEquipment.get(key);
-      const entry: EquipmentClash = existing ?? {
-        equipmentId: row.equipmentId,
-        item: row.item,
-        rowId: mine.get(key) ?? null,
-        others: [],
+      const byProject = demandElsewhere.get(key) ?? new Map();
+      const entry = byProject.get(projectKey) ?? {
+        projectName: otherProject.name,
+        status: normaliseStatus(otherProject.status),
+        count: 0,
+        dates: shared,
       };
-      if (!entry.others.some((o) => o.projectId === row.projectId)) {
-        entry.others.push({
-          projectId: row.projectId,
-          projectName: otherProject.name,
-          status: normaliseStatus(otherProject.status),
-          dates: shared,
-        });
-      }
-      byEquipment.set(key, entry);
+      entry.count += row.quantity ?? 1;
+      byProject.set(projectKey, entry);
+      demandElsewhere.set(key, byProject);
     }
 
-    return [...byEquipment.values()].sort((a, b) => a.item.localeCompare(b.item));
+    const clashes: EquipmentClash[] = [];
+    for (const [key, mine] of wanted) {
+      const byProject = demandElsewhere.get(key);
+      if (!byProject || byProject.size === 0) continue;
+
+      const held = stock.get(key)!;
+      const elsewhere = [...byProject.values()].reduce((sum, o) => sum + o.count, 0);
+      // Enough to go round is not a clash, however many productions want it.
+      if (mine.count + elsewhere <= held.count) continue;
+
+      clashes.push({
+        key,
+        item: held.item,
+        stock: held.count,
+        mine: mine.count,
+        rowIds: mine.rowIds,
+        others: [...byProject.entries()].map(([projectId, o]) => ({
+          projectId: projectId as Id<"projects">,
+          projectName: o.projectName,
+          status: o.status,
+          count: o.count,
+          dates: o.dates,
+        })),
+      });
+    }
+
+    clashes.sort((a, b) => a.item.localeCompare(b.item));
+    return clashes;
   },
 });
 
@@ -263,76 +329,3 @@ export const removeMany = mutation({
   },
 });
 
-/**
- * Project kit that predates the inventory link, and could be matched to it.
- *
- * Clash detection works on `equipmentId`, so lines added before that field
- * existed are invisible to it — a production could be double-booked and
- * nothing would say so. This counts what a backfill could join up.
- */
-export const unlinkedCount = query({
-  args: {},
-  handler: async (ctx): Promise<number> => {
-    const { org } = await requireOrg(ctx);
-    const matches = await matchableRows(ctx, org._id);
-    return matches.length;
-  },
-});
-
-/**
- * Rows that can be joined to exactly one piece of inventory by name.
- *
- * A name shared by two pieces of kit is deliberately left alone: two tripods
- * called "Tripod" are two objects, and guessing which one a line meant would
- * invent clashes between productions that are each holding their own.
- */
-async function matchableRows(
-  ctx: QueryCtx,
-  orgId: Id<"organisations">,
-): Promise<{ rowId: Id<"projectEquipment">; equipmentId: Id<"equipment"> }[]> {
-  const inventory = await ctx.db
-    .query("equipment")
-    .withIndex("by_org", (q) => q.eq("orgId", orgId))
-    .take(5000);
-
-  const byName = new Map<string, Id<"equipment"> | null>();
-  for (const kit of inventory) {
-    if (kit.archived) continue;
-    const key = kit.item.trim().toLowerCase();
-    // null marks a name that more than one piece of kit answers to.
-    byName.set(key, byName.has(key) ? null : kit._id);
-  }
-
-  const rows = await ctx.db
-    .query("projectEquipment")
-    .withIndex("by_org", (q) => q.eq("orgId", orgId))
-    .take(5000);
-
-  const out: { rowId: Id<"projectEquipment">; equipmentId: Id<"equipment"> }[] = [];
-  for (const row of rows) {
-    if (row.equipmentId) continue;
-    const match = byName.get(row.item.trim().toLowerCase());
-    if (!match) continue;
-    out.push({ rowId: row._id, equipmentId: match });
-  }
-  return out;
-}
-
-/** Joins those rows up, so clash detection can see kit listed before the link. */
-export const linkToInventory = mutation({
-  args: {},
-  handler: async (ctx): Promise<{ linked: number }> => {
-    const { org } = await requireOrg(ctx);
-    const matches = await matchableRows(ctx, org._id);
-    for (const match of matches) {
-      const row = await ctx.db.get(match.rowId);
-      const kit = await ctx.db.get(match.equipmentId);
-      await ctx.db.patch(match.rowId, {
-        equipmentId: match.equipmentId,
-        // Take the department too while we are here, if it has none.
-        dept: row?.dept ?? kit?.dept,
-      });
-    }
-    return { linked: matches.length };
-  },
-});

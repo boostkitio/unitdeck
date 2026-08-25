@@ -420,7 +420,9 @@ function DeleteProjectDialog({
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
-  const confirmed = typed.trim().toLowerCase() === projectName.trim().toLowerCase();
+  // One short word, not the whole title: enough of a pause to stop a stray
+  // click, without making the user copy a project name back to itself.
+  const confirmed = typed.trim().toLowerCase() === "delete";
 
   async function handleDelete() {
     setDeleting(true);
@@ -454,14 +456,20 @@ function DeleteProjectDialog({
               </p>
               <div className="space-y-2">
                 <Label htmlFor="confirm-delete">
-                  Type <span className="font-medium text-foreground">{projectName}</span> to
-                  confirm
+                  Type <span className="font-medium text-foreground">delete</span> to confirm
                 </Label>
                 <Input
                   id="confirm-delete"
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
+                  placeholder="delete"
                   autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && confirmed) {
+                      e.preventDefault();
+                      void handleDelete();
+                    }
+                  }}
                 />
               </div>
             </div>
