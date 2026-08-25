@@ -7,7 +7,7 @@ import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { type ScheduleItem } from "../../../convex/schedule";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatShootDate } from "@/lib/format-date";
+import { ScheduleImportDialog } from "@/components/projects/schedule-import-dialog";
 
 /** The heading a run of items sits under. */
 function groupLabel(item: ScheduleItem): string {
@@ -47,6 +48,7 @@ export function ScheduleSection({ projectId }: { projectId: Id<"projects"> }) {
   const remove = useMutation(api.schedule.remove);
 
   const [editing, setEditing] = useState<ScheduleItem | null>(null);
+  const [importing, setImporting] = useState(false);
 
   async function handleRemove(item: ScheduleItem) {
     try {
@@ -71,6 +73,11 @@ export function ScheduleSection({ projectId }: { projectId: Id<"projects"> }) {
     <Card className="mt-12">
       <CardHeader>
         <CardTitle>Schedule</CardTitle>
+        <CardAction>
+          <Button size="sm" variant="secondary" onClick={() => setImporting(true)}>
+            Import a schedule
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent>
         {schedule === undefined ? (
@@ -81,7 +88,8 @@ export function ScheduleSection({ projectId }: { projectId: Id<"projects"> }) {
         ) : schedule.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             Nothing scheduled yet. Type the running order below — call time, first setup,
-            lunch, wrap — and it will read down the page in the order the day happens.
+            lunch, wrap — and it will read down the page in the order the day happens. Or
+            paste one you have been sent with Import a schedule.
           </p>
         ) : (
           <div className="space-y-6">
@@ -129,6 +137,9 @@ export function ScheduleSection({ projectId }: { projectId: Id<"projects"> }) {
         <ScheduleRowEntry projectId={projectId} />
       </CardContent>
 
+      {importing && (
+        <ScheduleImportDialog projectId={projectId} onClose={() => setImporting(false)} />
+      )}
       {editing && (
         <ScheduleDialog
           projectId={projectId}

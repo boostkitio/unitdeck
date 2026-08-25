@@ -77,6 +77,10 @@ export default defineSchema({
   projects: defineTable({
     orgId: v.id("organisations"),
     clientId: v.optional(v.id("clients")),
+    // Which of the client's contacts booked the job, by position in that
+    // client's contact list. A position rather than a name so correcting a
+    // typo in the name does not quietly unset who booked it.
+    bookedByContact: v.optional(v.number()),
     name: v.string(),
     // Booking status. The first three are current; the rest are the old
     // pipeline statuses, kept valid so existing documents still pass schema

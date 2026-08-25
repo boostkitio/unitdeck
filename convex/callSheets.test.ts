@@ -266,3 +266,181 @@ test("cleanupExpiredRenderTokens deletes only expired token rows", async () => {
   expect(remaining).toHaveLength(1);
   expect(remaining[0].token).toBe("tok_live");
 });
+
+/** A production with everything a call sheet wants to lay out. */
+async function fullProduction() {
+  const { t, ids, asA } = await setup();
+  await t.run(async (ctx) => {
+    const location = await ctx.db.insert("locations", {
+      orgId: ids.orgA,
+      name: "Shoreditch studio",
+      address: "1 Curtain Road, London",
+      nearestHospital: "Royal London",
+    });
+    await ctx.db.patch(ids.dayA, { locationIds: [location] });
+
+    const dp = await ctx.db.insert("people", {
+      orgId: ids.orgA,
+      name: "Sam Reed",
+      role: "DP",
+      phone: "07700 900000",
+      email: "sam@example.test",
+    });
+    const actor = await ctx.db.insert("people", {
+      orgId: ids.orgA,
+      name: "Jo Patel",
+      kind: "talent",
+      role: "Lead",
+    });
+    await ctx.db.insert("projectCrew", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      personId: dp,
+      status: "confirmed",
+    });
+    await ctx.db.insert("projectCrew", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      kind: "talent",
+      personId: actor,
+      status: "pencilled",
+    });
+    // A role nobody is in yet still belongs on the sheet, so it is chased.
+    await ctx.db.insert("projectCrew", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      role: "Sound recordist",
+      status: "pencilled",
+    });
+
+    await ctx.db.insert("scheduleItems", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      shootDayId: ids.dayA,
+      time: "13:00",
+      item: "Lunch",
+    });
+    await ctx.db.insert("scheduleItems", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      shootDayId: ids.dayA,
+      time: "07:00",
+      item: "Crew call",
+      notes: "Unit base",
+    });
+    // Not tied to a day: it applies to the job, so it applies to this day.
+    await ctx.db.insert("scheduleItems", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      item: "Rushes off-loaded nightly",
+    });
+
+    await ctx.db.insert("projectEquipment", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      item: "FX9",
+      dept: "Camera",
+      quantity: 2,
+      section: "equipment",
+      status: "confirmed",
+    });
+    await ctx.db.insert("projectEquipment", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      item: "Techno crane",
+      section: "additional",
+      status: "needed",
+    });
+  });
+
+  await asA.mutation(api.clients.saveContact, {
+    id: (await asA.query(api.projects.get, { id: ids.projectA }))!.clientId!,
+    name: "Ali Khan",
+    role: "Marketing lead",
+    email: "ali@acme.test",
+  });
+
+  return { t, ids, asA };
+}
+
+test("a generated call sheet carries the whole production", async () => {
+  const { ids, asA } = await fullProduction();
+  await asA.mutation(api.callSheets.generateFromProject, { shootDayId: ids.dayA });
+  const sheet = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  const data = sheet!.data;
+
+  expect(data.title).toBe("Brand film");
+  expect(data.date).toBe("2026-06-20");
+  expect(data.clientName).toBe("Acme");
+
+  // The first timed thing that happens is the call.
+  expect(data.generalCallTime).toBe("07:00");
+  expect(data.schedule.map((s) => s.title)).toEqual([
+    "Crew call",
+    "Lunch",
+    "Rushes off-loaded nightly",
+  ]);
+  expect(data.schedule[0].notes).toBe("Unit base");
+
+  // Crew and talent are separate lists, as a call sheet keeps them.
+  expect(data.crew.map((c) => c.name)).toEqual(["Sam Reed", "TO BOOK"]);
+  expect(data.crew[0]).toMatchObject({ role: "DP", phone: "07700 900000" });
+  expect(data.crew[1].role).toBe("Sound recordist");
+  const talent = data.contactSections?.find((s) => s.title === "Talent");
+  expect(talent?.rows.map((r) => r.name)).toEqual(["Jo Patel"]);
+  const client = data.contactSections?.find((s) => s.title === "Client");
+  expect(client?.rows[0]).toMatchObject({ name: "Ali Khan", role: "Marketing lead" });
+
+  expect(data.locations[0]).toMatchObject({
+    name: "Shoreditch studio",
+    nearestHospital: "Royal London",
+  });
+  expect(data.equipment?.map((e) => e.item)).toEqual(["2 × FX9", "Techno crane"]);
+  expect(data.equipment?.[1].supplier).toBe("Hired in");
+});
+
+test("a day with no location of its own falls back to the project's", async () => {
+  const { t, ids, asA } = await setup();
+  await t.run(async (ctx) => {
+    const location = await ctx.db.insert("locations", {
+      orgId: ids.orgA,
+      name: "Shoreditch studio",
+      address: "1 Curtain Road, London",
+    });
+    await ctx.db.patch(ids.projectA, { locationId: location });
+  });
+
+  await asA.mutation(api.callSheets.generateFromProject, { shootDayId: ids.dayA });
+  const sheet = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  expect(sheet?.data.locations[0].name).toBe("Shoreditch studio");
+});
+
+test("regenerating keeps the old draft as a version rather than losing it", async () => {
+  const { ids, asA } = await setup();
+  const draftId = await asA.mutation(api.callSheets.ensure, { shootDayId: ids.dayA });
+  const current = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  await asA.mutation(api.callSheets.saveDraft, {
+    id: draftId,
+    data: { ...current!.data, safetyNotes: "Hard hats on the gantry" },
+  });
+
+  const result = await asA.mutation(api.callSheets.generateFromProject, { shootDayId: ids.dayA });
+  expect(result.replacedDraft).toBe(true);
+
+  const after = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  expect(after?.version).toBe(2);
+  const versions = await asA.query(api.callSheets.listVersions, { shootDayId: ids.dayA });
+  expect(versions.map((v) => v.version)).toEqual([2, 1]);
+  const old = await asA.query(api.callSheets.getVersion, { id: draftId });
+  expect(old?.data.safetyNotes).toBe("Hard hats on the gantry");
+});
+
+test("another org cannot generate a call sheet on your shoot day", async () => {
+  const { t, ids, asB } = await setup();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+  });
+  await expect(
+    asB.mutation(api.callSheets.generateFromProject, { shootDayId: ids.dayA }),
+  ).rejects.toThrow(/not found/i);
+});

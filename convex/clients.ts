@@ -1,18 +1,15 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
+import { Doc, Id } from "./_generated/dataModel";
+import { MutationCtx } from "./_generated/server";
 
-export const list = query({
-  args: {},
-  handler: async (ctx) => {
-    const { org } = await requireOrg(ctx);
-    const clients = await ctx.db
-      .query("clients")
-      .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .take(500);
-    return clients.filter((c) => !c.archived);
-  },
-});
+export type ClientContact = {
+  name: string;
+  role?: string;
+  phone?: string;
+  email?: string;
+};
 
 const contactValidator = v.object({
   name: v.string(),
@@ -27,26 +24,94 @@ const contactValidator = v.object({
  * A client used to hold one name, phone and email. Those fields are still
  * where an existing row keeps its person, so reads present them as the first
  * contact rather than losing them or making anyone retype.
+ *
+ * Writes now mirror the first contact back into those fields, which is what
+ * keeps a CSV export and any older read working. That mirror is recognised
+ * here so the main contact appears once, not twice.
  */
 export function contactsOf(client: {
   contactName?: string;
   phone?: string;
   email?: string;
-  contacts?: { name: string; role?: string; phone?: string; email?: string }[];
-}) {
-  const first =
+  contacts?: ClientContact[];
+}): ClientContact[] {
+  const legacy: ClientContact[] =
     client.contactName?.trim() || client.phone?.trim() || client.email?.trim()
       ? [
           {
             name: client.contactName?.trim() || "Main contact",
-            role: undefined as string | undefined,
+            role: undefined,
             phone: client.phone,
             email: client.email,
           },
         ]
       : [];
-  return [...first, ...(client.contacts ?? [])];
+  const rest = client.contacts ?? [];
+  if (legacy.length > 0 && rest.length > 0 && isMirrorOf(legacy[0], rest[0])) return rest;
+  return [...legacy, ...rest];
 }
+
+/** Whether the legacy fields are just a copy of the first stored contact. */
+function isMirrorOf(legacy: ClientContact, first: ClientContact): boolean {
+  const same = (a?: string, b?: string) => (a ?? "").trim() === (b ?? "").trim();
+  return (
+    legacy.name.trim().toLowerCase() === first.name.trim().toLowerCase() &&
+    same(legacy.phone, first.phone) &&
+    same(legacy.email, first.email)
+  );
+}
+
+function tidy(contacts: ClientContact[]): ClientContact[] {
+  return contacts
+    .map((c) => ({
+      name: c.name.trim(),
+      role: c.role?.trim() || undefined,
+      phone: c.phone?.trim() || undefined,
+      email: c.email?.trim() || undefined,
+    }))
+    // A contact with no name is a blank row somebody left behind.
+    .filter((c) => c.name.length > 0);
+}
+
+/**
+ * Store the whole contact list, keeping the legacy single-contact fields as a
+ * mirror of the first entry so exports, imports and any older read still find
+ * somebody there.
+ */
+async function writeContacts(ctx: MutationCtx, id: Id<"clients">, contacts: ClientContact[]) {
+  const cleaned = tidy(contacts);
+  const first = cleaned[0];
+  await ctx.db.patch(id, {
+    contacts: cleaned.length > 0 ? cleaned : undefined,
+    contactName: first?.name,
+    phone: first?.phone,
+    email: first?.email,
+  });
+  return cleaned;
+}
+
+async function ownedClient(ctx: MutationCtx, id: Id<"clients">): Promise<Doc<"clients">> {
+  const { org } = await requireOrg(ctx);
+  const client = await ctx.db.get(id);
+  if (!client || client.orgId !== org._id) throw new Error("Client not found");
+  return client;
+}
+
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const clients = await ctx.db
+      .query("clients")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(500);
+    // Contacts resolved here rather than in every caller: the tab, the
+    // project card and the "booked by" picker all want the same list.
+    return clients
+      .filter((c) => !c.archived)
+      .map((c) => ({ ...c, contacts: contactsOf(c) }));
+  },
+});
 
 /** One client with its contacts resolved, for the project's client card. */
 export const get = query({
@@ -71,15 +136,21 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     if (args.name.trim().length === 0) throw new Error("Company is required");
-    return await ctx.db.insert("clients", {
+    const id = await ctx.db.insert("clients", {
       orgId: org._id,
       name: args.name.trim(),
-      contactName: args.contactName?.trim() || undefined,
-      phone: args.phone?.trim() || undefined,
-      email: args.email?.trim() || undefined,
-      contacts: args.contacts,
       notes: args.notes,
     });
+    const contacts =
+      args.contacts && args.contacts.length > 0
+        ? args.contacts
+        : contactsOf({
+            contactName: args.contactName,
+            phone: args.phone,
+            email: args.email,
+          });
+    await writeContacts(ctx, id, contacts);
+    return id;
   },
 });
 
@@ -90,35 +161,88 @@ export const update = mutation({
     contactName: v.optional(v.union(v.string(), v.null())),
     phone: v.optional(v.union(v.string(), v.null())),
     email: v.optional(v.union(v.string(), v.null())),
+    /** The whole list, first entry first — not the extras beyond a main one. */
     contacts: v.optional(v.array(contactValidator)),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { org } = await requireOrg(ctx);
-    const client = await ctx.db.get(args.id);
-    if (!client || client.orgId !== org._id) throw new Error("Client not found");
+    await ownedClient(ctx, args.id);
     const patch: Record<string, unknown> = {};
     if (args.name !== undefined) {
       if (args.name.trim().length === 0) throw new Error("Company is required");
       patch.name = args.name.trim();
     }
-    if (args.contactName !== undefined) patch.contactName = args.contactName?.trim() || undefined;
-    if (args.phone !== undefined) patch.phone = args.phone?.trim() || undefined;
-    if (args.email !== undefined) patch.email = args.email?.trim() || undefined;
-    if (args.contacts !== undefined) {
-      const cleaned = args.contacts
-        .map((c) => ({
-          name: c.name.trim(),
-          role: c.role?.trim() || undefined,
-          phone: c.phone?.trim() || undefined,
-          email: c.email?.trim() || undefined,
-        }))
-        // A contact with no name is a blank row somebody left behind.
-        .filter((c) => c.name.length > 0);
-      patch.contacts = cleaned.length > 0 ? cleaned : undefined;
-    }
     if (args.notes !== undefined) patch.notes = args.notes;
-    await ctx.db.patch(args.id, patch);
+    if (Object.keys(patch).length > 0) await ctx.db.patch(args.id, patch);
+
+    if (args.contacts !== undefined) {
+      await writeContacts(ctx, args.id, args.contacts);
+    } else if (
+      args.contactName !== undefined ||
+      args.phone !== undefined ||
+      args.email !== undefined
+    ) {
+      // An older client only knows about the single contact; fold it into the
+      // first row rather than letting the two disagree.
+      const client = await ownedClient(ctx, args.id);
+      const contacts = contactsOf(client);
+      const first: ClientContact = {
+        ...(contacts[0] ?? { name: "" }),
+        name: args.contactName === undefined ? (contacts[0]?.name ?? "") : (args.contactName ?? ""),
+        phone: args.phone === undefined ? contacts[0]?.phone : (args.phone ?? undefined),
+        email: args.email === undefined ? contacts[0]?.email : (args.email ?? undefined),
+      };
+      await writeContacts(ctx, args.id, [first, ...contacts.slice(1)]);
+    }
+    return null;
+  },
+});
+
+/**
+ * Add or edit one contact, addressed by its place in the resolved list.
+ *
+ * Editing a contact from the project's client card goes through here, so the
+ * role can be set on the main contact too — which the single-contact fields
+ * never had room for.
+ */
+export const saveContact = mutation({
+  args: {
+    id: v.id("clients"),
+    /** Omitted to add a new contact at the end. */
+    index: v.optional(v.number()),
+    name: v.string(),
+    role: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const client = await ownedClient(ctx, args.id);
+    if (args.name.trim().length === 0) throw new Error("A contact needs a name");
+    const contacts = contactsOf(client);
+    const next: ClientContact = {
+      name: args.name,
+      role: args.role,
+      phone: args.phone,
+      email: args.email,
+    };
+    if (args.index === undefined || args.index < 0 || args.index >= contacts.length) {
+      contacts.push(next);
+    } else {
+      contacts[args.index] = next;
+    }
+    await writeContacts(ctx, args.id, contacts);
+    return null;
+  },
+});
+
+export const removeContact = mutation({
+  args: { id: v.id("clients"), index: v.number() },
+  handler: async (ctx, args) => {
+    const client = await ownedClient(ctx, args.id);
+    const contacts = contactsOf(client);
+    if (args.index < 0 || args.index >= contacts.length) throw new Error("Contact not found");
+    contacts.splice(args.index, 1);
+    await writeContacts(ctx, args.id, contacts);
     return null;
   },
 });
@@ -140,6 +264,7 @@ export const importRows = mutation({
       v.object({
         name: v.string(),
         contactName: v.optional(v.string()),
+        role: v.optional(v.string()),
         phone: v.optional(v.string()),
         email: v.optional(v.string()),
         notes: v.optional(v.string()),
@@ -171,18 +296,33 @@ export const importRows = mutation({
         unnamed++;
         continue;
       }
-      const fields = {
-        contactName: row.contactName?.trim() || undefined,
+      const contact: ClientContact = {
+        name: row.contactName?.trim() || "",
+        role: row.role?.trim() || undefined,
         phone: row.phone?.trim() || undefined,
         email: row.email?.trim() || undefined,
-        notes: row.notes?.trim() || undefined,
       };
+      const hasContact =
+        contact.name.length > 0 || contact.phone !== undefined || contact.email !== undefined;
+      if (hasContact && contact.name.length === 0) contact.name = "Main contact";
+
       const match = byName.get(name.toLowerCase());
       if (match) {
-        await ctx.db.patch(match._id, fields);
+        if (row.notes?.trim()) await ctx.db.patch(match._id, { notes: row.notes.trim() });
+        if (hasContact) {
+          // Replaces the main contact rather than the whole book: everybody
+          // else at the company was added here, not in the spreadsheet.
+          const contacts = contactsOf(match);
+          await writeContacts(ctx, match._id, [contact, ...contacts.slice(1)]);
+        }
         updated++;
       } else {
-        const id = await ctx.db.insert("clients", { orgId: org._id, name, ...fields });
+        const id = await ctx.db.insert("clients", {
+          orgId: org._id,
+          name,
+          notes: row.notes?.trim() || undefined,
+        });
+        if (hasContact) await writeContacts(ctx, id, [contact]);
         // Keep the map current so duplicate rows in one file collapse too.
         byName.set(name.toLowerCase(), (await ctx.db.get(id))!);
         created++;
@@ -204,9 +344,7 @@ export const importRows = mutation({
 export const remove = mutation({
   args: { id: v.id("clients") },
   handler: async (ctx, args) => {
-    const { org } = await requireOrg(ctx);
-    const client = await ctx.db.get(args.id);
-    if (!client || client.orgId !== org._id) throw new Error("Client not found");
+    await ownedClient(ctx, args.id);
     await ctx.db.patch(args.id, { archived: true });
     return null;
   },

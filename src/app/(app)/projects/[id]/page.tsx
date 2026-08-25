@@ -1,14 +1,13 @@
 "use client";
 
 import { use, useCallback, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { type FunctionReturnType } from "convex/server";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
-import { Doc, Id } from "../../../../../convex/_generated/dataModel";
+import { Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,10 +45,14 @@ import { ProjectClientSection } from "@/components/projects/client-section";
 import { ScheduleSection } from "@/components/projects/schedule-section";
 import { EquipmentSection } from "@/components/projects/equipment-section";
 import { DocumentsSection } from "@/components/documents/documents-section";
+import { CallSheetSection } from "@/components/projects/call-sheet-section";
 
 // Inferred from the query so the normalised status and resolved archived flag
 // stay accurate rather than drifting from a hand-written shape.
 type ProjectWithRelations = NonNullable<FunctionReturnType<typeof api.projects.getByRef>>;
+// Clients arrive with their contacts already resolved, so the "booked by"
+// picker does not need a query of its own per client.
+type ClientWithContacts = FunctionReturnType<typeof api.clients.list>[number];
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   // The URL holds a job number now, and a document id on links made before
@@ -80,7 +83,7 @@ function ProjectEditor({
   clients,
 }: {
   project: ProjectWithRelations;
-  clients: Doc<"clients">[];
+  clients: ClientWithContacts[];
 }) {
   const router = useRouter();
   const updateProject = useMutation(api.projects.update);
@@ -150,7 +153,11 @@ function ProjectEditor({
     }
   }
 
-  async function save(patch: { clientId?: Id<"clients"> | null; status?: ProjectStatus }) {
+  async function save(patch: {
+    clientId?: Id<"clients"> | null;
+    status?: ProjectStatus;
+    bookedByContact?: number | null;
+  }) {
     try {
       await updateProject({ id: project._id, ...patch });
       toast.success("Saved.");
@@ -213,58 +220,7 @@ function ProjectEditor({
           <CardTitle>Details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label>Client</Label>
-            <Select
-              value={project.clientId ?? "none"}
-              onValueChange={(value) =>
-                void save({
-                  clientId: value === "none" || value === null ? null : (value as Id<"clients">),
-                })
-              }
-            >
-              <SelectTrigger className="w-64">
-                {/* Explicit label: Base UI shows the raw value when items mount late */}
-                <SelectValue>
-                  {project.clientId
-                    ? (clients.find((c) => c._id === project.clientId)?.name ?? "…")
-                    : "No client"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No client</SelectItem>
-                {clients.map((c) => (
-                  <SelectItem key={c._id} value={c._id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* Who you actually ring at the client, on the project rather than
-                a tab away. */}
-            {project.clientContact &&
-              (project.clientContact.contactName ||
-                project.clientContact.phone ||
-                project.clientContact.email) && (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-                  {project.clientContact.contactName && (
-                    <span className="text-foreground">{project.clientContact.contactName}</span>
-                  )}
-                  {project.clientContact.phone && (
-                    <PhoneLink phone={project.clientContact.phone} />
-                  )}
-                  {project.clientContact.email && (
-                    <EmailLink email={project.clientContact.email} />
-                  )}
-                  <Link
-                    href="/clients"
-                    className="text-xs underline underline-offset-2 hover:text-foreground"
-                  >
-                    Edit
-                  </Link>
-                </div>
-              )}
-          </div>
+          <BookedBy project={project} clients={clients} onSave={save} />
 
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
@@ -319,6 +275,10 @@ function ProjectEditor({
       <ScheduleSection projectId={project._id} />
       <EquipmentSection projectId={project._id} />
       <DocumentsSection projectId={project._id} />
+      <CallSheetSection
+        projectId={project._id}
+        projectRef={project.jobNumber ?? project._id}
+      />
 
       {/* Destructive action, deliberately last */}
       <div className="mt-16 border-t border-border pt-6">
@@ -496,4 +456,102 @@ function DeleteProjectDialog({
       )}
     </>
   );
+}
+
+/**
+ * Who booked the job, and how to reach them.
+ *
+ * A client is a company; the person who actually rings you is one of several
+ * there, and which one it was is a fact about this production rather than
+ * about the company. Picking them here puts their number and address on the
+ * project, which is where anyone looks for it mid-shoot.
+ */
+function BookedBy({
+  project,
+  clients,
+  onSave,
+}: {
+  project: ProjectWithRelations;
+  clients: ClientWithContacts[];
+  onSave: (patch: { clientId?: Id<"clients"> | null; bookedByContact?: number | null }) => void;
+}) {
+  const client = clients.find((c) => c._id === project.clientId) ?? null;
+  const contacts = client?.contacts ?? [];
+  const chosen = project.bookedByContact ?? null;
+
+  return (
+    <div className="space-y-2">
+      <Label>Booked by</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={project.clientId ?? "none"}
+          onValueChange={(value) =>
+            onSave({
+              clientId: value === "none" || value === null ? null : (value as Id<"clients">),
+            })
+          }
+        >
+          <SelectTrigger className="w-64">
+            {/* Explicit label: Base UI shows the raw value when items mount late */}
+            <SelectValue>{client ? client.name : "No client"}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No client</SelectItem>
+            {clients.map((c) => (
+              <SelectItem key={c._id} value={c._id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {client && contacts.length > 0 && (
+          <Select
+            value={chosen === null ? "none" : String(chosen)}
+            onValueChange={(value) =>
+              onSave({
+                bookedByContact: value === "none" || value === null ? null : Number(value),
+              })
+            }
+          >
+            <SelectTrigger className="w-64">
+              <SelectValue>
+                {chosen !== null && contacts[chosen]
+                  ? contactLabel(contacts[chosen])
+                  : "Nobody in particular"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Nobody in particular</SelectItem>
+              {contacts.map((contact, i) => (
+                <SelectItem key={i} value={String(i)}>
+                  {contactLabel(contact)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      {client && contacts.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          No contacts at {client.name} yet — add one in the Client box below.
+        </p>
+      )}
+
+      {project.clientContact &&
+        (project.clientContact.phone || project.clientContact.email) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+            <span className="text-foreground">{project.clientContact.contactName}</span>
+            {project.clientContact.role && <span>{project.clientContact.role}</span>}
+            {project.clientContact.phone && <PhoneLink phone={project.clientContact.phone} />}
+            {project.clientContact.email && <EmailLink email={project.clientContact.email} />}
+          </div>
+        )}
+    </div>
+  );
+}
+
+function contactLabel(contact: { name: string; role?: string }): string {
+  return contact.role ? `${contact.name} — ${contact.role}` : contact.name;
 }

@@ -1,7 +1,8 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
-import { callSheetDataValidator, CallSheetData } from "./lib/callSheetData";
+import { callSheetDataValidator, CallSheetData, ContactSection } from "./lib/callSheetData";
+import { contactsOf } from "./clients";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -24,6 +25,186 @@ async function getDraft(ctx: QueryCtx | MutationCtx, shootDayId: Id<"shootDays">
   return latest?.status === "draft" ? latest : null;
 }
 
+/**
+ * A call sheet built from everything the production already knows.
+ *
+ * The point of keeping crew, talent, client, schedule, kit and location on the
+ * project is that nobody should retype them into a call sheet. This reads the
+ * lot for one shoot day and lays it out; what comes back is a starting draft,
+ * still fully editable.
+ */
+async function buildFromProject(
+  ctx: MutationCtx,
+  org: Doc<"organisations">,
+  day: Doc<"shootDays">
+): Promise<CallSheetData> {
+  const project = await ctx.db.get(day.projectId);
+  if (!project) throw new Error("Project not found");
+  const client = project.clientId ? await ctx.db.get(project.clientId) : null;
+
+  // The day's own locations, falling back to the project's: a single-location
+  // job is usually set up once, on the project.
+  let locations = (await Promise.all(day.locationIds.map((id) => ctx.db.get(id)))).filter(
+    (l): l is Doc<"locations"> => l !== null
+  );
+  if (locations.length === 0 && project.locationId) {
+    const fallback = await ctx.db.get(project.locationId);
+    if (fallback) locations = [fallback];
+  }
+
+  const schedule = await ctx.db
+    .query("scheduleItems")
+    .withIndex("by_project", (q) => q.eq("projectId", day.projectId))
+    .take(500);
+  // This day's running order, plus anything not tied to a day, which applies
+  // to the whole job and so applies to this one.
+  const forToday = schedule
+    .filter((row) => !row.shootDayId || row.shootDayId === day._id)
+    .sort((a, b) => {
+      if (a.time === b.time) return a.item.localeCompare(b.item);
+      if (!a.time) return 1;
+      if (!b.time) return -1;
+      return a.time.localeCompare(b.time);
+    });
+
+  const crewRows = await ctx.db
+    .query("projectCrew")
+    .withIndex("by_project", (q) => q.eq("projectId", day.projectId))
+    .take(300);
+  const people = new Map<string, Doc<"people">>();
+  for (const row of crewRows) {
+    if (!row.personId || people.has(String(row.personId))) continue;
+    const person = await ctx.db.get(row.personId);
+    if (person) people.set(String(row.personId), person);
+  }
+
+  const kit = await ctx.db
+    .query("projectEquipment")
+    .withIndex("by_project", (q) => q.eq("projectId", day.projectId))
+    .take(500);
+
+  const logoUrl = org.settings?.logoStorageId
+    ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? undefined)
+    : undefined;
+
+  // The first timed thing that happens is the call, unless nothing is timed.
+  const generalCallTime = forToday.find((row) => row.time)?.time ?? "08:00";
+
+  const named = (row: Doc<"projectCrew">) => {
+    const person = row.personId ? people.get(String(row.personId)) : undefined;
+    return {
+      person,
+      name: person?.name ?? "TO BOOK",
+      role: row.role?.trim() || person?.role || "Crew",
+    };
+  };
+
+  const crew = crewRows
+    .filter((row) => (row.kind ?? "crew") === "crew")
+    .map((row, i) => {
+      const { person, name, role } = named(row);
+      return {
+        id: `crew-${i + 1}`,
+        personId: row.personId,
+        name,
+        role,
+        callTime: generalCallTime,
+        phone: person?.phone,
+        email: person?.email,
+        notes: row.notes,
+      };
+    });
+
+  const talent = crewRows
+    .filter((row) => row.kind === "talent")
+    .map((row, i) => {
+      const { person, name, role } = named(row);
+      return {
+        id: `talent-${i + 1}`,
+        personId: row.personId,
+        name,
+        role,
+        callTime: generalCallTime,
+        phone: person?.phone,
+        email: person?.email,
+        notes: row.notes,
+      };
+    });
+
+  const clientRows = (client ? contactsOf(client) : []).map((contact, i) => ({
+    id: `client-${i + 1}`,
+    name: contact.name,
+    role: contact.role ?? "Client",
+    phone: contact.phone,
+    email: contact.email,
+  }));
+
+  const contactSections: ContactSection[] = [];
+  if (talent.length > 0) contactSections.push({ id: "sec-talent", title: "Talent", rows: talent });
+  if (clientRows.length > 0) {
+    contactSections.push({ id: "sec-client", title: "Client", rows: clientRows });
+  }
+
+  // The project's stored forecast is for one particular day; use it only when
+  // that is this day, and fall back to whatever the day itself recorded.
+  const forecast = project.forecast?.date === day.date ? project.forecast : null;
+  const weatherSummary = forecast?.summary
+    ? forecast.tempMinC !== undefined && forecast.tempMaxC !== undefined
+      ? `${forecast.summary}, ${Math.round(forecast.tempMinC)}–${Math.round(forecast.tempMaxC)}°C`
+      : forecast.summary
+    : day.weather
+      ? `${day.weather.summary}, ${Math.round(day.weather.tempMinC)}–${Math.round(day.weather.tempMaxC)}°C`
+      : undefined;
+
+  return {
+    title: project.name,
+    date: day.date,
+    generalCallTime,
+    productionCompany: org.name,
+    clientName: client?.name,
+    locations: locations.map((l, i) => ({
+      id: `loc-${i + 1}`,
+      locationId: l._id,
+      name: l.name,
+      address: l.address,
+      w3w: l.w3w,
+      parkingNotes: l.parkingNotes,
+      nearestHospital: l.nearestHospital,
+      satNav: l.satNav,
+      publicTransport: l.nearestStation ?? l.publicTransport,
+      nearestPoliceStation: l.nearestPoliceStation,
+    })),
+    schedule: forToday.map((row, i) => ({
+      id: `sch-${i + 1}`,
+      start: row.time ?? "",
+      title: row.item,
+      notes: row.notes,
+    })),
+    crew,
+    contacts: [],
+    crewSectionTitle: "Crew",
+    contactSections,
+    callTimes: [{ id: "ct-crew", label: "Crew call", time: generalCallTime }],
+    equipment: kit.map((row, i) => ({
+      id: `kit-${i + 1}`,
+      // The hire-ins are what a call sheet needs to name a supplier for; own
+      // kit is filed under its department instead.
+      supplier: row.section === "additional" ? "Hired in" : row.dept,
+      item: row.quantity && row.quantity > 1 ? `${row.quantity} × ${row.item}` : row.item,
+    })),
+    notes: project.briefSummary,
+    branding:
+      org.settings?.brandColor || logoUrl
+        ? { brandColor: org.settings?.brandColor, logoUrl }
+        : undefined,
+    invoicing: org.settings?.invoicing,
+    confidential: org.settings?.confidentialByDefault,
+    weatherSummary,
+    sunrise: forecast?.sunrise ?? day.sun?.sunrise,
+    sunset: forecast?.sunset ?? day.sun?.sunset,
+  };
+}
+
 export const ensure = mutation({
   args: { shootDayId: v.id("shootDays") },
   handler: async (ctx, args) => {
@@ -31,62 +212,48 @@ export const ensure = mutation({
     const existing = await getDraft(ctx, args.shootDayId);
     if (existing) return existing._id;
 
-    const project = await ctx.db.get(day.projectId);
-    if (!project) throw new Error("Project not found");
-    const client = project.clientId ? await ctx.db.get(project.clientId) : null;
-    const locations = (
-      await Promise.all(day.locationIds.map((id) => ctx.db.get(id)))
-    ).filter((l): l is Doc<"locations"> => l !== null);
-
-    const logoUrl = org.settings?.logoStorageId
-      ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? undefined)
-      : undefined;
-
-    const data: CallSheetData = {
-      title: project.name,
-      date: day.date,
-      generalCallTime: "08:00",
-      productionCompany: org.name,
-      clientName: client?.name,
-      locations: locations.map((l, i) => ({
-        id: `loc-${i + 1}`,
-        locationId: l._id,
-        name: l.name,
-        address: l.address,
-        w3w: l.w3w,
-        parkingNotes: l.parkingNotes,
-        nearestHospital: l.nearestHospital,
-        satNav: l.satNav,
-        publicTransport: l.publicTransport,
-        nearestPoliceStation: l.nearestPoliceStation,
-      })),
-      schedule: [],
-      crew: [],
-      contacts: [],
-      crewSectionTitle: "Crew",
-      contactSections: [],
-      callTimes: [{ id: "ct-crew", label: "Crew call", time: "08:00" }],
-      branding:
-        org.settings?.brandColor || logoUrl
-          ? { brandColor: org.settings?.brandColor, logoUrl }
-          : undefined,
-      invoicing: org.settings?.invoicing,
-      confidential: org.settings?.confidentialByDefault,
-      weatherSummary: day.weather
-        ? `${day.weather.summary}, ${Math.round(day.weather.tempMinC)}–${Math.round(day.weather.tempMaxC)}°C`
-        : undefined,
-      sunrise: day.sun?.sunrise,
-      sunset: day.sun?.sunset,
-    };
-
     return await ctx.db.insert("callSheets", {
       orgId: org._id,
       shootDayId: args.shootDayId,
       projectId: day.projectId,
       version: 1,
       status: "draft",
-      data,
+      data: await buildFromProject(ctx, org, day),
     });
+  },
+});
+
+/**
+ * Lay the production out onto a call sheet, now, from what it holds today.
+ *
+ * A draft that is already open is kept as a version rather than overwritten:
+ * regenerating after adding three crew members should not cost the note
+ * somebody typed into the old one.
+ */
+export const generateFromProject = mutation({
+  args: { shootDayId: v.id("shootDays") },
+  handler: async (ctx, args): Promise<{ id: Id<"callSheets">; replacedDraft: boolean }> => {
+    const { org, day } = await requireShootDay(ctx, args.shootDayId);
+    const data = await buildFromProject(ctx, org, day);
+    const draft = await getDraft(ctx, args.shootDayId);
+    if (!draft) {
+      const id = await ctx.db.insert("callSheets", {
+        orgId: org._id,
+        shootDayId: args.shootDayId,
+        projectId: day.projectId,
+        version: 1,
+        status: "draft",
+        data,
+      });
+      return { id, replacedDraft: false };
+    }
+    const id = await freezeAndInsertDraft(
+      ctx,
+      args.shootDayId,
+      data,
+      "Regenerated from the production"
+    );
+    return { id, replacedDraft: true };
   },
 });
 

@@ -151,3 +151,65 @@ test("another org cannot read or change this schedule", async () => {
   expect(await asB.query(api.schedule.listForProject, { projectId: ids.project })).toEqual([]);
   await expect(asB.mutation(api.schedule.remove, { id })).rejects.toThrow(/not found/);
 });
+
+test("a whole pasted running order lands in one go", async () => {
+  const { ids, asA } = await setup();
+  const result = await asA.mutation(api.schedule.addMany, {
+    projectId: ids.project,
+    items: [
+      { time: "07:00", item: "Crew call" },
+      { time: "13:00", item: "Lunch", notes: "Unit base" },
+      { item: "Drone if the wind drops" },
+    ],
+  });
+
+  expect(result).toEqual({ added: 3, replaced: 0 });
+  const schedule = await asA.query(api.schedule.listForProject, { projectId: ids.project });
+  expect(schedule.map((s) => s.item)).toEqual(["Crew call", "Lunch", "Drone if the wind drops"]);
+  expect(schedule[1].notes).toBe("Unit base");
+});
+
+test("a revised schedule can replace the one already there", async () => {
+  const { ids, asA } = await setup();
+  await asA.mutation(api.schedule.add, { projectId: ids.project, item: "Old plan" });
+
+  const result = await asA.mutation(api.schedule.addMany, {
+    projectId: ids.project,
+    replace: true,
+    items: [{ time: "08:00", item: "New plan" }],
+  });
+
+  expect(result).toEqual({ added: 1, replaced: 1 });
+  const schedule = await asA.query(api.schedule.listForProject, { projectId: ids.project });
+  expect(schedule.map((s) => s.item)).toEqual(["New plan"]);
+});
+
+test("a badly written time fails the whole paste rather than half of it", async () => {
+  const { ids, asA } = await setup();
+  await expect(
+    asA.mutation(api.schedule.addMany, {
+      projectId: ids.project,
+      items: [
+        { time: "07:00", item: "Crew call" },
+        { time: "half seven", item: "Breakfast" },
+      ],
+    }),
+  ).rejects.toThrow(/HH:MM/);
+
+  expect(await asA.query(api.schedule.listForProject, { projectId: ids.project })).toEqual([]);
+});
+
+test("another org cannot paste a schedule onto your production", async () => {
+  const { t, ids } = await setup();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+  });
+  const asB = t.withIdentity({ subject: "user_b", org_id: "org_b" });
+
+  await expect(
+    asB.mutation(api.schedule.addMany, {
+      projectId: ids.project,
+      items: [{ item: "Intruder" }],
+    }),
+  ).rejects.toThrow(/not found/i);
+});

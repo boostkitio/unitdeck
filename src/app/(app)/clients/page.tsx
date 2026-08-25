@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { type FunctionReturnType } from "convex/server";
 import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
-import { Doc, Id } from "../../../../convex/_generated/dataModel";
+import { Id } from "../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,18 +33,29 @@ import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { SearchInput } from "@/components/search-input";
 import { matchesSearch } from "@/lib/search";
 
-type ClientSortKey = "name" | "contactName" | "phone" | "email" | "notes";
+type Client = FunctionReturnType<typeof api.clients.list>[number];
+type ContactDraft = { name: string; role: string; phone: string; email: string };
 
-function clientSortValue(client: Doc<"clients">, key: ClientSortKey): string | null {
+type ClientSortKey = "name" | "contactName" | "role" | "phone" | "email" | "notes";
+
+/** The contact a company is filed under: the first in its list. */
+function primaryContact(client: Client) {
+  return client.contacts[0] ?? null;
+}
+
+function clientSortValue(client: Client, key: ClientSortKey): string | null {
+  const first = primaryContact(client);
   switch (key) {
     case "name":
       return client.name;
     case "contactName":
-      return client.contactName ?? null;
+      return first?.name ?? null;
+    case "role":
+      return first?.role ?? null;
     case "phone":
-      return client.phone ?? null;
+      return first?.phone ?? null;
     case "email":
-      return client.email ?? null;
+      return first?.email ?? null;
     case "notes":
       return client.notes ?? null;
   }
@@ -52,10 +64,13 @@ function clientSortValue(client: Doc<"clients">, key: ClientSortKey): string | n
 const IMPORT_COLUMNS: CsvColumnSpec[] = [
   { key: "name", label: "Company", aliases: ["Client", "Organisation", "Organization"], required: true },
   { key: "contactName", label: "Name", aliases: ["Contact", "Contact Name", "Full Name"] },
+  { key: "role", label: "Role", aliases: ["Job Title", "Title", "Position"] },
   { key: "phone", label: "Number", aliases: ["Phone", "Telephone", "Mobile", "Tel"] },
   { key: "email", label: "Email", aliases: ["E-mail", "Email Address"] },
   { key: "notes", label: "Notes", aliases: ["Comment", "Comments"] },
 ];
+
+const BLANK_CONTACT: ContactDraft = { name: "", role: "", phone: "", email: "" };
 
 export default function ClientsPage() {
   const { organization } = useOrganization();
@@ -67,17 +82,13 @@ export default function ClientsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [editing, setEditing] = useState<Doc<"clients"> | null>(null);
+  const [editing, setEditing] = useState<Client | null>(null);
   const [name, setName] = useState("");
-  const [contactName, setContactName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
-  // Everyone beyond the first contact, which stays in its own fields so
-  // existing rows keep the person already on them.
-  const [contacts, setContacts] = useState<
-    { name: string; role: string; phone: string; email: string }[]
-  >([]);
+  // Everybody at the company, first one first. The first is the contact the
+  // company is filed under; the rest are the producer, accounts and whoever
+  // signs things off, who are rarely the same person.
+  const [contacts, setContacts] = useState<ContactDraft[]>([]);
   const [saving, setSaving] = useState(false);
   const { sort, toggle } = useTableSort<ClientSortKey>({ key: "name", dir: "asc" });
   const [search, setSearch] = useState("");
@@ -86,7 +97,13 @@ export default function ClientsPage() {
     () =>
       sortRows(
         (clients ?? []).filter((c) =>
-          matchesSearch(search, [c.name, c.contactName, c.phone, c.email, c.notes]),
+          matchesSearch(search, [
+            c.name,
+            c.notes,
+            // Every contact, not just the first: searching for the person you
+            // spoke to should find the company, wherever they sit in the list.
+            ...c.contacts.flatMap((p) => [p.name, p.role, p.phone, p.email]),
+          ]),
         ),
         sort,
         clientSortValue,
@@ -97,28 +114,24 @@ export default function ClientsPage() {
   function openCreate() {
     setEditing(null);
     setName("");
-    setContactName("");
-    setPhone("");
-    setEmail("");
     setNotes("");
-    setContacts([]);
+    setContacts([{ ...BLANK_CONTACT }]);
     setDialogOpen(true);
   }
 
-  function openEdit(client: Doc<"clients">) {
+  function openEdit(client: Client) {
     setEditing(client);
     setName(client.name);
-    setContactName(client.contactName ?? "");
-    setPhone(client.phone ?? "");
-    setEmail(client.email ?? "");
     setNotes(client.notes ?? "");
     setContacts(
-      (client.contacts ?? []).map((c) => ({
-        name: c.name,
-        role: c.role ?? "",
-        phone: c.phone ?? "",
-        email: c.email ?? "",
-      })),
+      client.contacts.length > 0
+        ? client.contacts.map((c) => ({
+            name: c.name,
+            role: c.role ?? "",
+            phone: c.phone ?? "",
+            email: c.email ?? "",
+          }))
+        : [{ ...BLANK_CONTACT }],
     );
     setDialogOpen(true);
   }
@@ -129,7 +142,7 @@ export default function ClientsPage() {
       return;
     }
     // A row with no name is a blank one somebody left behind.
-    const extraContacts = contacts
+    const cleaned = contacts
       .filter((c) => c.name.trim().length > 0)
       .map((c) => ({
         name: c.name.trim(),
@@ -141,23 +154,12 @@ export default function ClientsPage() {
     setSaving(true);
     try {
       if (editing) {
-        await updateClient({
-          id: editing._id,
-          name,
-          contactName: contactName.trim() || null,
-          phone: phone.trim() || null,
-          email: email.trim() || null,
-          contacts: extraContacts,
-          notes,
-        });
+        await updateClient({ id: editing._id, name, contacts: cleaned, notes });
         toast.success("Saved.");
       } else {
         await createClient({
           name,
-          contactName: contactName.trim() || undefined,
-          phone: phone.trim() || undefined,
-          email: email.trim() || undefined,
-          contacts: extraContacts.length > 0 ? extraContacts : undefined,
+          contacts: cleaned.length > 0 ? cleaned : undefined,
           notes: notes.trim() || undefined,
         });
         toast.success("Client added.");
@@ -180,6 +182,10 @@ export default function ClientsPage() {
     }
   }
 
+  function setContact(i: number, patch: Partial<ContactDraft>) {
+    setContacts((rows) => rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -190,14 +196,11 @@ export default function ClientsPage() {
         <div className="flex items-center gap-2">
           <CsvExportButton
             filename="clients"
-            headers={["Name", "Contact name", "Phone", "Email", "Notes"]}
-            rows={(clients ?? []).map((c) => [
-              c.name,
-              c.contactName,
-              c.phone,
-              c.email,
-              c.notes,
-            ])}
+            headers={["Company", "Name", "Role", "Number", "Email", "Notes"]}
+            rows={(clients ?? []).map((c) => {
+              const first = primaryContact(c);
+              return [c.name, first?.name, first?.role, first?.phone, first?.email, c.notes];
+            })}
           />
           <Button variant="secondary" onClick={() => setImportOpen(true)}>
             Import CSV
@@ -211,7 +214,7 @@ export default function ClientsPage() {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search company, contact, number, email or notes…"
+            placeholder="Search company, contact, role, number, email or notes…"
             className="mb-4 max-w-sm"
           />
         )}
@@ -232,27 +235,38 @@ export default function ClientsPage() {
               <TableRow>
                 <SortableHead label="Company" sortKey="name" sort={sort} onSort={toggle} />
                 <SortableHead label="Name" sortKey="contactName" sort={sort} onSort={toggle} />
+                <SortableHead label="Role" sortKey="role" sort={sort} onSort={toggle} />
                 <SortableHead label="Number" sortKey="phone" sort={sort} onSort={toggle} />
                 <SortableHead label="Email" sortKey="email" sort={sort} onSort={toggle} />
                 <SortableHead label="Notes" sortKey="notes" sort={sort} onSort={toggle} />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedClients.map((c) => (
-                <TableRow key={c._id} className="cursor-pointer" onClick={() => openEdit(c)}>
-                  <TableCell className="font-medium">{c.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{c.contactName ?? "·"}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <PhoneLink phone={c.phone} />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <EmailLink email={c.email} />
-                  </TableCell>
-                  <TableCell className="max-w-md truncate text-muted-foreground">
-                    {c.notes ?? ""}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {sortedClients.map((c) => {
+                const first = primaryContact(c);
+                const others = c.contacts.length - 1;
+                return (
+                  <TableRow key={c._id} className="cursor-pointer" onClick={() => openEdit(c)}>
+                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {first?.name ?? "·"}
+                      {others > 0 && (
+                        <span className="ml-1 text-xs">+{others}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{first?.role ?? "·"}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <PhoneLink phone={first?.phone} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <EmailLink email={first?.email} />
+                    </TableCell>
+                    <TableCell className="max-w-md truncate text-muted-foreground">
+                      {c.notes ?? ""}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
@@ -263,12 +277,13 @@ export default function ClientsPage() {
           title="Import clients from CSV"
           description="Every row becomes a client. A row whose company already exists updates that client rather than creating a duplicate, so you can safely re-import a corrected file."
           columns={IMPORT_COLUMNS}
-          exampleHeader="Company,Name,Number,Email,Notes"
+          exampleHeader="Company,Name,Role,Number,Email,Notes"
           onImportBatch={(rows) =>
             importRows({
               rows: rows.map((row) => ({
                 name: row.name ?? "",
                 contactName: row.contactName,
+                role: row.role,
                 phone: row.phone,
                 email: row.email,
                 notes: row.notes,
@@ -280,7 +295,7 @@ export default function ClientsPage() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? "Edit client" : "Add client"}</DialogTitle>
           </DialogHeader>
@@ -295,128 +310,65 @@ export default function ClientsPage() {
                 autoFocus
               />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="client-contact">Name</Label>
-                <Input
-                  id="client-contact"
-                  value={contactName}
-                  onChange={(e) => setContactName(e.target.value)}
-                  placeholder="Contact at the company"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="client-phone">Number</Label>
-                <Input
-                  id="client-phone"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="07700 900000"
-                />
-              </div>
-            </div>
+
             <div className="space-y-2">
-              <Label htmlFor="client-email">Email</Label>
-              <Input
-                id="client-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@company.com"
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Other contacts</Label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setContacts((rows) => [
-                        ...rows,
-                        { name: "", role: "", phone: "", email: "" },
-                      ])
-                    }
-                  >
-                    Add contact
-                  </Button>
-                </div>
-                {contacts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    A producer, someone in accounts, whoever signs off — they are rarely the
-                    same person.
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {contacts.map((contact, i) => (
-                      <li key={i} className="space-y-2 rounded-md border border-border p-2">
-                        <div className="flex gap-2">
-                          <Input
-                            value={contact.name}
-                            onChange={(e) =>
-                              setContacts((rows) =>
-                                rows.map((r, j) =>
-                                  j === i ? { ...r, name: e.target.value } : r,
-                                ),
-                              )
-                            }
-                            placeholder="Name"
-                            aria-label="Contact name"
-                          />
-                          <Input
-                            value={contact.role}
-                            onChange={(e) =>
-                              setContacts((rows) =>
-                                rows.map((r, j) =>
-                                  j === i ? { ...r, role: e.target.value } : r,
-                                ),
-                              )
-                            }
-                            placeholder="Role (optional)"
-                            aria-label="Contact role"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              setContacts((rows) => rows.filter((_, j) => j !== i))
-                            }
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                        <div className="flex gap-2">
-                          <Input
-                            value={contact.phone}
-                            onChange={(e) =>
-                              setContacts((rows) =>
-                                rows.map((r, j) =>
-                                  j === i ? { ...r, phone: e.target.value } : r,
-                                ),
-                              )
-                            }
-                            placeholder="Number"
-                            aria-label="Contact number"
-                          />
-                          <Input
-                            value={contact.email}
-                            onChange={(e) =>
-                              setContacts((rows) =>
-                                rows.map((r, j) =>
-                                  j === i ? { ...r, email: e.target.value } : r,
-                                ),
-                              )
-                            }
-                            placeholder="Email"
-                            aria-label="Contact email"
-                          />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              <div className="flex items-center justify-between">
+                <Label>Contacts</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setContacts((rows) => [...rows, { ...BLANK_CONTACT }])}
+                >
+                  Add contact
+                </Button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                The first is who the company is filed under.
+              </p>
+              <ul className="space-y-2">
+                {contacts.map((contact, i) => (
+                  <li key={i} className="space-y-2 rounded-md border border-border p-2">
+                    <div className="flex gap-2">
+                      <Input
+                        value={contact.name}
+                        onChange={(e) => setContact(i, { name: e.target.value })}
+                        placeholder="Name"
+                        aria-label="Contact name"
+                      />
+                      <Input
+                        value={contact.role}
+                        onChange={(e) => setContact(i, { role: e.target.value })}
+                        placeholder="Role"
+                        aria-label="Contact role"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setContacts((rows) => rows.filter((_, j) => j !== i))}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        value={contact.phone}
+                        onChange={(e) => setContact(i, { phone: e.target.value })}
+                        placeholder="Number"
+                        aria-label="Contact number"
+                      />
+                      <Input
+                        value={contact.email}
+                        onChange={(e) => setContact(i, { email: e.target.value })}
+                        placeholder="Email"
+                        aria-label="Contact email"
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="client-notes">Notes</Label>
               <Textarea
                 id="client-notes"

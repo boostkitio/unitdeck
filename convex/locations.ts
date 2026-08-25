@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
 import { chatJson } from "./lib/llm";
 import { AI_MODEL_FAST } from "./lib/ai";
+import { geocodeAddress } from "./lib/geocode";
 
 const locationFields = {
   name: v.string(),
@@ -140,17 +141,14 @@ export const geocode = action({
     if (!identity) throw new Error("Not authenticated");
     const location = await ctx.runQuery(internal.locations.getForGeocode, { id: args.id });
     if (!location) throw new Error("Location not found");
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location.address)}&format=json&limit=1`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Unit production OS (matt@boostkit.io)" },
+    const coords = await geocodeAddress(location.address);
+    if (!coords) return { found: false as const };
+    await ctx.runMutation(internal.locations.saveCoordinates, {
+      id: args.id,
+      lat: coords.lat,
+      lng: coords.lng,
     });
-    if (!res.ok) throw new Error(`Geocoding failed: ${res.status}`);
-    const results = (await res.json()) as Array<{ lat: string; lon: string }>;
-    if (results.length === 0) return { found: false as const };
-    const lat = parseFloat(results[0].lat);
-    const lng = parseFloat(results[0].lon);
-    await ctx.runMutation(internal.locations.saveCoordinates, { id: args.id, lat, lng });
-    return { found: true as const, lat, lng };
+    return { found: true as const, ...coords };
   },
 });
 
@@ -190,18 +188,6 @@ export const saveEnrichment = internalMutation({
     return null;
   },
 });
-
-/** Nominatim lookup for an address. Null when nothing matches. */
-async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Unit production OS (matt@boostkit.io)" },
-  });
-  if (!res.ok) return null;
-  const results = (await res.json()) as Array<{ lat: string; lon: string }>;
-  if (results.length === 0) return null;
-  return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
-}
 
 /**
  * The real what3words address for a set of coordinates.

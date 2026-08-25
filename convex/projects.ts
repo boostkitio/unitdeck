@@ -14,6 +14,8 @@ import { Doc, Id } from "./_generated/dataModel";
 import { LEGACY_STATUSES, normaliseStatus } from "./lib/projectStatus";
 import { fetchDailyForecast, fetchTimezone } from "./lib/weather";
 import { formatInZone, sunTimes } from "./lib/sun";
+import { geocodeAddress } from "./lib/geocode";
+import { contactsOf } from "./clients";
 
 // Only current statuses are settable; legacy values remain readable but can
 // no longer be written.
@@ -182,25 +184,42 @@ async function withRelations(ctx: QueryCtx, project: Doc<"projects">) {
   );
 
   const client = project.clientId ? await ctx.db.get(project.clientId) : null;
+  // Who booked the job, out of everybody at that client. Falls back to the
+  // first contact, which is who it was before there was a choice, and to
+  // nothing at all if that contact has since been removed.
+  const clientContacts = client ? contactsOf(client) : [];
+  const bookedByIndex =
+    project.bookedByContact !== undefined &&
+    project.bookedByContact >= 0 &&
+    project.bookedByContact < clientContacts.length
+      ? project.bookedByContact
+      : clientContacts.length > 0
+        ? 0
+        : null;
+  const bookedBy = bookedByIndex === null ? null : clientContacts[bookedByIndex];
   return {
     ...project,
     clientName: client?.name ?? null,
     // Whoever you actually ring at the client, carried onto the project so
     // it is not a trip to another tab mid-shoot.
-    clientContact: client
+    clientContact: bookedBy
       ? {
-          contactName: client.contactName ?? null,
-          phone: client.phone ?? null,
-          email: client.email ?? null,
+          contactName: bookedBy.name,
+          role: bookedBy.role ?? null,
+          phone: bookedBy.phone ?? null,
+          email: bookedBy.email ?? null,
         }
       : null,
+    bookedByContact: bookedByIndex,
     status: normaliseStatus(project.status),
     archived: isArchived(project),
     location,
     // The day and place the header reports on. The client compares these
     // with `forecast` to know whether what it is showing is still current.
     forecastDate,
-    forecastLocationId: location?.lat !== undefined ? location._id : null,
+    // Any location at all, coordinates or not: looking them up is the
+    // forecast's job, so the header should ask rather than give up here.
+    forecastLocationId: location ? location._id : null,
   };
 }
 
@@ -247,6 +266,7 @@ export const update = mutation({
     status: v.optional(statusValidator),
     briefSummary: v.optional(v.string()),
     locationId: v.optional(v.union(v.id("locations"), v.null())),
+    bookedByContact: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -266,6 +286,12 @@ export const update = mutation({
       } else {
         patch.clientId = undefined;
       }
+      // Whoever booked it worked at the old client. Changing the company
+      // without clearing them would point at a stranger's phone number.
+      if (args.clientId !== project.clientId) patch.bookedByContact = undefined;
+    }
+    if (args.bookedByContact !== undefined) {
+      patch.bookedByContact = args.bookedByContact ?? undefined;
     }
     if (args.jobNumber !== undefined) {
       const jobNumber = args.jobNumber.trim();
@@ -463,8 +489,11 @@ export const getForForecast = internalQuery({
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.id);
     if (!project || project.orgId !== org._id) return null;
+    // A location without coordinates is still worth returning: it has an
+    // address, and the forecast can look those up. Refusing here is what left
+    // a located project reading "Checking the forecast…" for good.
     const location = project.locationId ? await ctx.db.get(project.locationId) : null;
-    if (!location || location.lat === undefined || location.lng === undefined) return null;
+    if (!location) return null;
 
     const days = await ctx.db
       .query("shootDays")
@@ -512,6 +541,17 @@ export const saveForecast = internalMutation({
   },
 });
 
+/** Roughly how far Open-Meteo forecasts. Past this, only the sun is known. */
+const FORECAST_HORIZON_DAYS = 16;
+
+/** Whole days between today and a "YYYY-MM-DD" date; negative for the past. */
+function daysAhead(date: string): number {
+  const target = Date.parse(`${date}T00:00:00Z`);
+  const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+  if (!isFinite(target)) return 0;
+  return Math.round((target - today) / 86_400_000);
+}
+
 /**
  * Sunrise, sunset and the weather for the project's shoot day at its location.
  *
@@ -532,10 +572,42 @@ export const refreshForecast = action({
     if (!target) return { ok: false, reason: "No shoot date, or no location with coordinates" };
 
     const { date, location } = target;
-    const lat = location.lat!;
-    const lng = location.lng!;
 
-    const forecast = await fetchDailyForecast(lat, lng, date);
+    // A location that was typed rather than picked has no coordinates until
+    // something asks for them. Ask now: the weather is the first thing that
+    // needs them, and a producer who has set a location has done their part.
+    let lat = location.lat;
+    let lng = location.lng;
+    if (lat === undefined || lng === undefined) {
+      const found = await geocodeAddress(location.address).catch(() => null);
+      if (found) {
+        lat = found.lat;
+        lng = found.lng;
+        await ctx.runMutation(internal.locations.saveCoordinates, {
+          id: location._id,
+          lat,
+          lng,
+        });
+      }
+    }
+
+    if (lat === undefined || lng === undefined) {
+      // Nothing more to try. Record why, so the line under the title says so
+      // rather than checking forever.
+      const reason = location.address.trim()
+        ? `Could not place “${location.address.trim()}” on the map`
+        : "This location has no address to look up";
+      await ctx.runMutation(internal.projects.saveForecast, {
+        id: args.id,
+        locationId: location._id,
+        forecast: { date, locationId: location._id, fetchedAt: Date.now(), reason },
+      });
+      return { ok: false, reason };
+    }
+
+    // A weather service that is down, rate-limiting or unreachable must not
+    // leave the header stuck: fall through to sun times, which are arithmetic.
+    const forecast = await fetchDailyForecast(lat, lng, date).catch(() => null);
     if (forecast) {
       await ctx.runMutation(internal.projects.saveForecast, {
         id: args.id,
@@ -554,13 +626,19 @@ export const refreshForecast = action({
           sunset: forecast.sunset,
         },
       });
-      return { ok: true };
+      return { ok: true, reason: "Forecast updated." };
     }
 
-    // Out of forecast range. The sun still rises: work it out and show it,
-    // in the location's own time, rather than showing nothing at all.
-    const timezone = location.timezone ?? (await fetchTimezone(lat, lng));
+    // Either beyond the forecast window or the service did not answer. The sun
+    // still rises: work it out and show it, in the location's own time.
+    const timezone = location.timezone ?? (await fetchTimezone(lat, lng).catch(() => undefined));
     const sun = sunTimes(date, lat, lng);
+    const beyondForecast = daysAhead(date) > FORECAST_HORIZON_DAYS;
+    const reason = beyondForecast
+      ? sun
+        ? "Too far ahead for a forecast"
+        : "Too far ahead for a forecast, and the sun does not rise or set here that day"
+      : "Could not reach the weather service — sun times only";
     await ctx.runMutation(internal.projects.saveForecast, {
       id: args.id,
       locationId: location._id,
@@ -569,13 +647,11 @@ export const refreshForecast = action({
         date,
         locationId: location._id,
         fetchedAt: Date.now(),
-        reason: sun
-          ? "Too far ahead for a forecast"
-          : "Too far ahead for a forecast, and the sun does not rise or set here that day",
+        reason,
         sunrise: sun ? formatInZone(sun.sunriseMs, timezone) : undefined,
         sunset: sun ? formatInZone(sun.sunsetMs, timezone) : undefined,
       },
     });
-    return { ok: true, reason: "Sun times only — the shoot is beyond the forecast range" };
+    return { ok: true, reason };
   },
 });

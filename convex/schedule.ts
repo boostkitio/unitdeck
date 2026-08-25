@@ -102,6 +102,83 @@ export const add = mutation({
   },
 });
 
+/** One transaction's worth of a pasted running order. */
+const MAX_IMPORT_ITEMS = 200;
+
+/**
+ * A whole running order at once, from a schedule somebody else wrote.
+ *
+ * `replace` clears what is already there first, which is what you want when
+ * the schedule you were sent has been revised: the alternative is deleting
+ * twenty lines by hand before pasting twenty more.
+ */
+export const addMany = mutation({
+  args: {
+    projectId: v.id("projects"),
+    replace: v.optional(v.boolean()),
+    items: v.array(
+      v.object({
+        shootDayId: v.optional(v.id("shootDays")),
+        time: v.optional(v.string()),
+        item: v.string(),
+        notes: v.optional(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args): Promise<{ added: number; replaced: number }> => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) throw new Error("Project not found");
+    if (args.items.length > MAX_IMPORT_ITEMS) {
+      throw new Error(`Add at most ${MAX_IMPORT_ITEMS} lines at a time`);
+    }
+
+    // Every day named must belong to this project, checked once rather than
+    // per line.
+    const days = await ctx.db
+      .query("shootDays")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(200);
+    const ours = new Set(days.map((d) => String(d._id)));
+    for (const row of args.items) {
+      if (row.shootDayId && !ours.has(String(row.shootDayId))) {
+        throw new Error("That shoot day is not on this project");
+      }
+      checkTime(row.time);
+    }
+
+    let replaced = 0;
+    if (args.replace) {
+      const existing = await ctx.db
+        .query("scheduleItems")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .take(500);
+      for (const row of existing) {
+        await ctx.db.delete(row._id);
+        replaced++;
+      }
+    }
+
+    let added = 0;
+    for (const row of args.items) {
+      const item = row.item.trim();
+      // A blank line is not worth failing the paste over.
+      if (item.length === 0) continue;
+      await ctx.db.insert("scheduleItems", {
+        orgId: org._id,
+        projectId: args.projectId,
+        shootDayId: row.shootDayId,
+        time: row.time?.trim() || undefined,
+        item,
+        notes: row.notes?.trim() || undefined,
+      });
+      added++;
+    }
+
+    return { added, replaced };
+  },
+});
+
 export const update = mutation({
   args: {
     id: v.id("scheduleItems"),

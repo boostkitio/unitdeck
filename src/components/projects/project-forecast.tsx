@@ -86,10 +86,15 @@ export function ProjectForecast({
       </p>
     );
   }
+  // Stale or missing. The lookup below runs on its own; this is what shows
+  // while it does, and it says which day is being asked about so the line
+  // does not read as empty.
   if (!forecast || forecast.date !== date) {
     return (
-      <p className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
-        Checking the forecast…
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{formatShootDate(date)}</span>
+        {locationName && <span className="truncate">{locationName}</span>}
+        <span>Checking the forecast…</span>
         <button
           type="button"
           onClick={() => void refreshNow()}

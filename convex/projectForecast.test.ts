@@ -76,7 +76,7 @@ test("a project with no shoot dates has nothing to report on", async () => {
   expect(project?.forecastDate).toBeNull();
 });
 
-test("a location without coordinates cannot be asked about", async () => {
+test("a location without coordinates is still asked about", async () => {
   const { t, ids, asA } = await setup();
   await addShootDay(t, ids, isoDaysFromNow(2));
   await t.run(async (ctx) => {
@@ -85,7 +85,19 @@ test("a location without coordinates cannot be asked about", async () => {
 
   const project = await asA.query(api.projects.get, { id: ids.project });
   expect(project?.forecastDate).toBe(isoDaysFromNow(2));
-  // The date is known, but there is nowhere to ask about, so no lookup runs.
+  // It has an address, and looking that up is the forecast's job. Refusing
+  // here is what left a located project checking forever.
+  expect(project?.forecastLocationId).toBe(ids.location);
+});
+
+test("a project with no location has nowhere to ask about", async () => {
+  const { t, ids, asA } = await setup();
+  await addShootDay(t, ids, isoDaysFromNow(2));
+  await t.run(async (ctx) => {
+    await ctx.db.patch(ids.project, { locationId: undefined });
+  });
+
+  const project = await asA.query(api.projects.get, { id: ids.project });
   expect(project?.forecastLocationId).toBeNull();
 });
 
