@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
+import { matchesSearch } from "@/lib/search";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -114,6 +115,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
         <EquipmentDialog
           projectId={projectId}
           section={adding}
+          taken={(rows ?? []).map((row) => row.equipmentId)}
           onClose={() => setAdding(null)}
         />
       )}
@@ -122,6 +124,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
           projectId={projectId}
           section={editing.section}
           row={editing}
+          taken={(rows ?? []).map((row) => row.equipmentId)}
           onClose={() => setEditing(null)}
         />
       )}
@@ -273,19 +276,121 @@ function EquipmentList({
   );
 }
 
+/**
+ * Searchable list of the org's kit, minus what is already on this production.
+ * Adding a piece you own should be a search and a click, the same as booking a
+ * crew member — typing its name again invites typos and loses the department.
+ */
+function EquipmentPicker({
+  taken,
+  disabled,
+  onPick,
+}: {
+  taken: (Id<"equipment"> | undefined)[];
+  disabled: boolean;
+  onPick: (equipmentId: Id<"equipment">) => void;
+}) {
+  const equipment = useQuery(api.equipment.list, {});
+  const [search, setSearch] = useState("");
+
+  const used = useMemo(
+    () => new Set(taken.filter((id): id is Id<"equipment"> => id !== undefined).map(String)),
+    [taken],
+  );
+  const available = useMemo(
+    () => (equipment ?? []).filter((row) => !used.has(row._id)),
+    [equipment, used],
+  );
+  const matches = useMemo(
+    () =>
+      available.filter((row) => matchesSearch(search, [row.dept, row.item, row.serialNumber])),
+    [available, search],
+  );
+
+  if (equipment === undefined) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <Input
+        placeholder="Search by item, department or serial number…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        autoFocus
+      />
+      {matches.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {equipment.length === 0 ? (
+            <>
+              Your{" "}
+              <Link href="/equipment" className="underline underline-offset-2 text-foreground">
+                equipment
+              </Link>{" "}
+              list is empty.
+            </>
+          ) : available.length === 0 ? (
+            "Everything in your equipment list is already on this project."
+          ) : (
+            "Nothing matches that search."
+          )}
+        </p>
+      ) : (
+        <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
+          {matches.map((row) => (
+            <li key={row._id}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onPick(row._id)}
+                className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
+              >
+                <span className="flex min-w-0 items-baseline justify-between gap-2">
+                  <span className="truncate text-sm font-medium">{row.item}</span>
+                  <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
+                    {row.dept ?? ""}
+                  </span>
+                </span>
+                <span className="block w-full truncate text-xs text-muted-foreground">
+                  {row.serialNumber ? `Serial ${row.serialNumber}` : "No serial number"}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function EquipmentDialog({
   projectId,
   section,
   row,
+  taken,
   onClose,
 }: {
   projectId: Id<"projects">;
   section: SectionKey;
   row?: EquipmentRow;
+  /** Inventory already on this project, so the picker does not offer it twice. */
+  taken: (Id<"equipment"> | undefined)[];
   onClose: () => void;
 }) {
   const add = useMutation(api.projectEquipment.add);
   const update = useMutation(api.projectEquipment.update);
+
+  // Kit you own is picked from the list; the hire-in list is typed, so each
+  // section opens on the way its kit usually arrives.
+  const [mode, setMode] = useState<"pick" | "type">(
+    section === "equipment" ? "pick" : "type",
+  );
+  const [added, setAdded] = useState(0);
 
   const [item, setItem] = useState(row?.item ?? "");
   const [dept, setDept] = useState(row?.dept ?? "");
@@ -293,6 +398,19 @@ function EquipmentDialog({
   const [notes, setNotes] = useState(row?.notes ?? "");
   const [list, setList] = useState<SectionKey>(section);
   const [saving, setSaving] = useState(false);
+
+  /** Adds a piece of kit and stays open, since kit is listed in handfuls. */
+  async function pick(equipmentId: Id<"equipment">) {
+    setSaving(true);
+    try {
+      await add({ projectId, equipmentId, section: list });
+      setAdded((n) => n + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add it.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleSave() {
     if (item.trim().length === 0) {
@@ -343,6 +461,31 @@ function EquipmentDialog({
         <DialogHeader>
           <DialogTitle>{row ? "Edit equipment" : "Add equipment"}</DialogTitle>
         </DialogHeader>
+
+        {!row && (
+          <div className="flex flex-wrap gap-2 border-b border-border pb-3">
+            <Button
+              size="sm"
+              variant={mode === "pick" ? "secondary" : "ghost"}
+              onClick={() => setMode("pick")}
+            >
+              From your equipment
+            </Button>
+            <Button
+              size="sm"
+              variant={mode === "type" ? "secondary" : "ghost"}
+              onClick={() => setMode("type")}
+            >
+              Something you hire in
+            </Button>
+          </div>
+        )}
+
+        {!row && mode === "pick" ? (
+          <div className="py-2">
+            <EquipmentPicker taken={taken} disabled={saving} onPick={(id) => void pick(id)} />
+          </div>
+        ) : (
         <div className="space-y-4 py-2">
           <div className="space-y-2">
             <Label htmlFor="equipment-item">Item</Label>
@@ -408,13 +551,22 @@ function EquipmentDialog({
             />
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : row ? "Save" : "Add"}
-          </Button>
+        )}
+
+        <DialogFooter className="sm:justify-between">
+          <span className="text-xs text-muted-foreground">
+            {added > 0 && `${added} added`}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              {added > 0 ? "Done" : "Cancel"}
+            </Button>
+            {(row || mode === "type") && (
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? "Saving…" : row ? "Save" : "Add"}
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

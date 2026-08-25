@@ -38,7 +38,10 @@ export const listForProject = query({
 export const add = mutation({
   args: {
     projectId: v.id("projects"),
-    item: v.string(),
+    // One of the two: an inventory id names the kit for you, free text is for
+    // anything you do not own.
+    equipmentId: v.optional(v.id("equipment")),
+    item: v.optional(v.string()),
     dept: v.optional(v.string()),
     quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
@@ -49,10 +52,20 @@ export const add = mutation({
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== org._id) throw new Error("Project not found");
-    if (args.item.trim().length === 0) throw new Error("Name the equipment");
     if (args.quantity !== undefined && (!Number.isFinite(args.quantity) || args.quantity < 1)) {
       throw new Error("Quantity must be at least 1");
     }
+
+    // Kit from the inventory names itself, so picking it is a single click.
+    let item = args.item?.trim() ?? "";
+    let dept = args.dept?.trim() || undefined;
+    if (args.equipmentId !== undefined) {
+      const kit = await ctx.db.get(args.equipmentId);
+      if (!kit || kit.orgId !== org._id) throw new Error("Equipment not found");
+      if (item.length === 0) item = kit.item;
+      if (dept === undefined) dept = kit.dept;
+    }
+    if (item.length === 0) throw new Error("Name the equipment");
 
     // Your own kit is a given, so it lands confirmed; anything additional has
     // still to be sourced, so it lands needed.
@@ -60,8 +73,9 @@ export const add = mutation({
     return await ctx.db.insert("projectEquipment", {
       orgId: org._id,
       projectId: args.projectId,
-      item: args.item.trim(),
-      dept: args.dept?.trim() || undefined,
+      item,
+      dept,
+      equipmentId: args.equipmentId,
       quantity: args.quantity,
       notes: args.notes?.trim() || undefined,
       status: args.status ?? (section === "equipment" ? "confirmed" : "needed"),

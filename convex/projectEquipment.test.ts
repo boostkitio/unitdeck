@@ -147,3 +147,68 @@ test("another org cannot see or change a project's equipment", async () => {
   ).rejects.toThrow();
   await expect(asB.mutation(api.projectEquipment.remove, { id })).rejects.toThrow();
 });
+
+test("kit picked from the inventory names itself and brings its department", async () => {
+  const { t, ids, asA } = await setup();
+  const equipmentId = await t.run(async (ctx) => {
+    const project = (await ctx.db.get(ids.project))!;
+    return await ctx.db.insert("equipment", {
+      orgId: project.orgId,
+      item: "Sony FX9",
+      dept: "Camera",
+      serialNumber: "FX9-001",
+    });
+  });
+
+  await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    equipmentId,
+    section: "equipment",
+  });
+
+  const rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  // No name typed: it comes from the kit, department and all.
+  expect(rows[0]).toMatchObject({
+    item: "Sony FX9",
+    dept: "Camera",
+    equipmentId,
+    section: "equipment",
+    status: "confirmed",
+  });
+});
+
+test("a typed name wins over the inventory one", async () => {
+  const { t, ids, asA } = await setup();
+  const equipmentId = await t.run(async (ctx) => {
+    const project = (await ctx.db.get(ids.project))!;
+    return await ctx.db.insert("equipment", { orgId: project.orgId, item: "Sony FX9" });
+  });
+
+  await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    equipmentId,
+    item: "Sony FX9 (B camera)",
+  });
+
+  const rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(rows[0].item).toBe("Sony FX9 (B camera)");
+});
+
+test("a line still needs a name when there is no kit to take one from", async () => {
+  const { ids, asA } = await setup();
+  await expect(
+    asA.mutation(api.projectEquipment.add, { projectId: ids.project }),
+  ).rejects.toThrow(/Name the equipment/);
+});
+
+test("another org's kit cannot be added to a project", async () => {
+  const { t, ids, asA } = await setup();
+  const theirs = await t.run(async (ctx) => {
+    const orgB = await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+    return await ctx.db.insert("equipment", { orgId: orgB, item: "Their FX9" });
+  });
+
+  await expect(
+    asA.mutation(api.projectEquipment.add, { projectId: ids.project, equipmentId: theirs }),
+  ).rejects.toThrow(/Equipment not found/);
+});

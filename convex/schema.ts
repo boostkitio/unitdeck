@@ -160,6 +160,10 @@ export default defineSchema({
     // Camera, Lighting, Sound, Grip… copied from the inventory when the kit
     // comes from there, typed by hand when it does not.
     dept: v.optional(v.string()),
+    // The inventory item this line is, when it was picked from the kit list.
+    // Absent for anything hired in or typed by hand. Kept so the picker can
+    // show what is already on the production.
+    equipmentId: v.optional(v.id("equipment")),
     quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
     status: v.union(v.literal("needed"), v.literal("confirmed")),

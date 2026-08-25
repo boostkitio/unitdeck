@@ -96,6 +96,7 @@ async function projectRowFor(
     orgId,
     item: item.item,
     dept: kit?.orgId === orgId ? kit.dept : undefined,
+    equipmentId: kit?.orgId === orgId ? kit._id : undefined,
     quantity: item.quantity,
     notes: `From ${packageName}`,
     section: "equipment" as const,
