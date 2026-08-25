@@ -1,5 +1,5 @@
 import type { CallSheetData, LocationEntry } from "../../../convex/lib/callSheetData";
-import { groupEquipmentBySupplier, callStrip } from "./format";
+import { groupEquipmentBySupplier, callStrip, rowCallTime } from "./format";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 
 function formatDate(iso: string): string {
@@ -101,11 +101,21 @@ export function CallSheetDocument({
 
       {/* Crew, talent and client: one table, read together. */}
       {data.crew.length > 0 && (
-        <PeopleSection title={data.crewSectionTitle ?? "Crew"} rows={data.crew} />
+        <PeopleSection
+          title={data.crewSectionTitle ?? "Crew"}
+          rows={data.crew.map((row) => ({ ...row, callTime: rowCallTime(data, row.callTime) }))}
+        />
       )}
 
       {(data.contactSections ?? []).map((section) => (
-        <PeopleSection key={section.id} title={section.title} rows={section.rows} />
+        <PeopleSection
+          key={section.id}
+          title={section.title}
+          rows={section.rows.map((row) => ({
+            ...row,
+            callTime: rowCallTime(data, row.callTime),
+          }))}
+        />
       ))}
 
       {/* Key contacts */}

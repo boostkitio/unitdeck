@@ -925,14 +925,18 @@ function ReleaseCell({
   busy,
   onOpen,
 }: {
-  release: { status: string } | undefined;
+  release: { _id: Id<"documents">; status: string } | undefined;
   busy: boolean;
   onOpen: () => void;
 }) {
+  // Out and waiting: what is wanted now is not the form but another nudge.
+  if (release?.status === "sent") {
+    return <ReminderButton id={release._id} />;
+  }
   if (release && release.status !== "draft") {
     return (
       <span
-        title="See Documents below to preview, chase or download it"
+        title="See Documents below to preview or download it"
         className="px-2 text-xs text-muted-foreground"
       >
         Release {release.status}
@@ -941,7 +945,36 @@ function ReleaseCell({
   }
   return (
     <Button variant="ghost" size="sm" disabled={busy} onClick={onOpen}>
-      {busy ? "Opening…" : release ? "Edit release" : "Release"}
+      {busy ? "Opening…" : release ? "Edit release form" : "Release form"}
+    </Button>
+  );
+}
+
+/**
+ * Send the release again to somebody who has had it and not signed.
+ *
+ * The same email, arriving a second time and saying so — which is all a
+ * reminder is.
+ */
+export function ReminderButton({ id }: { id: Id<"documents"> }) {
+  const resend = useMutation(api.documents.resendInvite);
+  const [sending, setSending] = useState(false);
+
+  async function send() {
+    setSending(true);
+    try {
+      await resend({ id });
+      toast.success("Reminder sent.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not send the reminder.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <Button variant="ghost" size="sm" disabled={sending} onClick={() => void send()}>
+      {sending ? "Sending…" : "Send reminder"}
     </Button>
   );
 }

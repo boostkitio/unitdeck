@@ -1,10 +1,16 @@
 import { mutation, query, internalAction, internalMutation, internalQuery, MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
-import { talentReleaseDataValidator } from "./lib/documentData";
+import {
+  DEFAULT_LOCATION_RIGHTS_CLAUSE,
+  DEFAULT_TALENT_RIGHTS_CLAUSE,
+  documentDataValidator,
+  releaseTitle,
+  signerSubject,
+} from "./lib/documentData";
 import { talentReleaseInviteEmail, signedCopyEmail, sendEmail } from "./lib/email";
 import { api, internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 
 function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
@@ -42,6 +48,26 @@ async function producerOn(
   return "";
 }
 
+/** The logo and house wording this company has settled on. */
+async function releaseDefaults(
+  ctx: MutationCtx,
+  org: Doc<"organisations">,
+  kind: "talent" | "location"
+): Promise<{ logoUrl?: string; rightsClause: string }> {
+  const logoUrl = org.settings?.logoStorageId
+    ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? undefined)
+    : undefined;
+  const house =
+    kind === "location"
+      ? org.settings?.releaseWording?.location
+      : org.settings?.releaseWording?.talent;
+  const fallback =
+    kind === "location" ? DEFAULT_LOCATION_RIGHTS_CLAUSE : DEFAULT_TALENT_RIGHTS_CLAUSE;
+  // Copied onto the document rather than read when it is displayed: what was
+  // signed has to stay what was signed, whatever settings say afterwards.
+  return { logoUrl, rightsClause: house?.trim() || fallback };
+}
+
 export const create = mutation({
   args: { projectId: v.id("projects"), personId: v.optional(v.id("people")) },
   handler: async (ctx, args): Promise<Id<"documents">> => {
@@ -59,6 +85,7 @@ export const create = mutation({
       title: talentName ? `Talent release: ${talentName}` : "Talent release",
       status: "draft",
       data: {
+        kind: "talent" as const,
         talentName,
         talentEmail,
         talentPhone: person?.phone,
@@ -66,8 +93,79 @@ export const create = mutation({
         productionCompany: org.name,
         productionTitle: project.name,
         governingLaw: "England and Wales",
+        ...(await releaseDefaults(ctx, org, "talent")),
       },
       signer: { name: talentName, email: talentEmail ?? "", personId: args.personId },
+      signToken: newToken(),
+    });
+  },
+});
+
+/**
+ * The release for the location a production is shooting at.
+ *
+ * The same document as a talent release about a different subject, so it is
+ * raised the same way and from what the project already knows: the location's
+ * name and address, the production, the producer, and the shoot dates.
+ */
+export const ensureForLocation = mutation({
+  args: { projectId: v.id("projects"), locationId: v.id("locations") },
+  handler: async (ctx, args): Promise<Id<"documents">> => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) throw new Error("Project not found");
+    const location = await ctx.db.get(args.locationId);
+    if (!location || location.orgId !== org._id) throw new Error("Location not found");
+
+    const existing = await ctx.db
+      .query("documents")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(200);
+    const mine = existing.find(
+      (doc) =>
+        doc.orgId === org._id &&
+        doc.type === "location_release" &&
+        doc.status !== "voided" &&
+        doc.data.kind === "location" &&
+        doc.data.locationName === location.name
+    );
+    if (mine) return mine._id;
+
+    // The dates the production is actually there, written for a human.
+    const days = await ctx.db
+      .query("shootDays")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(200);
+    const dates = days.map((d) => d.date).sort();
+    const shootDates =
+      dates.length === 0
+        ? undefined
+        : dates.length === 1
+          ? dates[0]
+          : `${dates[0]} to ${dates[dates.length - 1]}`;
+
+    const data = {
+      kind: "location" as const,
+      locationName: location.name,
+      address: location.address,
+      // Nobody has said who owns it yet; the producer fills that in.
+      ownerName: "",
+      shootDates,
+      producerName: await producerOn(ctx, args.projectId),
+      productionCompany: org.name,
+      productionTitle: project.name,
+      governingLaw: "England and Wales",
+      ...(await releaseDefaults(ctx, org, "location")),
+    };
+
+    return await ctx.db.insert("documents", {
+      orgId: org._id,
+      projectId: args.projectId,
+      type: "location_release",
+      title: releaseTitle(data),
+      status: "draft",
+      data,
+      signer: { name: "", email: "" },
       signToken: newToken(),
     });
   },
@@ -126,16 +224,17 @@ export const listForProject = query({
 });
 
 export const saveDraft = mutation({
-  args: { id: v.id("documents"), data: talentReleaseDataValidator },
+  args: { id: v.id("documents"), data: documentDataValidator },
   handler: async (ctx, args) => {
     const { doc } = await requireOwnedDoc(ctx, args.id);
     if (doc.status !== "draft") throw new Error("Only a draft can be edited");
+    const subject = signerSubject(args.data);
     await ctx.db.patch(args.id, {
       data: args.data,
-      title: `Talent release: ${args.data.talentName || "unnamed"}`,
+      title: releaseTitle(args.data),
       signer: {
-        name: args.data.talentName,
-        email: args.data.talentEmail ?? "",
+        name: subject.name,
+        email: subject.email ?? "",
         personId: doc.signer.personId,
       },
     });
@@ -186,10 +285,12 @@ export const deliverInvite = internalAction({
     const doc = await ctx.runQuery(internal.documents.getForInvite, { id: args.id });
     if (!doc) return;
     const { subject, html } = talentReleaseInviteEmail({
-      talentName: doc.data.talentName || doc.signer.name,
+      talentName: signerSubject(doc.data).name || doc.signer.name,
       productionTitle: doc.data.productionTitle,
       productionCompany: doc.data.productionCompany,
       signUrl: `${siteUrl}/sign/${doc.signToken}`,
+      kind: doc.data.kind === "location" ? "location" : "talent",
+      reminder: doc.inviteDelivery?.status === "delivered",
     });
     const result = await sendEmail({ apiKey, to: [doc.signer.email], subject, html });
     if (!result.ok) console.error("Talent release invite send failed", result.error);
@@ -201,14 +302,19 @@ export const deliverInvite = internalAction({
   },
 });
 
-/** Re-send the invite after a failed delivery. Org-scoped. */
+/**
+ * Send the invite again — after a failed delivery, or as a reminder to
+ * somebody who has had it a week and not signed.
+ *
+ * The same path either way: what a reminder is, is the invite arriving a
+ * second time. A signed or declined document is finished and is not chased.
+ */
 export const resendInvite = mutation({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
     const { doc } = await requireOwnedDoc(ctx, args.id);
-    if (doc.status !== "sent") throw new Error("Only a sent document can be re-sent");
-    if (doc.inviteDelivery?.status !== "failed") throw new Error("The invite email has not failed");
-    await ctx.db.patch(args.id, { inviteDelivery: undefined });
+    if (doc.status !== "sent") throw new Error("Only a document waiting to be signed can be chased");
+    if (!doc.signer.email) throw new Error("Add the signer's email before sending");
     await ctx.scheduler.runAfter(0, internal.documents.deliverInvite, { id: args.id });
     return null;
   },
@@ -350,7 +456,7 @@ export const deliverSignedCopy = internalAction({
     const doc = await ctx.runQuery(internal.documents.getForInvite, { id: args.id });
     if (!doc) return;
     const { subject, html } = signedCopyEmail({
-      talentName: doc.data.talentName || doc.signer.name,
+      talentName: signerSubject(doc.data).name || doc.signer.name,
       productionTitle: doc.data.productionTitle,
       productionCompany: doc.data.productionCompany,
       viewUrl: `${siteUrl}/sign/${doc.signToken}`,

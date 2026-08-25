@@ -116,8 +116,13 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
                         <SendReleaseButton id={doc._id} />
                       </>
                     )}
-                    {doc.status === "sent" && doc.inviteDelivery?.status === "failed" && (
-                      <RetryInviteButton id={doc._id} />
+                    {/* Anything out and unsigned can be chased; a failed
+                        delivery says so, since that is a retry not a nudge. */}
+                    {doc.status === "sent" && (
+                      <RetryInviteButton
+                        id={doc._id}
+                        failed={doc.inviteDelivery?.status === "failed"}
+                      />
                     )}
                     {/* Downloadable at any stage: a release often goes to set
                         on paper, and waiting for a signature to be able to
@@ -157,27 +162,27 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
   );
 }
 
-function RetryInviteButton({ id }: { id: Id<"documents"> }) {
+function RetryInviteButton({ id, failed }: { id: Id<"documents">; failed: boolean }) {
   const resend = useMutation(api.documents.resendInvite);
   const [busy, setBusy] = useState(false);
   return (
     <Button
       size="sm"
-      variant="secondary"
+      variant={failed ? "secondary" : "ghost"}
       disabled={busy}
       onClick={async () => {
         setBusy(true);
         try {
           await resend({ id });
-          toast.success("Invite email queued again.");
+          toast.success(failed ? "Invite email queued again." : "Reminder sent.");
         } catch (err) {
-          toast.error(err instanceof Error ? err.message : "Could not re-send the invite.");
+          toast.error(err instanceof Error ? err.message : "Could not send it again.");
         } finally {
           setBusy(false);
         }
       }}
     >
-      {busy ? "Re-sending…" : "Retry email"}
+      {busy ? "Sending…" : failed ? "Retry email" : "Send reminder"}
     </Button>
   );
 }

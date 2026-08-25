@@ -8,6 +8,10 @@ import type { Infer } from "convex/values";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { invoicingValidator } from "../../../../convex/lib/callSheetData";
+import {
+  DEFAULT_LOCATION_RIGHTS_CLAUSE,
+  DEFAULT_TALENT_RIGHTS_CLAUSE,
+} from "../../../../convex/lib/documentData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +24,7 @@ type SettingsView = {
   brandColor?: string;
   invoicing?: Invoicing;
   confidentialByDefault?: boolean;
+  releaseWording?: { talent?: string; location?: string };
   logoUrl?: string;
 };
 
@@ -31,7 +36,8 @@ export default function SettingsPage() {
     <div>
       <h1 className="font-heading text-2xl font-semibold tracking-tight">Settings</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Branding and invoicing defaults used on every new call sheet.
+        Branding, invoicing and release wording used on every new call sheet and
+        release.
       </p>
       <div className="mt-6 max-w-2xl">
         {settings === undefined ? (
@@ -57,6 +63,10 @@ function SettingsForm({ settings }: { settings: SettingsView }) {
   const [receiptsNote, setReceiptsNote] = useState(settings.invoicing?.receiptsNote ?? "");
   const [confidentialByDefault, setConfidentialByDefault] = useState(
     settings.confidentialByDefault ?? false
+  );
+  const [talentWording, setTalentWording] = useState(settings.releaseWording?.talent ?? "");
+  const [locationWording, setLocationWording] = useState(
+    settings.releaseWording?.location ?? "",
   );
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -105,6 +115,10 @@ function SettingsForm({ settings }: { settings: SettingsView }) {
             }
           : {}),
         confidentialByDefault,
+        releaseWording: {
+          talent: talentWording.trim() || undefined,
+          location: locationWording.trim() || undefined,
+        },
       });
       toast.success("Settings saved.");
     } catch (err) {
@@ -244,11 +258,90 @@ function SettingsForm({ settings }: { settings: SettingsView }) {
         </label>
       </section>
 
+      {/* Release wording */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Release wording</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The rights granted by a release. Leave a box empty to use the wording below
+            it. A release keeps the wording it was raised under, so changing this never
+            rewrites one already signed. Write{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">{"{{governingLaw}}"}</code>{" "}
+            where the governing law should appear.
+          </p>
+        </div>
+
+        <ClauseField
+          id="settings-talent-clause"
+          label="Talent release wording"
+          value={talentWording}
+          fallback={DEFAULT_TALENT_RIGHTS_CLAUSE}
+          onChange={setTalentWording}
+        />
+        <ClauseField
+          id="settings-location-clause"
+          label="Location release wording"
+          value={locationWording}
+          fallback={DEFAULT_LOCATION_RIGHTS_CLAUSE}
+          onChange={setLocationWording}
+        />
+      </section>
+
       <div className="flex justify-end">
         <Button disabled={saving} onClick={save}>
           {saving ? "Saving…" : "Save settings"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One block of release wording, with the default underneath it.
+ *
+ * The default is shown rather than hidden behind a reset, because the useful
+ * thing when rewriting a clause is to see what you are replacing — and to be
+ * able to start from it.
+ */
+function ClauseField({
+  id,
+  label,
+  value,
+  fallback,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  fallback: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label htmlFor={id}>{label}</Label>
+        <div className="flex items-center gap-2">
+          {value.trim().length === 0 ? (
+            <Button variant="ghost" size="sm" onClick={() => onChange(fallback)}>
+              Start from the default
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => onChange("")}>
+              Use the default
+            </Button>
+          )}
+        </div>
+      </div>
+      <Textarea
+        id={id}
+        rows={6}
+        value={value}
+        placeholder={fallback}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <p className="text-xs text-muted-foreground">
+        {value.trim().length === 0 ? "Using the default wording." : "Using your own wording."}
+      </p>
     </div>
   );
 }

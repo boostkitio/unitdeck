@@ -20,6 +20,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ReleaseComposer } from "@/components/documents/release-composer";
+import { ReminderButton } from "@/components/projects/crew-section";
 
 /**
  * Google's embed API when a browser key is configured, otherwise the keyless
@@ -45,6 +47,8 @@ export function LocationSection({
 }) {
   const [picking, setPicking] = useState(false);
   const [looking, setLooking] = useState(false);
+  const [releaseId, setReleaseId] = useState<Id<"documents"> | null>(null);
+  const [makingRelease, setMakingRelease] = useState(false);
 
   // Everything the address should have filled in on its own.
   const missing = location
@@ -57,6 +61,33 @@ export function LocationSection({
     : [];
   const updateProject = useMutation(api.projects.update);
   const enrichLocation = useAction(api.locations.enrichLocation);
+  const ensureRelease = useMutation(api.documents.ensureForLocation);
+  const releases = useQuery(api.documents.listForProject, { projectId });
+
+  // The release raised for this location, whatever stage it has reached.
+  const release = (releases ?? []).find(
+    (doc) =>
+      doc.type === "location_release" &&
+      doc.status !== "voided" &&
+      doc.data.kind === "location" &&
+      doc.data.locationName === location?.name,
+  );
+
+  /**
+   * Open the release for this location, raising it first if there is not one.
+   * Everything but who owns the place is already known here.
+   */
+  async function openRelease() {
+    if (!location) return;
+    setMakingRelease(true);
+    try {
+      setReleaseId(await ensureRelease({ projectId, locationId: location._id }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not start the release.");
+    } finally {
+      setMakingRelease(false);
+    }
+  }
 
   // Prefer coordinates when the location has been geocoded: a lat/lng drops the
   // pin exactly, where a free-text address can land on the wrong side of town.
@@ -86,6 +117,29 @@ export function LocationSection({
             <Button size="sm" variant={location ? "ghost" : "default"} onClick={() => setPicking(true)}>
               {location ? "Change" : "Add location"}
             </Button>
+            {location && release?.status === "sent" ? (
+              <ReminderButton id={release._id} />
+            ) : location && release && release.status !== "draft" ? (
+              <span
+                title="See Documents below to preview or download it"
+                className="px-2 text-xs text-muted-foreground"
+              >
+                Release {release.status}
+              </span>
+            ) : location ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={makingRelease}
+                onClick={() => void openRelease()}
+              >
+                {makingRelease
+                  ? "Opening…"
+                  : release
+                    ? "Edit release form"
+                    : "Release form"}
+              </Button>
+            ) : null}
             {location && (
               <Button size="sm" variant="ghost" onClick={() => void clearLocation()}>
                 Remove
@@ -236,7 +290,10 @@ export function LocationSection({
           onClose={() => setPicking(false)}
         />
       )}
-    </Card>
+    {releaseId && (
+        <ReleaseComposer id={releaseId} onClose={() => setReleaseId(null)} />
+      )}
+      </Card>
   );
 }
 

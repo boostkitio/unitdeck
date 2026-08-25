@@ -3,6 +3,11 @@ import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import {
+  DEFAULT_TALENT_RIGHTS_CLAUSE,
+  rightsClauseFor,
+  signerSubject,
+} from "./lib/documentData";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -33,7 +38,7 @@ test("a talent_release document round-trips through the schema", async () => {
   });
   expect(read?.type).toBe("talent_release");
   expect(read?.status).toBe("draft");
-  expect(read?.data.talentName).toBe("Claire Francis");
+  expect(signerSubject(read!.data).name).toBe("Claire Francis");
   expect(read?.signToken).toBe("tok_abc");
 });
 
@@ -55,7 +60,7 @@ test("create seeds a draft prefilled from project, org and person, with a token"
   expect(doc?.status).toBe("draft");
   expect(doc?.data.productionTitle).toBe("Barclays");
   expect(doc?.data.productionCompany).toBe("Klaxon");
-  expect(doc?.data.talentName).toBe("Claire Francis");
+  expect(signerSubject(doc!.data).name).toBe("Claire Francis");
   expect(doc?.signer.email).toBe("claire@example.com");
   expect(doc?.signToken).toMatch(/^[a-f0-9]{48}$/);
 });
@@ -100,7 +105,7 @@ test("getBySignToken returns the body but no org internals", async () => {
   const { t, token } = await sentDoc();
   const res = await t.query(api.documents.getBySignToken, { token });
   expect(res?.status).toBe("sent");
-  expect(res?.data.talentName).toBe("Claire Francis");
+  expect(signerSubject(res!.data).name).toBe("Claire Francis");
   expect((res as Record<string, unknown>)?.orgId).toBeUndefined();
   expect(await t.query(api.documents.getBySignToken, { token: "nope" })).toBeNull();
 });
@@ -197,20 +202,21 @@ test("deliverInvite records a failure without reverting the doc status", async (
   expect(doc?.status).toBe("sent");
 });
 
-test("resendInvite requeues only after a failed delivery", async () => {
+test("resendInvite requeues whether the last one failed or simply went unanswered", async () => {
   const { t, asA, id } = await sentDoc();
-  // No failure recorded yet: retry is refused.
-  await expect(asA.mutation(api.documents.resendInvite, { id })).rejects.toThrow(
-    "The invite email has not failed"
-  );
+
+  // A reminder is the invite arriving a second time, so a delivered one can
+  // be sent again — that is what chasing a signature is.
+  await asA.mutation(api.documents.resendInvite, { id });
+  expect((await asA.query(api.documents.get, { id }))?.status).toBe("sent");
+
   await t.run(async (ctx) => {
     await ctx.db.patch(id, {
       inviteDelivery: { status: "failed" as const, error: "Resend 500", at: Date.now() },
     });
   });
   await asA.mutation(api.documents.resendInvite, { id });
-  const doc = await asA.query(api.documents.get, { id });
-  expect(doc?.inviteDelivery).toBeUndefined();
+  expect((await asA.query(api.documents.get, { id }))?.status).toBe("sent");
 });
 
 test("markViewed sets viewedAt once and is idempotent", async () => {
@@ -301,4 +307,108 @@ test("another org cannot raise a release on your production", async () => {
   await expect(
     asB.mutation(api.documents.ensureForPerson, { projectId: ids.projectA, personId: actor }),
   ).rejects.toThrow(/not found/i);
+});
+
+test("a location release is raised from the location on the project", async () => {
+  const { t, ids, asA } = await setup();
+  const locationId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("locations", {
+      orgId: ids.orgA,
+      name: "Shoreditch studio",
+      address: "25 Tree Lane, London",
+    });
+    await ctx.db.insert("shootDays", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      date: "2026-05-12",
+      locationIds: [id],
+    });
+    await ctx.db.insert("shootDays", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      date: "2026-05-14",
+      locationIds: [id],
+    });
+    return id;
+  });
+
+  const id = await asA.mutation(api.documents.ensureForLocation, {
+    projectId: ids.projectA,
+    locationId,
+  });
+  const doc = await asA.query(api.documents.get, { id });
+
+  expect(doc?.type).toBe("location_release");
+  expect(doc?.data).toMatchObject({
+    kind: "location",
+    locationName: "Shoreditch studio",
+    address: "25 Tree Lane, London",
+    productionTitle: "Barclays",
+    shootDates: "2026-05-12 to 2026-05-14",
+  });
+  // Nobody has said who owns it; that is the one thing left to fill in.
+  expect(signerSubject(doc!.data).name).toBe("");
+  expect(doc?.title).toBe("Location release: Shoreditch studio");
+
+  // Asking twice reopens it rather than raising a second.
+  const again = await asA.mutation(api.documents.ensureForLocation, {
+    projectId: ids.projectA,
+    locationId,
+  });
+  expect(again).toBe(id);
+});
+
+test("a release keeps the wording it was raised under", async () => {
+  const { t, ids, asA } = await setup();
+  await t.run(async (ctx) => {
+    const org = await ctx.db.get(ids.orgA);
+    await ctx.db.patch(ids.orgA, {
+      settings: { ...org!.settings, releaseWording: { talent: "House wording, {{governingLaw}}." } },
+    });
+  });
+
+  const id = await asA.mutation(api.documents.create, {
+    projectId: ids.projectA,
+    personId: ids.person,
+  });
+  const before = await asA.query(api.documents.get, { id });
+  expect(before?.data.rightsClause).toBe("House wording, {{governingLaw}}.");
+  expect(rightsClauseFor(before!.data)).toBe("House wording, England and Wales.");
+
+  // Changing settings afterwards must not rewrite a release already raised.
+  await t.run(async (ctx) => {
+    const org = await ctx.db.get(ids.orgA);
+    await ctx.db.patch(ids.orgA, {
+      settings: { ...org!.settings, releaseWording: { talent: "Something else entirely." } },
+    });
+  });
+  const after = await asA.query(api.documents.get, { id });
+  expect(after?.data.rightsClause).toBe("House wording, {{governingLaw}}.");
+});
+
+test("a release with no house wording falls back to the default clause", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.documents.create, {
+    projectId: ids.projectA,
+    personId: ids.person,
+  });
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.data.rightsClause).toBe(DEFAULT_TALENT_RIGHTS_CLAUSE);
+});
+
+test("a release waiting to be signed can be chased, a finished one cannot", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.documents.create, {
+    projectId: ids.projectA,
+    personId: ids.person,
+  });
+
+  // Not yet sent: there is nothing to remind anybody about.
+  await expect(asA.mutation(api.documents.resendInvite, { id })).rejects.toThrow(/waiting/i);
+
+  await asA.mutation(api.documents.send, { id });
+  await asA.mutation(api.documents.resendInvite, { id });
+
+  const doc = await asA.query(api.documents.get, { id });
+  expect(doc?.status).toBe("sent");
 });

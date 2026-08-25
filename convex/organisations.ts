@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { clerkOrgIdFromIdentity, requireIdentity, requireOrg } from "./lib/auth";
 import { invoicingValidator } from "./lib/callSheetData";
+import { releaseWordingValidator } from "./lib/documentData";
 
 /**
  * Idempotently creates the organisation row for the caller's active Clerk org.
@@ -50,6 +51,7 @@ export const updateSettings = mutation({
     brandColor: v.optional(v.string()),
     invoicing: v.optional(invoicingValidator),
     confidentialByDefault: v.optional(v.boolean()),
+    releaseWording: v.optional(releaseWordingValidator),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -89,6 +91,7 @@ export const settingsView = query({
       brandColor: org.settings?.brandColor,
       invoicing: org.settings?.invoicing,
       confidentialByDefault: org.settings?.confidentialByDefault,
+      releaseWording: org.settings?.releaseWording,
       logoUrl,
     };
   },

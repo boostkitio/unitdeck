@@ -2,7 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { callSheetDataValidator, invoicingValidator } from "./lib/callSheetData";
 import { proposalValidator } from "./lib/agentProposals";
-import { talentReleaseDataValidator } from "./lib/documentData";
+import { documentDataValidator, releaseWordingValidator } from "./lib/documentData";
 
 export const weatherSnapshotValidator = v.object({
   fetchedAt: v.number(),
@@ -23,6 +23,9 @@ export default defineSchema({
         logoStorageId: v.optional(v.id("_storage")),
         invoicing: v.optional(invoicingValidator),
         confidentialByDefault: v.optional(v.boolean()),
+        // House wording for releases. A document keeps the clause it was
+        // raised under, so changing this never rewrites one already signed.
+        releaseWording: v.optional(releaseWordingValidator),
       })
     ),
   }).index("by_clerk_org", ["clerkOrgId"]),
@@ -443,7 +446,7 @@ export default defineSchema({
   documents: defineTable({
     orgId: v.id("organisations"),
     projectId: v.optional(v.id("projects")),
-    type: v.union(v.literal("talent_release")),
+    type: v.union(v.literal("talent_release"), v.literal("location_release")),
     title: v.string(),
     status: v.union(
       v.literal("draft"),
@@ -452,7 +455,7 @@ export default defineSchema({
       v.literal("declined"),
       v.literal("voided")
     ),
-    data: talentReleaseDataValidator,
+    data: documentDataValidator,
     signer: v.object({
       name: v.string(),
       email: v.string(),

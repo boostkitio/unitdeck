@@ -4,7 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Doc, Id } from "../../../convex/_generated/dataModel";
-import type { TalentReleaseData } from "../../../convex/lib/documentData";
+import {
+  isLocationRelease,
+  type DocumentData,
+  type LocationReleaseData,
+  type TalentReleaseData,
+} from "../../../convex/lib/documentData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,12 +48,12 @@ function Composer({ doc, onClose }: { doc: Doc<"documents">; onClose: () => void
 
   // Keyed by doc._id at the call site so this state resets if a different
   // document is opened without unmounting the dialog shell.
-  const [data, setData] = useState<TalentReleaseData>(doc.data);
+  const [data, setData] = useState<DocumentData>(doc.data);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const onChange = useCallback(
-    (next: TalentReleaseData) => {
+    (next: DocumentData) => {
       setData(next);
       if (!editable) return;
       setSaveState("saving");
@@ -78,8 +83,10 @@ function Composer({ doc, onClose }: { doc: Doc<"documents">; onClose: () => void
     return () => window.removeEventListener("beforeunload", handler);
   }, [data, doc._id, editable, saveDraft]);
 
-  function set(patch: Partial<TalentReleaseData>) {
-    onChange({ ...data, ...patch });
+  // Patched within one kind at a time: the fields on screen are the fields of
+  // the document being edited, so a patch cannot cross from one to the other.
+  function set(patch: Partial<DocumentData>) {
+    onChange({ ...data, ...patch } as DocumentData);
   }
 
   const signature = doc.signature
@@ -136,61 +143,25 @@ function ComposerFields({
   editable,
   onChange,
 }: {
-  data: TalentReleaseData;
+  data: DocumentData;
   editable: boolean;
-  onChange: (patch: Partial<TalentReleaseData>) => void;
+  onChange: (patch: Partial<DocumentData>) => void;
 }) {
   return (
     <div className="space-y-6">
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold">Talent details</h3>
-        <div className="space-y-2">
-          <Label htmlFor="rc-talent-name">Name</Label>
-          <Input
-            id="rc-talent-name"
-            disabled={!editable}
-            value={data.talentName}
-            onChange={(e) => onChange({ talentName: e.target.value })}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="rc-talent-email">Email</Label>
-          <Input
-            id="rc-talent-email"
-            type="email"
-            disabled={!editable}
-            value={data.talentEmail ?? ""}
-            onChange={(e) => onChange({ talentEmail: e.target.value || undefined })}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="rc-talent-phone">Phone</Label>
-          <Input
-            id="rc-talent-phone"
-            disabled={!editable}
-            value={data.talentPhone ?? ""}
-            onChange={(e) => onChange({ talentPhone: e.target.value || undefined })}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="rc-agent-name">Agent (optional)</Label>
-          <Input
-            id="rc-agent-name"
-            disabled={!editable}
-            value={data.agentName ?? ""}
-            onChange={(e) => onChange({ agentName: e.target.value || undefined })}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="rc-agent-phone">Agent phone</Label>
-          <Input
-            id="rc-agent-phone"
-            disabled={!editable}
-            value={data.agentPhone ?? ""}
-            onChange={(e) => onChange({ agentPhone: e.target.value || undefined })}
-          />
-        </div>
-      </section>
+      {isLocationRelease(data) ? (
+        <LocationFields
+          data={data}
+          editable={editable}
+          onChange={onChange as (patch: Partial<LocationReleaseData>) => void}
+        />
+      ) : (
+        <TalentFields
+          data={data}
+          editable={editable}
+          onChange={onChange as (patch: Partial<TalentReleaseData>) => void}
+        />
+      )}
 
       <section className="space-y-3">
         <h3 className="text-sm font-semibold">Production details</h3>
@@ -256,5 +227,148 @@ function ComposerFields({
         </div>
       </section>
     </div>
+  );
+}
+
+/** Who is being released, when the subject is a person. */
+function TalentFields({
+  data,
+  editable,
+  onChange,
+}: {
+  data: TalentReleaseData;
+  editable: boolean;
+  onChange: (patch: Partial<TalentReleaseData>) => void;
+}) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-semibold">Talent details</h3>
+      <div className="space-y-2">
+        <Label htmlFor="rc-talent-name">Name</Label>
+        <Input
+          id="rc-talent-name"
+          disabled={!editable}
+          value={data.talentName}
+          onChange={(e) => onChange({ talentName: e.target.value })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-talent-email">Email</Label>
+        <Input
+          id="rc-talent-email"
+          type="email"
+          disabled={!editable}
+          value={data.talentEmail ?? ""}
+          onChange={(e) => onChange({ talentEmail: e.target.value || undefined })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-talent-phone">Phone</Label>
+        <Input
+          id="rc-talent-phone"
+          disabled={!editable}
+          value={data.talentPhone ?? ""}
+          onChange={(e) => onChange({ talentPhone: e.target.value || undefined })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-agent-name">Agent (optional)</Label>
+        <Input
+          id="rc-agent-name"
+          disabled={!editable}
+          value={data.agentName ?? ""}
+          onChange={(e) => onChange({ agentName: e.target.value || undefined })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-agent-phone">Agent phone</Label>
+        <Input
+          id="rc-agent-phone"
+          disabled={!editable}
+          value={data.agentPhone ?? ""}
+          onChange={(e) => onChange({ agentPhone: e.target.value || undefined })}
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Who is being released, when the subject is a place.
+ *
+ * The location and address come off the project; who owns it does not, so
+ * that is the field asking to be filled — and it is the one that has to be
+ * right, because it is who signs.
+ */
+function LocationFields({
+  data,
+  editable,
+  onChange,
+}: {
+  data: LocationReleaseData;
+  editable: boolean;
+  onChange: (patch: Partial<LocationReleaseData>) => void;
+}) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-semibold">Location details</h3>
+      <div className="space-y-2">
+        <Label htmlFor="rc-loc-name">Location</Label>
+        <Input
+          id="rc-loc-name"
+          disabled={!editable}
+          value={data.locationName}
+          onChange={(e) => onChange({ locationName: e.target.value })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-loc-address">Address</Label>
+        <Textarea
+          id="rc-loc-address"
+          rows={3}
+          disabled={!editable}
+          value={data.address}
+          onChange={(e) => onChange({ address: e.target.value })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-loc-owner">Owner or occupier</Label>
+        <Input
+          id="rc-loc-owner"
+          disabled={!editable}
+          placeholder="Who is signing for the location"
+          value={data.ownerName}
+          onChange={(e) => onChange({ ownerName: e.target.value })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-loc-email">Email</Label>
+        <Input
+          id="rc-loc-email"
+          type="email"
+          disabled={!editable}
+          value={data.ownerEmail ?? ""}
+          onChange={(e) => onChange({ ownerEmail: e.target.value || undefined })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-loc-phone">Phone</Label>
+        <Input
+          id="rc-loc-phone"
+          disabled={!editable}
+          value={data.ownerPhone ?? ""}
+          onChange={(e) => onChange({ ownerPhone: e.target.value || undefined })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="rc-loc-dates">Dates on the location</Label>
+        <Input
+          id="rc-loc-dates"
+          disabled={!editable}
+          value={data.shootDates ?? ""}
+          onChange={(e) => onChange({ shootDates: e.target.value || undefined })}
+        />
+      </div>
+    </section>
   );
 }
