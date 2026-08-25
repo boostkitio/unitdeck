@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatShootDate } from "@/lib/format-date";
 import { Button } from "@/components/ui/button";
 import { useOrganization } from "@clerk/nextjs";
 import { statusBadgeClass, statusLabel } from "@/lib/project-status";
@@ -184,7 +185,7 @@ export default function DashboardPage() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-foreground">{item.label}</p>
                       <p className="text-xs text-muted-foreground">
-                        {item.projectName} · {item.date}
+                        {item.projectName} · {formatShootDate(item.date)}
                       </p>
                     </div>
                     <Link

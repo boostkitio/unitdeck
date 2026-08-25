@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { QueryCtx, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { Doc, Id } from "./_generated/dataModel";
@@ -248,5 +248,79 @@ export const removeMany = mutation({
       removed++;
     }
     return { removed };
+  },
+});
+
+/**
+ * Project kit that predates the inventory link, and could be matched to it.
+ *
+ * Clash detection works on `equipmentId`, so lines added before that field
+ * existed are invisible to it — a production could be double-booked and
+ * nothing would say so. This counts what a backfill could join up.
+ */
+export const unlinkedCount = query({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const { org } = await requireOrg(ctx);
+    const matches = await matchableRows(ctx, org._id);
+    return matches.length;
+  },
+});
+
+/**
+ * Rows that can be joined to exactly one piece of inventory by name.
+ *
+ * A name shared by two pieces of kit is deliberately left alone: two tripods
+ * called "Tripod" are two objects, and guessing which one a line meant would
+ * invent clashes between productions that are each holding their own.
+ */
+async function matchableRows(
+  ctx: QueryCtx,
+  orgId: Id<"organisations">,
+): Promise<{ rowId: Id<"projectEquipment">; equipmentId: Id<"equipment"> }[]> {
+  const inventory = await ctx.db
+    .query("equipment")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .take(5000);
+
+  const byName = new Map<string, Id<"equipment"> | null>();
+  for (const kit of inventory) {
+    if (kit.archived) continue;
+    const key = kit.item.trim().toLowerCase();
+    // null marks a name that more than one piece of kit answers to.
+    byName.set(key, byName.has(key) ? null : kit._id);
+  }
+
+  const rows = await ctx.db
+    .query("projectEquipment")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .take(5000);
+
+  const out: { rowId: Id<"projectEquipment">; equipmentId: Id<"equipment"> }[] = [];
+  for (const row of rows) {
+    if (row.equipmentId) continue;
+    const match = byName.get(row.item.trim().toLowerCase());
+    if (!match) continue;
+    out.push({ rowId: row._id, equipmentId: match });
+  }
+  return out;
+}
+
+/** Joins those rows up, so clash detection can see kit listed before the link. */
+export const linkToInventory = mutation({
+  args: {},
+  handler: async (ctx): Promise<{ linked: number }> => {
+    const { org } = await requireOrg(ctx);
+    const matches = await matchableRows(ctx, org._id);
+    for (const match of matches) {
+      const row = await ctx.db.get(match.rowId);
+      const kit = await ctx.db.get(match.equipmentId);
+      await ctx.db.patch(match.rowId, {
+        equipmentId: match.equipmentId,
+        // Take the department too while we are here, if it has none.
+        dept: row?.dept ?? kit?.dept,
+      });
+    }
+    return { linked: matches.length };
   },
 });

@@ -197,3 +197,35 @@ test("an unfilled role is chased separately from unconfirmed crew", async () => 
   expect(items.map((i) => i.kind)).toEqual(["unfilled_roles"]);
   expect(items[0].label).toBe("1 role still to book");
 });
+
+test("a crew problem is raised once per production, not once per shoot day", async () => {
+  const t = convexTest(schema, modules);
+  const dayOne = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org A", clerkOrgId: "org_a" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "pencilled",
+    });
+    // A week's shoot with nobody booked on it.
+    for (const offset of [1, 2, 3, 4, 5]) {
+      await ctx.db.insert("shootDays", {
+        orgId: org,
+        projectId: project,
+        date: new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10),
+        locationIds: [],
+      });
+    }
+  });
+  const asA = t.withIdentity({ subject: "user_a", org_id: "org_a" });
+
+  const items = await asA.query(api.dashboard.attention, {});
+
+  // One production with no crew is one problem, not five — and the panel's
+  // count is what the tile above it shows.
+  expect(items).toHaveLength(1);
+  expect(items[0].kind).toBe("no_crew");
+  // It points at the first day it matters, not an arbitrary one.
+  expect(items[0].date).toBe(dayOne);
+});

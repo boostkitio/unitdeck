@@ -76,8 +76,18 @@ export const attention = query({
     }
 
     const items: AttentionItem[] = [];
+
+    // Crew is booked per production, not per day, so it is reported once per
+    // production against the first day it matters. Raising it per shoot day
+    // repeated the same sentence for every day of the shoot and counted a
+    // single unbooked production five times over.
+    const firstDayByProject = new Map<Id<"projects">, Doc<"shootDays">>();
     for (const day of upcoming) {
-      const project = byId.get(day.projectId)!;
+      if (!firstDayByProject.has(day.projectId)) firstDayByProject.set(day.projectId, day);
+    }
+
+    for (const [projectId, day] of firstDayByProject) {
+      const project = byId.get(projectId)!;
       const base = {
         projectId: project._id,
         projectName: project.name,
@@ -85,38 +95,50 @@ export const attention = query({
         date: day.date,
       };
 
-      const crew = await crewFor(project._id);
+      const crew = await crewFor(projectId);
       if (crew.total === 0) {
         items.push({ ...base, kind: "no_crew", label: "No crew on this project yet" });
-      } else {
-        if (crew.unfilled > 0) {
-          items.push({
-            ...base,
-            kind: "unfilled_roles",
-            label: `${crew.unfilled} role${crew.unfilled === 1 ? "" : "s"} still to book`,
-          });
-        }
-        if (crew.filled > 0 && crew.confirmed < crew.filled) {
-          const outstanding = crew.filled - crew.confirmed;
-          items.push({
-            ...base,
-            kind: "unconfirmed_crew",
-            label: `${outstanding} of ${crew.filled} crew still to confirm`,
-          });
-        }
+        continue;
       }
-
-      if (
-        day.weather?.precipitationProbability !== undefined &&
-        day.weather.precipitationProbability >= 60
-      ) {
+      if (crew.unfilled > 0) {
         items.push({
           ...base,
-          kind: "weather_risk",
-          label: `Weather risk: ${day.weather.summary}, ${day.weather.precipitationProbability}% rain`,
+          kind: "unfilled_roles",
+          label: `${crew.unfilled} role${crew.unfilled === 1 ? "" : "s"} still to book`,
+        });
+      }
+      if (crew.filled > 0 && crew.confirmed < crew.filled) {
+        const outstanding = crew.filled - crew.confirmed;
+        items.push({
+          ...base,
+          kind: "unconfirmed_crew",
+          label: `${outstanding} of ${crew.filled} crew still to confirm`,
         });
       }
     }
+
+    // Weather is the one thing that genuinely differs day by day, so it stays
+    // per shoot day.
+    for (const day of upcoming) {
+      if (
+        day.weather?.precipitationProbability === undefined ||
+        day.weather.precipitationProbability < 60
+      ) {
+        continue;
+      }
+      const project = byId.get(day.projectId)!;
+      items.push({
+        projectId: project._id,
+        projectName: project.name,
+        shootDayId: day._id,
+        date: day.date,
+        kind: "weather_risk",
+        label: `Weather risk: ${day.weather.summary}, ${day.weather.precipitationProbability}% rain`,
+      });
+    }
+
+    // Soonest first: the panel is a queue of what to deal with next.
+    items.sort((a, b) => a.date.localeCompare(b.date));
     return items;
   },
 });

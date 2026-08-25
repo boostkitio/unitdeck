@@ -66,6 +66,7 @@ function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | 
 export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
   const equipment = useQuery(api.projectEquipment.listForProject, { projectId });
   const clashes = useQuery(api.projectEquipment.clashesForProject, { projectId });
+  const unlinked = useQuery(api.projectEquipment.unlinkedCount, {});
 
   const [applying, setApplying] = useState(false);
   const [adding, setAdding] = useState<SectionKey | null>(null);
@@ -83,6 +84,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
 
   return (
     <div className="mt-12 space-y-6">
+      {unlinked !== undefined && unlinked > 0 && <LinkInventoryPrompt count={unlinked} />}
       {clashes && clashes.length > 0 && <ClashWarning clashes={clashes} />}
 
       <EquipmentList
@@ -283,6 +285,44 @@ function EquipmentList({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Kit listed before project lines recorded which inventory item they were
+ * cannot be checked for clashes, and silently missing a double booking is
+ * exactly the failure this is meant to prevent. Offer to join them up.
+ */
+function LinkInventoryPrompt({ count }: { count: number }) {
+  const link = useMutation(api.projectEquipment.linkToInventory);
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    setBusy(true);
+    try {
+      const result = await link({});
+      toast.success(
+        `${result.linked} line${result.linked === 1 ? "" : "s"} matched to your equipment list.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not match them up.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 p-3">
+      <p className="text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">{count}</span> equipment line
+        {count === 1 ? "" : "s"} across your projects{count === 1 ? " is" : " are"} not matched
+        to your equipment list, so {count === 1 ? "it cannot" : "they cannot"} be checked for
+        clashes.
+      </p>
+      <Button size="sm" variant="secondary" disabled={busy} onClick={() => void run()}>
+        {busy ? "Matching…" : "Match them up"}
+      </Button>
+    </div>
   );
 }
 

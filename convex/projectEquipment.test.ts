@@ -394,3 +394,88 @@ test("removeMany clears several lines and ignores another org's", async () => {
   const survivor = await t.run(async (ctx) => await ctx.db.get(theirs));
   expect(survivor).not.toBeNull();
 });
+
+test("kit listed before the inventory link can be matched up by name", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  // A line as it would have been written before equipmentId existed.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("projectEquipment", {
+      orgId: extra.orgId,
+      projectId: ids.project,
+      item: "sony fx9",
+      status: "confirmed",
+    });
+  });
+
+  expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(1);
+  expect(await asA.mutation(api.projectEquipment.linkToInventory, {})).toEqual({ linked: 1 });
+
+  const rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(rows[0].equipmentId).toBe(extra.fx9);
+  // The department comes across with it.
+  expect(rows[0].dept).toBe("Camera");
+  expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(0);
+});
+
+test("a name two pieces of kit answer to is left alone", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await t.run(async (ctx) => {
+    // Two tripods, both called Tripod: guessing which one a line meant would
+    // invent a clash between productions each holding their own.
+    await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Tripod" });
+    await ctx.db.insert("projectEquipment", {
+      orgId: extra.orgId,
+      projectId: ids.project,
+      item: "Tripod",
+      status: "confirmed",
+    });
+  });
+
+  expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(0);
+  expect(await asA.mutation(api.projectEquipment.linkToInventory, {})).toEqual({ linked: 0 });
+});
+
+test("matching up makes an existing double booking visible", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await shootOn(t, extra.orgId, ids.project, "2026-09-01");
+  await shootOn(t, extra.orgId, extra.other, "2026-09-01");
+  // Both productions listed the same camera the old way.
+  await t.run(async (ctx) => {
+    for (const projectId of [ids.project, extra.other]) {
+      await ctx.db.insert("projectEquipment", {
+        orgId: extra.orgId,
+        projectId,
+        item: "Sony FX9",
+        status: "confirmed",
+      });
+    }
+  });
+
+  // Invisible until the lines are joined to the kit they name.
+  expect(
+    await asA.query(api.projectEquipment.clashesForProject, { projectId: ids.project }),
+  ).toEqual([]);
+
+  await asA.mutation(api.projectEquipment.linkToInventory, {});
+
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes).toHaveLength(1);
+  expect(clashes[0].rowId).not.toBeNull();
+});
+
+test("archived kit is not used for matching", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await t.run(async (ctx) => {
+    await ctx.db.patch(extra.fx9, { archived: true });
+    await ctx.db.insert("projectEquipment", {
+      orgId: extra.orgId,
+      projectId: ids.project,
+      item: "Sony FX9",
+      status: "confirmed",
+    });
+  });
+
+  expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(0);
+});

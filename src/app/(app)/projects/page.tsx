@@ -281,7 +281,14 @@ function CreateProjectDialog() {
             <Label>Client</Label>
             <Select value={clientId} onValueChange={(value) => setClientId(value ?? "none")}>
               <SelectTrigger>
-                <SelectValue placeholder="No client" />
+                {/* Explicit label: Base UI falls back to showing the raw value,
+                    which for a client is a document id — a line of random
+                    letters and numbers where the name should be. */}
+                <SelectValue>
+                  {clientId === "none"
+                    ? "No client"
+                    : ((clients ?? []).find((c) => c._id === clientId)?.name ?? "…")}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No client</SelectItem>
