@@ -23,7 +23,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatShootDate } from "@/lib/format-date";
-import { matchDay, parseSchedule, type ParsedScheduleLine } from "@/lib/parse-schedule";
+import {
+  findScheduleRegion,
+  matchDay,
+  parseSchedule,
+  type ParsedScheduleLine,
+} from "@/lib/parse-schedule";
+import { batch } from "@/lib/csv";
 
 type ShootDay = { _id: Id<"shootDays">; date: string; label?: string };
 
@@ -57,17 +63,25 @@ export function ScheduleImportDialog({
   const [dayOverrides, setDayOverrides] = useState<Record<number, string>>({});
   const [replace, setReplace] = useState(false);
   const [reading, setReading] = useState(false);
+  // Set when the producer says to read the lot rather than the part found.
+  const [whole, setWhole] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const ordered = useMemo(
     () => [...(days ?? [])].sort((a, b) => a.date.localeCompare(b.date)),
     [days],
   );
-  const lines = useMemo(() => parseSchedule(text), [text]);
+
+  // A schedule usually arrives inside something larger — a call sheet, a
+  // treatment — so the running order is picked out of it rather than the whole
+  // document being imported. `whole` is the way out when that guess is wrong.
+  const region = useMemo(() => (whole ? null : findScheduleRegion(text)), [text, whole]);
+  const lines = useMemo(() => parseSchedule(region?.text ?? text), [region, text]);
 
   function readText(next: string) {
     setText(next);
     setDayOverrides({});
+    setWhole(false);
   }
 
   /**
@@ -124,23 +138,37 @@ export function ScheduleImportDialog({
     }
     setSaving(true);
     try {
-      const result = await addMany({
-        projectId,
-        replace,
-        items: lines.map((line, i) => {
-          const day = dayFor(line, i);
-          return {
-            shootDayId: day === ANY_DAY ? undefined : (day as Id<"shootDays">),
-            time: line.time ?? undefined,
-            item: line.item,
-            notes: line.notes ?? undefined,
-          };
-        }),
+      const items = lines.map((line, i) => {
+        const day = dayFor(line, i);
+        return {
+          shootDayId: day === ANY_DAY ? undefined : (day as Id<"shootDays">),
+          time: line.time ?? undefined,
+          item: line.item,
+          notes: line.notes ?? undefined,
+        };
       });
+
+      // A long schedule goes in batches: one transaction has a row cap, and
+      // hitting it used to throw away the whole import.
+      let added = 0;
+      let replacedCount = 0;
+      let first = true;
+      for (const chunk of batch(items, 100)) {
+        const result = await addMany({
+          projectId,
+          // Only the first batch clears what was there; the rest would undo it.
+          replace: replace && first,
+          items: chunk,
+        });
+        added += result.added;
+        replacedCount += result.replaced;
+        first = false;
+      }
+
       toast.success(
-        result.replaced > 0
-          ? `${result.added} lines added, ${result.replaced} replaced.`
-          : `${result.added} line${result.added === 1 ? "" : "s"} added.`,
+        replacedCount > 0
+          ? `${added} lines added, ${replacedCount} replaced.`
+          : `${added} line${added === 1 ? "" : "s"} added.`,
       );
       onClose();
     } catch (err) {
@@ -201,6 +229,39 @@ export function ScheduleImportDialog({
           {text.trim().length > 0 && lines.length === 0 && (
             <p className="rounded-md border border-border px-3 py-6 text-center text-sm text-muted-foreground">
               Nothing recognisable in that yet.
+            </p>
+          )}
+
+          {/* Say what was picked out and how, because a guess the producer
+              cannot see is a guess they cannot correct. */}
+          {region && region.skipped > 0 && (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <span>
+                {region.namedByHeading
+                  ? "Found the running order under its heading"
+                  : "Found the running order by its times"}{" "}
+                — {region.skipped} other line{region.skipped === 1 ? "" : "s"} in that
+                document left out.
+              </span>
+              <button
+                type="button"
+                onClick={() => setWhole(true)}
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Read the whole document instead
+              </button>
+            </p>
+          )}
+          {whole && findScheduleRegion(text) && (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <span>Reading every line of the document.</span>
+              <button
+                type="button"
+                onClick={() => setWhole(false)}
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Just the running order
+              </button>
             </p>
           )}
 

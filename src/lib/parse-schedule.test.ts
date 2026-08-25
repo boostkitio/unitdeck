@@ -187,3 +187,44 @@ describe("matchDay", () => {
     expect(matchDay(line({}), days)).toBeNull();
   });
 });
+
+describe("a schedule pasted a column at a time", () => {
+  it("keeps a time that arrived on its own line", () => {
+    // Copying a table out of a PDF gives this: the time column, then the
+    // item column, each cell on its own line.
+    const lines = parseSchedule(`07:00
+Crew call
+07:30
+Breakfast
+13:00
+Lunch`);
+    expect(lines.map((l) => `${l.time} ${l.item}`)).toEqual([
+      "07:00 Crew call",
+      "07:30 Breakfast",
+      "13:00 Lunch",
+    ]);
+  });
+
+  it("does not carry a time across a day heading", () => {
+    const lines = parseSchedule(`18:00
+Day 2 — Tuesday 13 May
+Crew call`);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ time: null, item: "Crew call", dayNumber: 2 });
+  });
+
+  it("does not steal a time from a line that has its own", () => {
+    const lines = parseSchedule(`07:00
+08:00 First setup`);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ time: "08:00", item: "First setup" });
+  });
+
+  it("reads a dash in front of the time", () => {
+    expect(parseSchedule("- 07:00 Crew call")[0]).toMatchObject({
+      time: "07:00",
+      item: "Crew call",
+    });
+    expect(parseSchedule("– 13:00 Lunch")[0]).toMatchObject({ time: "13:00", item: "Lunch" });
+  });
+});
