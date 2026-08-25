@@ -6,6 +6,51 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
+/**
+ * Give every production a client, somewhere to be, and a running order on
+ * every shoot day.
+ *
+ * The attention feed reports everything a production is missing, so a bare
+ * fixture trips those checks as well as the one the test is about. Settling
+ * them keeps each test to its own subject; the checks themselves are covered
+ * by their own tests below.
+ */
+/** The typed harness these tests run against, so the helper below sees the schema. */
+type Harness = ReturnType<typeof makeHarness>;
+function makeHarness() {
+  return convexTest(schema, modules);
+}
+
+async function settleEverythingElse(t: Harness) {
+  await t.run(async (ctx) => {
+    for (const org of await ctx.db.query("organisations").collect()) {
+      const location = await ctx.db.insert("locations", {
+        orgId: org._id,
+        name: "Studio",
+        address: "1 Example Street",
+      });
+      const client = await ctx.db.insert("clients", { orgId: org._id, name: "Acme" });
+      for (const project of await ctx.db
+        .query("projects")
+        .withIndex("by_org", (q) => q.eq("orgId", org._id))
+        .collect()) {
+        await ctx.db.patch(project._id, { locationId: location, clientId: client });
+        for (const day of await ctx.db
+          .query("shootDays")
+          .withIndex("by_project", (q) => q.eq("projectId", project._id))
+          .collect()) {
+          await ctx.db.insert("scheduleItems", {
+            orgId: org._id,
+            projectId: project._id,
+            shootDayId: day._id,
+            item: "Crew call",
+          });
+        }
+      }
+    }
+  });
+}
+
 test("attention feed chases crew confirmation, not call sheets", async () => {
   const t = convexTest(schema, modules);
   const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -29,6 +74,7 @@ test("attention feed chases crew confirmation, not call sheets", async () => {
     });
     return { orgA, projectA, dayA, person };
   });
+  await settleEverythingElse(t);
   const asA = t.withIdentity({ subject: "user_a", org_id: "org_a" });
 
   // Nobody booked yet.
@@ -69,6 +115,7 @@ test("an unsent call sheet is not something to chase", async () => {
     const person = await ctx.db.insert("people", { orgId: org, name: "Sam", role: "Sound" });
     return { project, day, person };
   });
+  await settleEverythingElse(t);
   const asD = t.withIdentity({ subject: "user_d", org_id: "org_d" });
 
   const bookingId = await asD.mutation(api.projectCrew.add, {
@@ -182,6 +229,7 @@ test("an unfilled role is chased separately from unconfirmed crew", async () => 
     const person = await ctx.db.insert("people", { orgId: org, name: "Sam", role: "Sound" });
     return { project, person };
   });
+  await settleEverythingElse(t);
   const asE = t.withIdentity({ subject: "user_e", org_id: "org_e" });
 
   // One booked and confirmed, one role nobody is in.
@@ -218,6 +266,7 @@ test("a crew problem is raised once per production, not once per shoot day", asy
       });
     }
   });
+  await settleEverythingElse(t);
   const asA = t.withIdentity({ subject: "user_a", org_id: "org_a" });
 
   const items = await asA.query(api.dashboard.attention, {});
@@ -350,6 +399,7 @@ test("a confirmed production still has its crew chased", async () => {
     await ctx.db.insert("projectCrew", { orgId: org, projectId: project, personId: sam });
     await ctx.db.insert("projectCrew", { orgId: org, projectId: project, role: "Gaffer" });
   });
+  await settleEverythingElse(t);
   const asF = t.withIdentity({ subject: "user_f", org_id: "org_f" });
 
   const items = await asF.query(api.dashboard.attention, {});
@@ -386,6 +436,7 @@ test("every outstanding person is a line, not one line counting them", async () 
       await ctx.db.insert("projectCrew", { orgId: org, projectId: project, role });
     }
   });
+  await settleEverythingElse(t);
   const asG = t.withIdentity({ subject: "user_g", org_id: "org_g" });
 
   const items = await asG.query(api.dashboard.attention, {});
@@ -422,6 +473,7 @@ test("crew on a production with no dates yet is still chased, but sorts last", a
     });
     await ctx.db.insert("projectCrew", { orgId: org, projectId: undated, role: "Runner" });
   });
+  await settleEverythingElse(t);
   const asH = t.withIdentity({ subject: "user_h", org_id: "org_h" });
 
   const items = await asH.query(api.dashboard.attention, {});
@@ -447,4 +499,187 @@ test("an archived production is chased for nothing", async () => {
   const asI = t.withIdentity({ subject: "user_i", org_id: "org_i" });
 
   expect(await asI.query(api.dashboard.attention, {})).toEqual([]);
+});
+
+test("kit still to confirm is chased, and named while there are few", async () => {
+  const t = convexTest(schema, modules);
+  const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org J", clerkOrgId: "org_j" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: soon, locationIds: [] });
+    for (const item of ["Sony FX9", "O'Connor tripod"]) {
+      await ctx.db.insert("projectEquipment", { orgId: org, projectId: project, item, status: "needed" });
+    }
+    // Already sorted: not a chase.
+    await ctx.db.insert("projectEquipment", {
+      orgId: org,
+      projectId: project,
+      item: "Matte box",
+      status: "confirmed",
+    });
+  });
+  await settleEverythingElse(t);
+  const asJ = t.withIdentity({ subject: "user_j", org_id: "org_j" });
+
+  const items = await asJ.query(api.dashboard.attention, {});
+  const kit = items.filter((i) => i.kind === "kit_unconfirmed");
+  expect(kit).toHaveLength(1);
+  expect(kit[0].label).toBe("Sony FX9 and O'Connor tripod still to confirm");
+});
+
+test("a long kit list is counted rather than recited", async () => {
+  const t = convexTest(schema, modules);
+  const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org K", clerkOrgId: "org_k" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: soon, locationIds: [] });
+    for (const item of ["Sony FX9", "Tripod", "Matte box", "Follow focus", "Aputure 600d"]) {
+      await ctx.db.insert("projectEquipment", { orgId: org, projectId: project, item, status: "needed" });
+    }
+    // Two of the same thing is one thing still to confirm, not two.
+    await ctx.db.insert("projectEquipment", {
+      orgId: org,
+      projectId: project,
+      item: "  tripod ",
+      status: "needed",
+    });
+  });
+  await settleEverythingElse(t);
+  const asK = t.withIdentity({ subject: "user_k", org_id: "org_k" });
+
+  const kit = (await asK.query(api.dashboard.attention, {})).filter(
+    (i) => i.kind === "kit_unconfirmed",
+  );
+  expect(kit).toHaveLength(1);
+  expect(kit[0].label).toBe("5 items of kit still to confirm");
+});
+
+test("a release form sent and unanswered is chased; a signed one is not", async () => {
+  const t = convexTest(schema, modules);
+  const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org L", clerkOrgId: "org_l" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: soon, locationIds: [] });
+    const shared = {
+      orgId: org,
+      projectId: project,
+      type: "talent_release" as const,
+      data: {
+        talentName: "Ada Vaughn",
+        producerName: "Matt",
+        productionCompany: "Boostkit",
+        productionTitle: "Brand film",
+        governingLaw: "England and Wales",
+      },
+    };
+    await ctx.db.insert("documents", {
+      ...shared,
+      title: "Talent release — Ada Vaughn",
+      status: "sent",
+      signer: { name: "Ada Vaughn", email: "ada@example.test" },
+      signToken: "tok_ada",
+    });
+    // Signed, and a draft nobody has been asked to sign yet: neither is a chase.
+    await ctx.db.insert("documents", {
+      ...shared,
+      title: "Talent release — Ben Okoro",
+      status: "signed",
+      signer: { name: "Ben Okoro", email: "ben@example.test" },
+      signToken: "tok_ben",
+    });
+    await ctx.db.insert("documents", {
+      ...shared,
+      title: "Talent release — Cleo Marsh",
+      status: "draft",
+      signer: { name: "Cleo Marsh", email: "cleo@example.test" },
+      signToken: "tok_cleo",
+    });
+  });
+  await settleEverythingElse(t);
+  const asL = t.withIdentity({ subject: "user_l", org_id: "org_l" });
+
+  const releases = (await asL.query(api.dashboard.attention, {})).filter(
+    (i) => i.kind === "release_unsigned",
+  );
+  expect(releases).toHaveLength(1);
+  expect(releases[0].label).toBe("Release form for Ada Vaughn still unsigned");
+});
+
+test("a booked job with no dates and no client is chased for both", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org M", clerkOrgId: "org_m" });
+    await ctx.db.insert("projects", { orgId: org, name: "Brand film", status: "confirmed" });
+    // Still an enquiry: nobody has promised anything, so neither is missing.
+    await ctx.db.insert("projects", { orgId: org, name: "Enquiry", status: "not_booked" });
+  });
+  const asM = t.withIdentity({ subject: "user_m", org_id: "org_m" });
+
+  const items = await asM.query(api.dashboard.attention, {});
+  const booked = items.filter((i) => i.projectName === "Brand film").map((i) => i.kind);
+  expect(booked).toContain("no_dates");
+  expect(booked).toContain("no_client");
+
+  const enquiry = items.filter((i) => i.projectName === "Enquiry").map((i) => i.kind);
+  expect(enquiry).toEqual(["no_crew"]);
+});
+
+test("a shoot next week with nowhere to go and no running order is chased", async () => {
+  const t = convexTest(schema, modules);
+  const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org N", clerkOrgId: "org_n" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", { orgId: org, projectId: project, date: soon, locationIds: [] });
+  });
+  const asN = t.withIdentity({ subject: "user_n", org_id: "org_n" });
+
+  const kinds = (await asN.query(api.dashboard.attention, {})).map((i) => i.kind);
+  expect(kinds).toContain("no_location");
+  expect(kinds).toContain("no_schedule");
+});
+
+test("a shoot months out is not missing what gets settled late", async () => {
+  const t = convexTest(schema, modules);
+  const faraway = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org O", clerkOrgId: "org_o" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: faraway,
+      locationIds: [],
+    });
+  });
+  const asO = t.withIdentity({ subject: "user_o", org_id: "org_o" });
+
+  const kinds = (await asO.query(api.dashboard.attention, {})).map((i) => i.kind);
+  // The crew still has to be booked; where and when are not late yet.
+  expect(kinds).toContain("no_crew");
+  expect(kinds).not.toContain("no_location");
+  expect(kinds).not.toContain("no_schedule");
 });

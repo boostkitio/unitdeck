@@ -135,8 +135,10 @@ test("the attention feed chases crew on every live production, whatever its stat
   // been confirmed with the client — the point at which the crew most needs
   // booking. Both productions have nobody on them, so both are chased.
   expect(names.has("Confirmed job")).toBe(true);
-  expect(items.map((i) => i.kind)).toEqual(["no_crew", "no_crew"]);
-  expect(new Set(items.map((i) => i.projectId))).toEqual(
+  // Narrowed to the crew check: the feed reports everything else these bare
+  // fixtures are missing too, which is its own subject and its own tests.
+  const noCrew = items.filter((i) => i.kind === "no_crew");
+  expect(new Set(noCrew.map((i) => i.projectId))).toEqual(
     new Set([ids.pencilled, ids.confirmed])
   );
 });
