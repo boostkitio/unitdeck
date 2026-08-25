@@ -23,6 +23,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  ASPECT_RATIOS,
+  FRAME_RATES,
+  PickOrType,
+  RECORDING_FORMATS,
+} from "@/components/call-sheet/pick-or-type";
 
 let uid = 0;
 function newId(prefix: string) {
@@ -84,6 +90,19 @@ export function ComposerForm({
               onChange={(e) => set({ generalCallTime: e.target.value })}
             />
           </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="cs-important">Important notices</Label>
+          <Textarea
+            id="cs-important"
+            rows={3}
+            value={data.importantNotices ?? ""}
+            placeholder="A road closure, a change of unit base, a client on set…"
+            onChange={(e) => set({ importantNotices: e.target.value || undefined })}
+          />
+          <p className="text-xs text-muted-foreground">
+            Printed in a box at the top of the sheet, above everything else.
+          </p>
         </div>
       </section>
 
@@ -653,48 +672,46 @@ export function ComposerForm({
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="cs-camera-format">Recording format</Label>
-            <Input
+            <PickOrType
               id="cs-camera-format"
-              value={data.camera?.recordingFormat ?? ""}
-              onChange={(e) =>
-                set({
-                  camera: {
-                    ...data.camera,
-                    recordingFormat: e.target.value || undefined,
-                  } satisfies CameraInfo,
-                })
+              value={data.camera?.recordingFormat}
+              options={RECORDING_FORMATS}
+              placeholder="e.g. 6048x4032"
+              onChange={(next) =>
+                set({ camera: { ...data.camera, recordingFormat: next } satisfies CameraInfo })
               }
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="cs-camera-framerate">Frame rate</Label>
-            <Input
+            <PickOrType
               id="cs-camera-framerate"
-              value={data.camera?.frameRate ?? ""}
-              onChange={(e) =>
-                set({
-                  camera: { ...data.camera, frameRate: e.target.value || undefined } satisfies CameraInfo,
-                })
+              value={data.camera?.frameRate}
+              options={FRAME_RATES}
+              placeholder="e.g. 96 fps"
+              onChange={(next) =>
+                set({ camera: { ...data.camera, frameRate: next } satisfies CameraInfo })
               }
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cs-camera-aspect">Aspect ratios</Label>
-            <Input
+            <Label htmlFor="cs-camera-aspect">Aspect ratio</Label>
+            <PickOrType
               id="cs-camera-aspect"
-              value={data.camera?.aspectRatios ?? ""}
-              onChange={(e) =>
-                set({
-                  camera: { ...data.camera, aspectRatios: e.target.value || undefined } satisfies CameraInfo,
-                })
+              value={data.camera?.aspectRatios}
+              options={ASPECT_RATIOS}
+              placeholder="e.g. 1.66:1"
+              onChange={(next) =>
+                set({ camera: { ...data.camera, aspectRatios: next } satisfies CameraInfo })
               }
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cs-camera-naming">Naming convention</Label>
+            <Label htmlFor="cs-camera-naming">Naming convention (optional)</Label>
             <Input
               id="cs-camera-naming"
               value={data.camera?.namingConvention ?? ""}
+              placeholder="MERIDIAN_D01_A001"
               onChange={(e) =>
                 set({
                   camera: {
@@ -707,7 +724,7 @@ export function ComposerForm({
           </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="cs-camera-notes">Other notes</Label>
+          <Label htmlFor="cs-camera-notes">Other notes (optional)</Label>
           <Textarea
             id="cs-camera-notes"
             rows={2}

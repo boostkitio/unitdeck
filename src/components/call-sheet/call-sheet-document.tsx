@@ -43,7 +43,7 @@ export function CallSheetDocument({
               <img
                 src={data.branding.logoUrl}
                 alt=""
-                className="mb-2 h-10 w-auto object-contain"
+                className="mb-2 h-16 w-auto object-contain"
               />
             )}
             <p className="text-[8pt] uppercase tracking-widest text-neutral-500">
@@ -62,6 +62,14 @@ export function CallSheetDocument({
                 {data.locations.length > 1 && (
                   <span> · +{data.locations.length - 1} more below</span>
                 )}
+              </p>
+            )}
+            {/* The weather belongs to the place, so it is read with it. */}
+            {(data.weatherSummary || data.sunrise || data.sunset) && (
+              <p className="mt-0.5 flex flex-wrap gap-x-3 text-[8.5pt] text-neutral-600">
+                {data.weatherSummary && <span>{data.weatherSummary}</span>}
+                {data.sunrise && <span>Sunrise {data.sunrise}</span>}
+                {data.sunset && <span>Sunset {data.sunset}</span>}
               </p>
             )}
           </div>
@@ -83,80 +91,21 @@ export function CallSheetDocument({
         </div>
       </header>
 
-      {/* Day facts strip */}
-      {(data.weatherSummary || data.sunrise || data.sunset) && (
-        <div className="mt-3 flex gap-6 rounded border border-neutral-300 px-3 py-2 text-[9pt]">
-          {data.weatherSummary && <span>Weather: {data.weatherSummary}</span>}
-          {data.sunrise && <span>Sunrise: {data.sunrise}</span>}
-          {data.sunset && <span>Sunset: {data.sunset}</span>}
-        </div>
+      {/* Important notices, before anything else on the sheet. */}
+      {data.importantNotices && (
+        <section className="mt-3 break-inside-avoid rounded border-2 border-neutral-900 px-3 py-2">
+          <h2 className="text-[9pt] font-bold uppercase tracking-widest">Important</h2>
+          <p className="mt-1 whitespace-pre-line font-medium">{data.importantNotices}</p>
+        </section>
       )}
 
-      {/* Crew */}
+      {/* Crew, talent and client: one table, read together. */}
       {data.crew.length > 0 && (
-        <section className="mt-5 break-inside-avoid">
-          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
-            {data.crewSectionTitle ?? "Crew"}
-          </h2>
-          <table className="mt-2 w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-neutral-400 text-[8pt] uppercase tracking-wider text-neutral-500">
-                <th className="w-[24%] py-1 pr-2 font-semibold">Name</th>
-                <th className="w-[24%] py-1 pr-2 font-semibold">Role</th>
-                <th className="w-14 py-1 pr-2 font-semibold">Call</th>
-                <th className="w-[22%] py-1 pr-2 font-semibold">Phone</th>
-                <th className="py-1 font-semibold">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.crew.map((row) => (
-                <tr key={row.id} className="border-b border-neutral-200">
-                  <td className="py-1.5 pr-2 font-medium">{row.name}</td>
-                  <td className="py-1.5 pr-2">{row.role}</td>
-                  <td className="py-1.5 pr-2 font-semibold">{row.callTime}</td>
-                  <td className="py-1.5 pr-2 whitespace-nowrap">{row.phone ?? ""}</td>
-                  <td className="py-1.5 text-[8.5pt] text-neutral-600">{row.notes ?? ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+        <PeopleSection title={data.crewSectionTitle ?? "Crew"} rows={data.crew} />
       )}
 
       {(data.contactSections ?? []).map((section) => (
-        <section key={section.id} className="mt-5 break-inside-avoid">
-          <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
-            {section.title}
-          </h2>
-          <table className="mt-2 w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-neutral-400 text-[8pt] uppercase tracking-wider text-neutral-500">
-                <th className="w-[22%] py-1 pr-2 font-semibold">Role</th>
-                <th className="w-[22%] py-1 pr-2 font-semibold">Name</th>
-                <th className="w-[20%] py-1 pr-2 font-semibold">Phone</th>
-                <th className="py-1 pr-2 font-semibold">Email</th>
-                <th className="w-14 py-1 font-semibold">Call</th>
-              </tr>
-            </thead>
-            <tbody>
-              {section.rows.map((r) => (
-                <tr key={r.id} className="border-b border-neutral-200">
-                  <td className="py-1.5 pr-2">{r.role}</td>
-                  <td className="py-1.5 pr-2 font-medium">{r.name}</td>
-                  <td className="py-1.5 pr-2 whitespace-nowrap">
-                    {/* Blank fallback: this also renders to PDF, where a
-                        placeholder dot would be noise on the printed sheet. */}
-                    <PhoneLink phone={r.phone} fallback="" />
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    <EmailLink email={r.email} fallback="" />
-                  </td>
-                  <td className="py-1.5 font-semibold">{r.callTime ?? ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+        <PeopleSection key={section.id} title={section.title} rows={section.rows} />
       ))}
 
       {/* Key contacts */}
@@ -393,5 +342,68 @@ function LocationMap({ location }: { location: LocationEntry }) {
       alt={`Map of ${location.name}`}
       className="h-[34mm] w-[46mm] shrink-0 rounded border border-neutral-300 object-cover"
     />
+  );
+}
+
+/** A row of any of the three people lists, which carry the same fields. */
+type PersonRow = {
+  id: string;
+  name: string;
+  role: string;
+  callTime?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+};
+
+/**
+ * Crew, talent and client, laid out identically.
+ *
+ * They are read together — three lists of people to reach — so the columns
+ * are the same, in the same order and at the same widths, and the eye does
+ * not have to relearn the table three times down one page.
+ */
+function PeopleSection({ title, rows }: { title: string; rows: PersonRow[] }) {
+  return (
+    <section className="mt-5 break-inside-avoid">
+      <h2 className="border-b border-neutral-400 pb-1 text-[9pt] font-bold uppercase tracking-widest">
+        {title}
+      </h2>
+      <table className="mt-2 w-full border-collapse text-left">
+        <thead>
+          <tr className="border-b border-neutral-400 text-[8pt] uppercase tracking-wider text-neutral-500">
+            <th className="w-[24%] py-1 pr-2 font-semibold">Role</th>
+            <th className="w-[22%] py-1 pr-2 font-semibold">Name</th>
+            <th className="w-[20%] py-1 pr-2 font-semibold">Phone</th>
+            <th className="py-1 pr-2 font-semibold">Email</th>
+            <th className="w-14 py-1 font-semibold">Call</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id} className="border-b border-neutral-200">
+              <td className="py-1.5 pr-2">{row.role}</td>
+              <td className="py-1.5 pr-2">
+                <span className="font-medium">{row.name}</span>
+                {/* Kept off the columns so all three tables match, but not
+                    thrown away: "brings own kit" is worth printing. */}
+                {row.notes && (
+                  <span className="block text-[8pt] text-neutral-600">{row.notes}</span>
+                )}
+              </td>
+              <td className="py-1.5 pr-2 whitespace-nowrap">
+                {/* Blank fallback: this also renders to PDF, where a
+                    placeholder dot would be noise on the printed sheet. */}
+                <PhoneLink phone={row.phone} fallback="" />
+              </td>
+              <td className="py-1.5 pr-2">
+                <EmailLink email={row.email} fallback="" />
+              </td>
+              <td className="py-1.5 font-semibold">{row.callTime ?? ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }

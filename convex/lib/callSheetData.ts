@@ -101,6 +101,10 @@ export const callSheetDataValidator = v.object({
   crew: v.array(crewRowValidator),
   contacts: v.array(contactRowValidator),
   notes: v.optional(v.string()),
+  // What everybody has to know before they read anything else — a road
+  // closure, a change of unit base, a client on set. Printed at the top
+  // rather than filed under notes at the bottom.
+  importantNotices: v.optional(v.string()),
   safetyNotes: v.optional(v.string()),
   weatherSummary: v.optional(v.string()),
   sunrise: v.optional(v.string()),
