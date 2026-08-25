@@ -152,6 +152,47 @@ export const update = mutation({
   },
 });
 
+/**
+ * Copies a package and its contents under a new name.
+ *
+ * The copy is independent: it is a starting point for a variation on a setup,
+ * so editing it must not reach back into the original or the productions
+ * carrying it.
+ */
+export const duplicate = mutation({
+  args: { id: v.id("equipmentPackages"), name: v.string() },
+  handler: async (ctx, args): Promise<Id<"equipmentPackages">> => {
+    const { org } = await requireOrg(ctx);
+    const pkg = await ctx.db.get(args.id);
+    if (!pkg || pkg.orgId !== org._id) throw new Error("Package not found");
+    const name = args.name.trim();
+    if (name.length === 0) throw new Error("Name the package");
+    if (name.toLowerCase() === pkg.name.trim().toLowerCase()) {
+      throw new Error("Give the copy a different name");
+    }
+
+    const copyId = await ctx.db.insert("equipmentPackages", {
+      orgId: org._id,
+      name,
+      notes: pkg.notes,
+    });
+    const rows = await ctx.db
+      .query("equipmentPackageItems")
+      .withIndex("by_package", (q) => q.eq("packageId", args.id))
+      .take(500);
+    for (const row of rows) {
+      await ctx.db.insert("equipmentPackageItems", {
+        orgId: org._id,
+        packageId: copyId,
+        equipmentId: row.equipmentId,
+        item: row.item,
+        quantity: row.quantity,
+      });
+    }
+    return copyId;
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id("equipmentPackages") },
   handler: async (ctx, args) => {

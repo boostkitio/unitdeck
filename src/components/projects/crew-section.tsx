@@ -184,6 +184,11 @@ export function CrewSection({
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
+                      {member.personId === null && (
+                        <Button variant="ghost" size="sm" onClick={() => setFilling(member)}>
+                          Book someone
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" onClick={() => setEditing(member)}>
                         Edit
                       </Button>
@@ -227,7 +232,16 @@ export function CrewSection({
         />
       )}
       {editing && (
-        <EditCrewDialog member={editing} onClose={() => setEditing(null)} />
+        <EditCrewDialog
+          member={editing}
+          onBook={() => {
+            // Straight from editing the role into booking it, without
+            // deleting the role and starting again.
+            setFilling(editing);
+            setEditing(null);
+          }}
+          onClose={() => setEditing(null)}
+        />
       )}
       {filling && (
         <FillRoleDialog
@@ -589,9 +603,12 @@ function FillRoleDialog({
 
 function EditCrewDialog({
   member,
+  onBook,
   onClose,
 }: {
   member: ProjectCrewMember;
+  /** Offered when the role has nobody in it yet. */
+  onBook: () => void;
   onClose: () => void;
 }) {
   const updateCrew = useMutation(api.projectCrew.update);
@@ -621,7 +638,9 @@ function EditCrewDialog({
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{member.name}</DialogTitle>
+          {/* An unfilled role has no name to show, so it is titled by the
+              role it is waiting on. */}
+          <DialogTitle>{member.name ?? member.role ?? "Role"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-2">
@@ -642,13 +661,22 @@ function EditCrewDialog({
               rows={3}
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            Name, email and phone live on their{" "}
-            <Link href="/people" className="underline underline-offset-2">
-              people
-            </Link>{" "}
-            record.
-          </p>
+          {member.personId === null ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/40 p-3">
+              <p className="text-sm text-muted-foreground">Nobody is in this role yet.</p>
+              <Button variant="secondary" size="sm" onClick={onBook}>
+                Book someone
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Name, email and phone live on their{" "}
+              <Link href="/people" className="underline underline-offset-2">
+                people
+              </Link>{" "}
+              record.
+            </p>
+          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>

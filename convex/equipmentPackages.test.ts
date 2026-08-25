@@ -284,3 +284,53 @@ test("a package change does not touch kit added to a project by hand", async () 
   const kit = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
   expect(kit.map((row) => row.item)).toEqual(["1.2k HMI"]);
 });
+
+test("duplicating a package copies its contents under a new name", async () => {
+  const { asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, {
+    name: "Camera package",
+    notes: "A-cam",
+  });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Sony FX9" });
+  await asA.mutation(api.equipmentPackages.addItem, {
+    packageId: pkgId,
+    item: "Tripod",
+    quantity: 2,
+  });
+
+  await asA.mutation(api.equipmentPackages.duplicate, { id: pkgId, name: "B-cam package" });
+
+  const packages = await asA.query(api.equipmentPackages.list, {});
+  const copy = packages.find((p) => p.name === "B-cam package")!;
+  expect(copy.items.map((i) => i.item).sort()).toEqual(["Sony FX9", "Tripod"]);
+  expect(copy.items.find((i) => i.item === "Tripod")?.quantity).toBe(2);
+  expect(copy.notes).toBe("A-cam");
+});
+
+test("the copy is independent of the package it came from", async () => {
+  const { asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: pkgId, item: "Sony FX9" });
+  const copyId = await asA.mutation(api.equipmentPackages.duplicate, {
+    id: pkgId,
+    name: "B-cam package",
+  });
+
+  await asA.mutation(api.equipmentPackages.addItem, { packageId: copyId, item: "Tripod" });
+
+  const packages = await asA.query(api.equipmentPackages.list, {});
+  expect(packages.find((p) => p._id === pkgId)!.items.map((i) => i.item)).toEqual(["Sony FX9"]);
+  expect(packages.find((p) => p._id === copyId)!.items.map((i) => i.item).sort()).toEqual([
+    "Sony FX9",
+    "Tripod",
+  ]);
+});
+
+test("a copy has to be given a different name", async () => {
+  const { asA } = await setup();
+  const pkgId = await asA.mutation(api.equipmentPackages.create, { name: "Camera package" });
+
+  await expect(
+    asA.mutation(api.equipmentPackages.duplicate, { id: pkgId, name: "  camera package " }),
+  ).rejects.toThrow(/different name/);
+});

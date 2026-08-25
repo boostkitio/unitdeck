@@ -232,6 +232,70 @@ export const legacyStatusCount = query({
  * archiving onto the flag. Idempotent: rows already migrated are skipped, so
  * running it twice is harmless.
  */
+/**
+ * Deletes a project outright, along with everything hanging off it.
+ *
+ * Only an archived project can be deleted. Archiving is the reversible step
+ * and this one is not, so making it the second of two deliberate actions is
+ * the difference between tidying up and losing a production's records.
+ *
+ * Rows that exist only as part of the project go with it. Shared records —
+ * people, clients, locations, inventory — are left completely alone: they
+ * belong to the company, not to this job.
+ */
+export const remove = mutation({
+  args: { id: v.id("projects") },
+  handler: async (ctx, args): Promise<{ deleted: number }> => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.id);
+    if (!project || project.orgId !== org._id) throw new Error("Project not found");
+    if (!isArchived(project)) {
+      throw new Error("Archive the project before deleting it");
+    }
+
+    let deleted = 0;
+
+    const crew = await ctx.db
+      .query("projectCrew")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(500);
+    for (const row of crew) {
+      await ctx.db.delete(row._id);
+      deleted++;
+    }
+
+    const kit = await ctx.db
+      .query("projectEquipment")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(1000);
+    for (const row of kit) {
+      await ctx.db.delete(row._id);
+      deleted++;
+    }
+
+    const files = await ctx.db
+      .query("projectFiles")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(500);
+    for (const row of files) {
+      await ctx.db.delete(row._id);
+      deleted++;
+    }
+
+    const days = await ctx.db
+      .query("shootDays")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(500);
+    for (const row of days) {
+      await ctx.db.delete(row._id);
+      deleted++;
+    }
+
+    await ctx.db.delete(args.id);
+    return { deleted: deleted + 1 };
+  },
+});
+
 export const migrateStatuses = mutation({
   args: {},
   handler: async (ctx): Promise<{ migrated: number }> => {

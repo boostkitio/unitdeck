@@ -10,6 +10,7 @@ import { api } from "../../../../../convex/_generated/api";
 import { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -79,6 +80,7 @@ function ProjectEditor({
   const router = useRouter();
   const updateProject = useMutation(api.projects.update);
   const setArchived = useMutation(api.projects.setArchived);
+  const deleteProject = useMutation(api.projects.remove);
 
   const [name, setName] = useState(project.name);
   const [briefSummary, setBriefSummary] = useState(project.briefSummary ?? "");
@@ -269,6 +271,16 @@ function ProjectEditor({
             >
               Restore project
             </Button>
+            <DeleteProjectDialog
+              projectName={project.name}
+              onDelete={async () => {
+                const result = await deleteProject({ id: project._id });
+                toast.success(`${project.name} deleted.`, {
+                  description: `${result.deleted} record${result.deleted === 1 ? "" : "s"} removed.`,
+                });
+                router.push("/projects");
+              }}
+            />
           </div>
         ) : (
           <ArchiveDialog
@@ -326,5 +338,84 @@ function ArchiveDialog({ onArchive }: { onArchive: () => Promise<void> }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Deleting is not reversible, so it asks for the project's name to be typed.
+ * Archiving is the undo-able step and sits before this one; anything that
+ * removes a production's records for good should be hard to do by accident.
+ */
+function DeleteProjectDialog({
+  projectName,
+  onDelete,
+}: {
+  projectName: string;
+  onDelete: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const confirmed = typed.trim().toLowerCase() === projectName.trim().toLowerCase();
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await onDelete();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not delete it.");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <>
+      <Button variant="destructive" size="sm" onClick={() => setOpen(true)}>
+        Delete permanently
+      </Button>
+      {open && (
+        <Dialog open onOpenChange={(o) => (!o ? setOpen(false) : undefined)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete {projectName}?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <p className="text-sm text-muted-foreground">
+                This removes the project and everything that belongs only to it — its shoot
+                days, crew bookings, equipment list and documents. It cannot be undone.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Your people, clients, locations and equipment list are company records and are
+                not touched.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-delete">
+                  Type <span className="font-medium text-foreground">{projectName}</span> to
+                  confirm
+                </Label>
+                <Input
+                  id="confirm-delete"
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={!confirmed || deleting}
+                onClick={() => void handleDelete()}
+              >
+                {deleting ? "Deleting…" : "Delete permanently"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }

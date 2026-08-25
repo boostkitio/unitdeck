@@ -46,6 +46,7 @@ export const add = mutation({
     item: v.optional(v.string()),
     dept: v.optional(v.string()),
     quantity: v.optional(v.number()),
+    cost: v.optional(v.number()),
     notes: v.optional(v.string()),
     section: v.optional(sectionValidator),
     status: v.optional(statusValidator),
@@ -56,6 +57,9 @@ export const add = mutation({
     if (!project || project.orgId !== org._id) throw new Error("Project not found");
     if (args.quantity !== undefined && (!Number.isFinite(args.quantity) || args.quantity < 1)) {
       throw new Error("Quantity must be at least 1");
+    }
+    if (args.cost !== undefined && (!Number.isFinite(args.cost) || args.cost < 0)) {
+      throw new Error("Cost must be zero or more");
     }
 
     // Kit from the inventory names itself, so picking it is a single click.
@@ -79,6 +83,7 @@ export const add = mutation({
       dept,
       equipmentId: args.equipmentId,
       quantity: args.quantity,
+      cost: args.cost,
       notes: args.notes?.trim() || undefined,
       status: args.status ?? (section === "equipment" ? "confirmed" : "needed"),
       section,
@@ -92,6 +97,7 @@ export const update = mutation({
     item: v.optional(v.string()),
     dept: v.optional(v.union(v.string(), v.null())),
     quantity: v.optional(v.union(v.number(), v.null())),
+    cost: v.optional(v.union(v.number(), v.null())),
     notes: v.optional(v.union(v.string(), v.null())),
     status: v.optional(statusValidator),
     section: v.optional(sectionValidator),
@@ -112,6 +118,12 @@ export const update = mutation({
         throw new Error("Quantity must be at least 1");
       }
       patch.quantity = args.quantity ?? undefined;
+    }
+    if (args.cost !== undefined) {
+      if (args.cost !== null && (!Number.isFinite(args.cost) || args.cost < 0)) {
+        throw new Error("Cost must be zero or more");
+      }
+      patch.cost = args.cost ?? undefined;
     }
     if (args.notes !== undefined) patch.notes = args.notes?.trim() || undefined;
     if (args.status !== undefined) patch.status = args.status;

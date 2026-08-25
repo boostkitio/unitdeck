@@ -40,7 +40,7 @@ import Link from "next/link";
 // The query fills the section in for older rows, so it is always present here.
 type EquipmentRow = Omit<Doc<"projectEquipment">, "section"> & { section: SectionKey };
 
-type EquipmentSortKey = "dept" | "item" | "quantity" | "status" | "notes";
+type EquipmentSortKey = "dept" | "item" | "quantity" | "cost" | "status" | "notes";
 
 function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | number | null {
   switch (key) {
@@ -50,6 +50,8 @@ function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | 
       return row.item;
     case "quantity":
       return row.quantity ?? null;
+    case "cost":
+      return row.cost ?? null;
     case "status":
       // Still-needed first when ascending, which is the order that matters.
       return row.status === "confirmed" ? 1 : 0;
@@ -165,6 +167,8 @@ function EquipmentList({
   const { sort, toggle } = useTableSort<EquipmentSortKey>({ key: "item", dir: "asc" });
   const sorted = useMemo(() => sortRows(rows, sort, equipmentSortValue), [rows, sort]);
   const outstanding = rows.filter((row) => row.status === "needed").length;
+  // Only lines that carry a cost contribute; kit you own usually has none.
+  const total = rows.reduce((sum, row) => sum + (row.cost ?? 0), 0);
 
   async function toggleStatus(row: EquipmentRow) {
     try {
@@ -223,6 +227,13 @@ function EquipmentList({
                     className="w-20 text-right"
                   />
                   <SortableHead
+                    label="Cost"
+                    sortKey="cost"
+                    sort={sort}
+                    onSort={toggle}
+                    className="w-24 text-right"
+                  />
+                  <SortableHead
                     label="Status"
                     sortKey="status"
                     sort={sort}
@@ -242,6 +253,9 @@ function EquipmentList({
                     <TableCell className="font-medium">{row.item}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {row.quantity ?? "·"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {row.cost !== undefined ? `£${row.cost.toLocaleString("en-GB")}` : "·"}
                     </TableCell>
                     <TableCell>
                       <button
@@ -275,12 +289,20 @@ function EquipmentList({
                 ))}
               </TableBody>
             </Table>
-            {outstanding > 0 && (
-              <p className="mt-3 text-xs text-muted-foreground">
-                {outstanding} item{outstanding === 1 ? "" : "s"} still to confirm. Click a status
-                to change it.
+            <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {outstanding > 0 &&
+                  `${outstanding} item${outstanding === 1 ? "" : "s"} still to confirm. Click a status to change it.`}
               </p>
-            )}
+              {total > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Total{" "}
+                  <span className="font-medium tabular-nums text-foreground">
+                    £{total.toLocaleString("en-GB")}
+                  </span>
+                </p>
+              )}
+            </div>
           </>
         )}
       </CardContent>
@@ -567,6 +589,7 @@ function EquipmentDialog({
   const [item, setItem] = useState(row?.item ?? "");
   const [dept, setDept] = useState(row?.dept ?? "");
   const [quantity, setQuantity] = useState(row?.quantity !== undefined ? String(row.quantity) : "");
+  const [cost, setCost] = useState(row?.cost !== undefined ? String(row.cost) : "");
   const [notes, setNotes] = useState(row?.notes ?? "");
   const [list, setList] = useState<SectionKey>(section);
   const [saving, setSaving] = useState(false);
@@ -596,6 +619,13 @@ function EquipmentDialog({
       return;
     }
 
+    const trimmedCost = cost.trim().replace(/[£,]/g, "");
+    const parsedCost = trimmedCost === "" ? null : Number(trimmedCost);
+    if (parsedCost !== null && (!Number.isFinite(parsedCost) || parsedCost < 0)) {
+      toast.error("Cost must be a number of zero or more.");
+      return;
+    }
+
     setSaving(true);
     try {
       if (row) {
@@ -604,6 +634,7 @@ function EquipmentDialog({
           item,
           dept: dept.trim() || null,
           quantity: parsedQuantity,
+          cost: parsedCost,
           notes: notes.trim() || null,
           section: list,
         });
@@ -614,6 +645,7 @@ function EquipmentDialog({
           item,
           dept: dept.trim() || undefined,
           quantity: parsedQuantity ?? undefined,
+          cost: parsedCost ?? undefined,
           notes: notes.trim() || undefined,
           section: list,
         });
@@ -683,15 +715,28 @@ function EquipmentDialog({
               placeholder="Camera, Lighting, Sound, Grip…"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="equipment-qty">Quantity (optional)</Label>
-            <Input
-              id="equipment-qty"
-              inputMode="numeric"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              className="w-32"
-            />
+          <div className="flex gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="equipment-qty">Quantity (optional)</Label>
+              <Input
+                id="equipment-qty"
+                inputMode="numeric"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className="w-32"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="equipment-cost">Cost (optional)</Label>
+              <Input
+                id="equipment-cost"
+                inputMode="decimal"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+                placeholder="£"
+                className="w-32"
+              />
+            </div>
           </div>
           {/* Which list it sits in, so a line put in the wrong one — or an
               older line from before the split — can be moved. */}

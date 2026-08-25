@@ -28,6 +28,7 @@ export function PackagesView() {
 
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<Id<"equipmentPackages"> | null>(null);
+  const [duplicating, setDuplicating] = useState<EquipmentPackage | null>(null);
 
   // Resolve from the query rather than holding a snapshot, so the editor shows
   // items as they are added instead of the list as it was when opened.
@@ -72,6 +73,9 @@ export function PackagesView() {
                     <Button variant="ghost" size="sm" onClick={() => setEditingId(pkg._id)}>
                       Edit
                     </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setDuplicating(pkg)}>
+                      Duplicate
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => void handleRemove(pkg)}>
                       Delete
                     </Button>
@@ -112,6 +116,9 @@ export function PackagesView() {
       )}
 
       {creating && <NewPackageDialog onClose={() => setCreating(false)} />}
+      {duplicating && (
+        <DuplicatePackageDialog pkg={duplicating} onClose={() => setDuplicating(null)} />
+      )}
       {open && <PackageEditor pkg={open} onClose={() => setEditingId(null)} />}
     </div>
   );
@@ -173,6 +180,78 @@ function NewPackageDialog({ onClose }: { onClose: () => void }) {
           </Button>
           <Button onClick={handleCreate} disabled={saving}>
             {saving ? "Creating…" : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * A copy of a setup under its own name — the usual way a second package gets
+ * built, since most are a variation on one that already exists.
+ */
+function DuplicatePackageDialog({
+  pkg,
+  onClose,
+}: {
+  pkg: EquipmentPackage;
+  onClose: () => void;
+}) {
+  const duplicate = useMutation(api.equipmentPackages.duplicate);
+  const [name, setName] = useState(`${pkg.name} (copy)`);
+  const [saving, setSaving] = useState(false);
+
+  async function handleDuplicate() {
+    if (name.trim().length === 0) {
+      toast.error("Name the copy.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await duplicate({ id: pkg._id, name });
+      toast.success(`${name.trim()} created with ${pkg.items.length} item${pkg.items.length === 1 ? "" : "s"}.`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not duplicate it.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Duplicate {pkg.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label htmlFor="pkg-copy-name">Name for the copy</Label>
+            <Input
+              id="pkg-copy-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && name.trim()) {
+                  e.preventDefault();
+                  void handleDuplicate();
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Copies all {pkg.items.length} item{pkg.items.length === 1 ? "" : "s"}. The copy is
+              independent — editing it will not change {pkg.name}.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleDuplicate} disabled={saving}>
+            {saving ? "Copying…" : "Duplicate"}
           </Button>
         </DialogFooter>
       </DialogContent>

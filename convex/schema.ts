@@ -164,6 +164,9 @@ export default defineSchema({
     // Absent for anything hired in or typed by hand. Kept so the picker can
     // show what is already on the production.
     equipmentId: v.optional(v.id("equipment")),
+    // What this line costs the production. Mostly used on the hire-in list,
+    // where the number is a real invoice rather than kit you already own.
+    cost: v.optional(v.number()),
     quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
     status: v.union(v.literal("needed"), v.literal("confirmed")),

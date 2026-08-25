@@ -479,3 +479,31 @@ test("archived kit is not used for matching", async () => {
 
   expect(await asA.query(api.projectEquipment.unlinkedCount, {})).toBe(0);
 });
+
+test("a line can carry a cost, and a negative one is refused", async () => {
+  const { ids, asA } = await setup();
+
+  const id = await asA.mutation(api.projectEquipment.add, {
+    projectId: ids.project,
+    item: "1.2k HMI",
+    cost: 180,
+  });
+  let rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(rows[0].cost).toBe(180);
+
+  await asA.mutation(api.projectEquipment.update, { id, cost: 210.5 });
+  rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(rows[0].cost).toBe(210.5);
+
+  // Clearing it is a real action, not the same as sending nothing.
+  await asA.mutation(api.projectEquipment.update, { id, cost: null });
+  rows = await asA.query(api.projectEquipment.listForProject, { projectId: ids.project });
+  expect(rows[0].cost).toBeUndefined();
+
+  await expect(
+    asA.mutation(api.projectEquipment.update, { id, cost: -5 }),
+  ).rejects.toThrow(/zero or more/);
+  await expect(
+    asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Grip", cost: -1 }),
+  ).rejects.toThrow(/zero or more/);
+});
