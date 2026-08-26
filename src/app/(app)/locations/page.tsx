@@ -129,6 +129,25 @@ export default function LocationsPage() {
             No locations match “{search}”.
           </p>
         ) : (
+          <>
+            {/* Below md a four-column table can only be read by dragging it
+                sideways, so the phone gets name and address and the row opens
+                the dialog that already holds everything else. */}
+            <ul className="flex flex-col gap-2 md:hidden">
+              {visible.map((l) => (
+                <li key={l._id}>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(l)}
+                    className="flex w-full flex-col gap-0.5 rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    <span className="font-medium">{l.name}</span>
+                    <span className="text-sm text-muted-foreground">{l.address}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -158,6 +177,8 @@ export default function LocationsPage() {
               ))}
             </TableBody>
           </Table>
+            </div>
+          </>
         )}
       </div>
       {editing !== null && (

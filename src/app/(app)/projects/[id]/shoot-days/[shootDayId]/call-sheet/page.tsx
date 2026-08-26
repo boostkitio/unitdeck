@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CallSheetDocument } from "@/components/call-sheet/call-sheet-document";
+import { FitToWidth } from "@/components/call-sheet/fit-to-width";
 import { ComposerForm } from "@/components/call-sheet/composer-form";
 import { SendDialog, RecipientStrip } from "@/components/call-sheet/send-dialog";
 import { CheckDialog } from "@/components/agents/check-dialog";
@@ -131,9 +132,12 @@ function Composer({
   }
 
   return (
-    <div className="-mx-8 -my-8 flex h-screen flex-col">
+    /* The negative margins cancel the shell padding, so they have to track it:
+       px-4/py-6 on mobile, px-8/py-8 from md up. Getting this wrong pushed the
+       page past the viewport edge and dragged it sideways. */
+    <div className="-mx-4 -my-6 flex flex-col md:-mx-8 md:-my-8 md:h-screen">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-border bg-card px-6 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-y-2 border-b border-border bg-card px-4 py-3 md:px-6">
         <div className="flex items-center gap-3">
           <Link
             href={`/projects/${projectId}`}
@@ -156,7 +160,7 @@ function Composer({
                 : "Save failed — retrying on next edit"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="ghost"
@@ -225,15 +229,15 @@ function Composer({
       <div className="flex min-h-0 flex-1">
         {/* The settings are what you are actually working in, so they get the
             room; the sheet is a check that it reads right, so it sits tighter. */}
-        <div className="w-full shrink-0 overflow-y-auto border-r border-border bg-card p-6 md:w-[480px] lg:w-[560px]">
+        <div className="w-full shrink-0 border-r border-border bg-card p-4 md:w-[480px] md:overflow-y-auto md:p-6 lg:w-[560px]">
           <ComposerForm data={data} onChange={onChange} />
         </div>
         <div className="hidden min-w-0 flex-1 overflow-y-auto bg-muted p-6 md:block">
-          <div className="origin-top scale-[0.62] lg:scale-[0.7]">
+          <FitToWidth>
             <div className="shadow-xl">
               <CallSheetDocument data={data} versionLabel={`v${draft.version} draft`} />
             </div>
-          </div>
+          </FitToWidth>
         </div>
       </div>
 
