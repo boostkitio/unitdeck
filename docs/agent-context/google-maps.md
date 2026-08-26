@@ -54,6 +54,37 @@ and spend your quota with.
 Check current pricing on Google's pricing page before relying on any free
 allowance. Do not take a figure from a chat transcript.
 
+## Locking the key to this site
+
+Two independent locks, set on the key in APIs & Services, Credentials.
+
+**Application restrictions, who may use it.** Choose HTTP referrers (web
+sites) and list:
+
+    https://unitdeck.app/*
+    https://*.unitdeck.app/*
+    http://localhost:3000/*
+
+The trailing `/*` is required. Without it only the bare homepage matches and
+every other page loses its maps. Add `https://*.vercel.app/*` only if maps are
+needed on preview deployments; it is a broad pattern that admits any site on
+vercel.app.
+
+**API restrictions, what it may do.** Choose Restrict key and tick Maps Embed
+API and Maps Static API, nothing else.
+
+**A quota cap, what it may cost.** Referrer checking is not cryptographic
+security: the browser states where it came from, and anyone with curl can
+claim to be unitdeck.app. It reliably stops a copied key being used from
+someone else's site, which is the realistic risk, but it is not a wall. Maps
+Static is billed per request, so set a daily request cap on it under APIs &
+Services, Maps Static API, Quotas. Then the worst case is that maps stop
+loading rather than an unexpected invoice.
+
+Referrer restrictions only apply to requests a browser makes. Both uses here
+are browser requests, an iframe and an img, so they are covered. A server-side
+call would need IP restrictions instead.
+
 ## Where maps are rendered
 
 | File | Behaviour without a key |
