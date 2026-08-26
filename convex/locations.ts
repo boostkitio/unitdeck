@@ -10,6 +10,7 @@ import { plusCodeFor } from "./lib/plusCode";
 const locationFields = {
   name: v.string(),
   address: v.string(),
+  projectOnly: v.optional(v.boolean()),
   plusCode: v.optional(v.string()),
   parkingNotes: v.optional(v.string()),
   accessNotes: v.optional(v.string()),
@@ -32,7 +33,10 @@ export const list = query({
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .order("desc")
       .take(200);
-    return args.includeArchived ? locations : locations.filter((l) => !l.archived);
+    // A project-only address belongs to its production, not to the database
+    // everyone picks from, so it never appears in this list.
+    const shared = locations.filter((l) => !l.projectOnly);
+    return args.includeArchived ? shared : shared.filter((l) => !l.archived);
   },
 });
 

@@ -44,6 +44,15 @@ export const locationEntryValidator = v.object({
   nearestPoliceStation: v.optional(v.string()),
 });
 
+export const accommodationValidator = v.object({
+  name: v.string(),
+  address: v.optional(v.string()),
+  phone: v.optional(v.string()),
+  checkIn: v.optional(v.string()),
+  bookingRef: v.optional(v.string()),
+  notes: v.optional(v.string()),
+});
+
 export const sectionRowValidator = v.object({
   id: v.string(),
   personId: v.optional(v.id("people")),
@@ -109,6 +118,9 @@ export const callSheetDataValidator = v.object({
   weatherSummary: v.optional(v.string()),
   sunrise: v.optional(v.string()),
   sunset: v.optional(v.string()),
+  // Where the unit sleeps that night. Comes off the shoot day, so a job
+  // that moves puts the right hotel on the right sheet.
+  accommodation: v.optional(accommodationValidator),
   callTimes: v.optional(v.array(callTimeValidator)),
   crewSectionTitle: v.optional(v.string()),
   contactSections: v.optional(v.array(contactSectionValidator)),

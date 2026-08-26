@@ -81,6 +81,21 @@ export const update = mutation({
     date: v.optional(v.string()),
     label: v.optional(v.string()),
     locationIds: v.optional(v.array(v.id("locations"))),
+    // Null clears the block; an object replaces it wholesale, because a
+    // half-edited hotel is worse than none on a call sheet.
+    accommodation: v.optional(
+      v.union(
+        v.object({
+          name: v.string(),
+          address: v.optional(v.string()),
+          phone: v.optional(v.string()),
+          checkIn: v.optional(v.string()),
+          bookingRef: v.optional(v.string()),
+          notes: v.optional(v.string()),
+        }),
+        v.null()
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -92,6 +107,9 @@ export const update = mutation({
       patch.date = args.date;
     }
     if (args.label !== undefined) patch.label = args.label;
+    if (args.accommodation !== undefined) {
+      patch.accommodation = args.accommodation ?? undefined;
+    }
     if (args.locationIds !== undefined) {
       for (const locationId of args.locationIds) {
         const location = await ctx.db.get(locationId);

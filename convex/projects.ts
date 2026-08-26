@@ -274,6 +274,8 @@ export const update = mutation({
     briefSummary: v.optional(v.string()),
     locationId: v.optional(v.union(v.id("locations"), v.null())),
     bookedByContact: v.optional(v.union(v.number(), v.null())),
+    // Null clears the owner; a string sets it to that Clerk member.
+    ownerId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
@@ -281,6 +283,9 @@ export const update = mutation({
     if (!project || project.orgId !== org._id) throw new Error("Project not found");
 
     const patch: Record<string, unknown> = {};
+    if (args.ownerId !== undefined) {
+      patch.ownerId = args.ownerId === null ? undefined : args.ownerId;
+    }
     if (args.name !== undefined) {
       if (args.name.trim().length === 0) throw new Error("Project name is required");
       patch.name = args.name.trim();

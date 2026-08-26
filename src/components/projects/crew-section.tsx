@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
+import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { type ProjectCrewMember } from "../../../convex/projectCrew";
@@ -34,10 +35,17 @@ import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
 import { ReleaseComposer } from "@/components/documents/release-composer";
 
-type CrewSortKey = "name" | "role" | "status" | "email" | "phone";
+// "order" is the arranged order — director first, camera together — which the
+// query already returns. It is the default view; a column sort is a temporary
+// override, and the reorder controls hide while one is active because dragging
+// a row inside a sorted table cannot mean anything.
+type CrewSortKey = "order" | "name" | "role" | "status" | "email" | "phone";
 
 function crewSortValue(member: ProjectCrewMember, key: CrewSortKey): string | number | null {
   switch (key) {
+    case "order":
+      // Every row equal, so the stable sort leaves the query order alone.
+      return 0;
     case "name":
       return member.name;
     case "role":
@@ -76,8 +84,22 @@ export function CrewSection({
   const outstanding = (crew ?? []).filter(
     (m) => m.personId !== null && m.status !== "confirmed",
   ).length;
-  const { sort, toggle } = useTableSort<CrewSortKey>({ key: "name", dir: "asc" });
+  const { sort, toggle } = useTableSort<CrewSortKey>({ key: "order", dir: "asc" });
   const sortedCrew = useMemo(() => sortRows(crew ?? [], sort, crewSortValue), [crew, sort]);
+  const reorderCrew = useMutation(api.projectCrew.reorder);
+  const arranging = sort.key === "order";
+
+  async function move(index: number, delta: number) {
+    const next = [...sortedCrew];
+    const target = index + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    try {
+      await reorderCrew({ projectId, orderedIds: next.map((m) => m._id) });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reorder the crew.");
+    }
+  }
   const removeCrew = useMutation(api.projectCrew.remove);
   const updateCrew = useMutation(api.projectCrew.update);
   const ensureRelease = useMutation(api.documents.ensureForPerson);
@@ -172,6 +194,7 @@ export function CrewSection({
           <Table>
             <TableHeader>
               <TableRow>
+                {arranging && <TableHead className="w-px" />}
                 <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
                 <SortableHead label="Role" sortKey="role" sort={sort} onSort={toggle} />
                 <SortableHead
@@ -187,8 +210,32 @@ export function CrewSection({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedCrew.map((member) => (
+              {sortedCrew.map((member, index) => (
                 <TableRow key={member._id}>
+                  {arranging && (
+                    <TableCell className="w-px pr-0 align-middle">
+                      <div className="flex flex-col">
+                        <button
+                          type="button"
+                          aria-label={`Move ${member.name ?? member.role} up`}
+                          disabled={index === 0}
+                          onClick={() => void move(index, -1)}
+                          className="text-muted-foreground hover:text-foreground disabled:opacity-25"
+                        >
+                          <ChevronUpIcon className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${member.name ?? member.role} down`}
+                          disabled={index === sortedCrew.length - 1}
+                          onClick={() => void move(index, 1)}
+                          className="text-muted-foreground hover:text-foreground disabled:opacity-25"
+                        >
+                          <ChevronDownIcon className="size-4" />
+                        </button>
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className="font-medium">
                     {member.name ?? (
                       <span className="text-muted-foreground italic">Nobody booked</span>

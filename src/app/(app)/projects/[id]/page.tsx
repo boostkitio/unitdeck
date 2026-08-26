@@ -156,6 +156,7 @@ function ProjectEditor({
     clientId?: Id<"clients"> | null;
     status?: ProjectStatus;
     bookedByContact?: number | null;
+    ownerId?: string | null;
   }) {
     try {
       await updateProject({ id: project._id, ...patch });
@@ -220,6 +221,8 @@ function ProjectEditor({
         </CardHeader>
         <CardContent className="space-y-6">
           <BookedBy project={project} clients={clients} onSave={save} />
+
+          <ProjectOwner project={project} onSave={save} />
 
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
@@ -715,5 +718,69 @@ function NewClientDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Who on the team owns this production.
+ *
+ * Not who booked it — that is the client's contact — but the colleague to ask
+ * when whoever booked it is on a shoot. Drawn from the organisation's members
+ * rather than the contacts book, because this is someone with a login.
+ */
+function ProjectOwner({
+  project,
+  onSave,
+}: {
+  // Only the field this control owns: the page's project is an enriched query
+  // result, not a raw document.
+  project: { ownerId?: string | null };
+  onSave: (patch: { ownerId?: string | null }) => void | Promise<void>;
+}) {
+  const { memberships } = useOrganization({ memberships: { infinite: true } });
+  const members = memberships?.data ?? [];
+  const NONE = "none";
+
+  const nameOf = (userId: string) => {
+    const member = members.find((m) => m.publicUserData?.userId === userId);
+    if (!member) return "Someone who has since left";
+    const data = member.publicUserData;
+    const full = [data?.firstName, data?.lastName].filter(Boolean).join(" ").trim();
+    return full || data?.identifier || "A member";
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>Owner</Label>
+      <Select
+        value={project.ownerId ?? NONE}
+        onValueChange={(value) => {
+          if (value === null) return;
+          void onSave({ ownerId: value === NONE ? null : value });
+        }}
+      >
+        <SelectTrigger className="w-64">
+          {/* Explicit label: Base UI shows the raw value, which here is a user id. */}
+          <SelectValue>
+            {project.ownerId ? nameOf(project.ownerId) : "Nobody yet"}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>Nobody yet</SelectItem>
+          {members.map((m) => {
+            const userId = m.publicUserData?.userId;
+            if (!userId) return null;
+            return (
+              <SelectItem key={userId} value={userId}>
+                {nameOf(userId)}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        Who to ask about this job when whoever booked it is away.
+      </p>
+    </div>
   );
 }

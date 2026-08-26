@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
+import { byCrewOrder } from "./lib/crewOrder";
 import { Doc, Id } from "./_generated/dataModel";
 
 export type CrewStatus = "pencilled" | "confirmed";
@@ -35,10 +36,12 @@ export const listForProject = query({
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== org._id) return [];
 
-    const bookings = await ctx.db
-      .query("projectCrew")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .take(200);
+    const bookings = (
+      await ctx.db
+        .query("projectCrew")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .take(200)
+    ).sort(byCrewOrder);
 
     const members: ProjectCrewMember[] = [];
     for (const booking of bookings) {
@@ -193,6 +196,32 @@ export const remove = mutation({
     if (!booking || booking.orgId !== org._id) throw new Error("Crew member not found");
     // Hard delete: the booking is the record, and `people` keeps the contact.
     await ctx.db.delete(args.id);
+    return null;
+  },
+});
+
+/**
+ * Writes the order crew are read out in.
+ *
+ * Takes the booking ids in their new order and numbers them from zero, so the
+ * caller does not have to work out positions and a dragged row cannot collide
+ * with an existing one. Bookings not named here keep whatever they had, which
+ * puts a booking added mid-drag at the bottom rather than silently first.
+ */
+export const reorder = mutation({
+  args: { projectId: v.id("projects"), orderedIds: v.array(v.id("projectCrew")) },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) throw new Error("Project not found");
+
+    for (const [index, id] of args.orderedIds.entries()) {
+      const booking = await ctx.db.get(id);
+      // Silently skipping a foreign row rather than throwing: a stale list from
+      // another tab should not fail the whole reorder.
+      if (!booking || booking.orgId !== org._id || booking.projectId !== args.projectId) continue;
+      await ctx.db.patch(id, { sortOrder: index });
+    }
     return null;
   },
 });

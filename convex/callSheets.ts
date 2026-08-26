@@ -219,6 +219,7 @@ async function buildFromProject(
     weatherSummary,
     sunrise: forecast?.sunrise ?? day.sun?.sunrise,
     sunset: forecast?.sunset ?? day.sun?.sunset,
+    accommodation: day.accommodation,
   };
 }
 

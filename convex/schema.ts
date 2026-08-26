@@ -83,6 +83,11 @@ export default defineSchema({
 
   projects: defineTable({
     orgId: v.id("organisations"),
+    // The member of this organisation who owns the production, by Clerk user
+    // id — the person to ask when whoever booked it is away. A Clerk id
+    // rather than a people row because this is a colleague with a login,
+    // not a freelancer in the contacts book.
+    ownerId: v.optional(v.string()),
     clientId: v.optional(v.id("clients")),
     // Which of the client's contacts booked the job, by position in that
     // client's contact list. A position rather than a name so correcting a
@@ -173,6 +178,11 @@ export default defineSchema({
   projectCrew: defineTable({
     orgId: v.id("organisations"),
     projectId: v.id("projects"),
+    // Where this booking sits in the order crew are read out: director
+    // first, camera together. One order for the production, because a
+    // department list does not change between days. Absent sorts last, so
+    // bookings made before the field keep working.
+    sortOrder: v.optional(v.number()),
     // Talent are booked exactly like crew — a person, a role, contact details
     // — so they are the same row with a different heading over it. Absent
     // reads as crew, which is what every existing booking is.
@@ -298,6 +308,11 @@ export default defineSchema({
     orgId: v.id("organisations"),
     name: v.string(),
     address: v.string(),
+    // A location added for one job only. It stays attached to that production
+    // but is kept out of the shared list, so a one-off address does not silt
+    // up the database everyone picks from. Absent reads as shared, which is
+    // what every location saved before this was.
+    projectOnly: v.optional(v.boolean()),
     plusCode: v.optional(v.string()),
     parkingNotes: v.optional(v.string()),
     accessNotes: v.optional(v.string()),
@@ -326,6 +341,19 @@ export default defineSchema({
     weather: v.optional(weatherSnapshotValidator),
     sun: v.optional(v.object({ sunrise: v.string(), sunset: v.string() })),
     wrapNotes: v.optional(v.string()),
+    // Overnight accommodation for this day. Per day rather than per
+    // production: a job that moves changes hotel, and the crew reading
+    // Tuesday's call sheet need Tuesday's hotel.
+    accommodation: v.optional(
+      v.object({
+        name: v.string(),
+        address: v.optional(v.string()),
+        phone: v.optional(v.string()),
+        checkIn: v.optional(v.string()),
+        bookingRef: v.optional(v.string()),
+        notes: v.optional(v.string()),
+      })
+    ),
   })
     .index("by_org", ["orgId"])
     .index("by_org_and_date", ["orgId", "date"])

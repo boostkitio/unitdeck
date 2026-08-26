@@ -32,6 +32,10 @@ export function LocationSection({
   location: Doc<"locations"> | null;
 }) {
   const [picking, setPicking] = useState(false);
+  // Parking and access are what someone remembers after the address is
+  // saved. Without this there was no way back into them from the project:
+  // the only routes were Change, which replaces the location, and Remove.
+  const [editingDetails, setEditingDetails] = useState(false);
   const [looking, setLooking] = useState(false);
   const [releaseId, setReleaseId] = useState<Id<"documents"> | null>(null);
   const [makingRelease, setMakingRelease] = useState(false);
@@ -124,6 +128,11 @@ export function LocationSection({
                     : "Location release form"}
               </Button>
             ) : null}
+            {location && (
+              <Button size="sm" variant="ghost" onClick={() => setEditingDetails(true)}>
+                Edit details
+              </Button>
+            )}
             <Button size="sm" variant={location ? "ghost" : "default"} onClick={() => setPicking(true)}>
               {location ? "Change" : "Add location"}
             </Button>
@@ -273,6 +282,9 @@ export function LocationSection({
         )}
       </CardContent>
 
+      {editingDetails && location && (
+        <LocationDetailsDialog location={location} onClose={() => setEditingDetails(false)} />
+      )}
       {picking && (
         <LocationPickerDialog
           projectId={projectId}
@@ -308,6 +320,9 @@ function LocationPickerDialog({
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [parkingNotes, setParkingNotes] = useState("");
+  // Off by default: most addresses are used once, and every one of them
+  // saved was silting up the list everyone picks from.
+  const [saveForFuture, setSaveForFuture] = useState(false);
   const [nearestHospital, setNearestHospital] = useState<string | undefined>();
   const [nearestPoliceStation, setNearestPoliceStation] = useState<string | undefined>();
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -382,6 +397,7 @@ function LocationPickerDialog({
         name,
         address,
         parkingNotes: parkingNotes.trim() || undefined,
+        projectOnly: saveForFuture ? undefined : true,
         nearestHospital,
         nearestPoliceStation,
         lat: coords?.lat,
@@ -556,9 +572,21 @@ function LocationPickerDialog({
                 onChange={(e) => setParkingNotes(e.target.value)}
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Saved to your locations list, so you can reuse it on other productions.
-            </p>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-primary"
+                checked={saveForFuture}
+                onChange={(e) => setSaveForFuture(e.target.checked)}
+              />
+              <span>
+                Save to the locations list
+                <span className="block text-xs text-muted-foreground">
+                  Leave this off for a one-off address. It stays on this production either
+                  way.
+                </span>
+              </span>
+            </label>
           </div>
         )}
 
@@ -571,6 +599,110 @@ function LocationPickerDialog({
               {saving ? "Adding…" : "Add and set"}
             </Button>
           )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Edits the details someone fills in after the address is already saved.
+ *
+ * Parking, access and how to find the door are what a producer remembers late,
+ * often standing somewhere with no signal. Before this the only ways back into
+ * them from a production were Change, which swaps the location for another,
+ * and Remove — so adding parking meant searching for the same address again
+ * and re-adding it.
+ *
+ * Name and address are deliberately not here: changing those changes the
+ * location for every production using it, which belongs on the locations page.
+ */
+function LocationDetailsDialog({
+  location,
+  onClose,
+}: {
+  location: Doc<"locations">;
+  onClose: () => void;
+}) {
+  const updateLocation = useMutation(api.locations.update);
+  const [parkingNotes, setParkingNotes] = useState(location.parkingNotes ?? "");
+  const [accessNotes, setAccessNotes] = useState(location.accessNotes ?? "");
+  const [satNav, setSatNav] = useState(location.satNav ?? "");
+  const [notes, setNotes] = useState(location.notes ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await updateLocation({
+        id: location._id,
+        parkingNotes: parkingNotes.trim() || undefined,
+        accessNotes: accessNotes.trim() || undefined,
+        satNav: satNav.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
+      toast.success("Location details saved.");
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save the details.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{location.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="loc-details-parking">Parking notes</Label>
+            <Textarea
+              id="loc-details-parking"
+              value={parkingNotes}
+              onChange={(e) => setParkingNotes(e.target.value)}
+              rows={2}
+              placeholder="Where the unit parks, and what it costs"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="loc-details-access">Access notes</Label>
+            <Textarea
+              id="loc-details-access"
+              value={accessNotes}
+              onChange={(e) => setAccessNotes(e.target.value)}
+              rows={2}
+              placeholder="Which door, which buzzer, who to ask for"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="loc-details-satnav">Sat nav</Label>
+            <Input
+              id="loc-details-satnav"
+              value={satNav}
+              onChange={(e) => setSatNav(e.target.value)}
+              placeholder="A postcode that actually takes you to the gate"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="loc-details-notes">Notes</Label>
+            <Textarea
+              id="loc-details-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save details"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
