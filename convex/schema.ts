@@ -298,7 +298,7 @@ export default defineSchema({
     orgId: v.id("organisations"),
     name: v.string(),
     address: v.string(),
-    w3w: v.optional(v.string()),
+    plusCode: v.optional(v.string()),
     parkingNotes: v.optional(v.string()),
     accessNotes: v.optional(v.string()),
     nearestHospital: v.optional(v.string()),

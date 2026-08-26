@@ -5,11 +5,12 @@ import { requireOrg } from "./lib/auth";
 import { chatJson } from "./lib/llm";
 import { AI_MODEL_FAST } from "./lib/ai";
 import { geocodeAddress } from "./lib/geocode";
+import { plusCodeFor } from "./lib/plusCode";
 
 const locationFields = {
   name: v.string(),
   address: v.string(),
-  w3w: v.optional(v.string()),
+  plusCode: v.optional(v.string()),
   parkingNotes: v.optional(v.string()),
   accessNotes: v.optional(v.string()),
   nearestHospital: v.optional(v.string()),
@@ -64,7 +65,7 @@ export const update = mutation({
     nearestStation: v.optional(v.string()),
     name: v.optional(v.string()),
     address: v.optional(v.string()),
-    w3w: v.optional(v.string()),
+    plusCode: v.optional(v.string()),
     parkingNotes: v.optional(v.string()),
     accessNotes: v.optional(v.string()),
     nearestHospital: v.optional(v.string()),
@@ -158,7 +159,7 @@ export const saveEnrichment = internalMutation({
     nearestHospital: v.optional(v.string()),
     nearestPoliceStation: v.optional(v.string()),
     nearestStation: v.optional(v.string()),
-    w3w: v.optional(v.string()),
+    plusCode: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
   },
@@ -170,7 +171,7 @@ export const saveEnrichment = internalMutation({
     // Never overwrite something a human typed: only fill what is blank.
     const patch: Record<string, unknown> = {};
     const fill = (
-      key: "nearestHospital" | "nearestPoliceStation" | "nearestStation" | "w3w"
+      key: "nearestHospital" | "nearestPoliceStation" | "nearestStation" | "plusCode"
     ) => {
       const value = args[key];
       if (value && !location[key]?.trim()) patch[key] = value;
@@ -178,7 +179,7 @@ export const saveEnrichment = internalMutation({
     fill("nearestHospital");
     fill("nearestPoliceStation");
     fill("nearestStation");
-    fill("w3w");
+    fill("plusCode");
     if (args.lat !== undefined && args.lng !== undefined && location.lat === undefined) {
       patch.lat = args.lat;
       patch.lng = args.lng;
@@ -190,28 +191,8 @@ export const saveEnrichment = internalMutation({
 });
 
 /**
- * The real what3words address for a set of coordinates.
- *
- * This deliberately calls what3words rather than asking the model: a w3w
- * address is an arbitrary grid reference, so a generated one would look
- * plausible and point somewhere else entirely — worse than blank for an
- * address someone drives to. Returns null when W3W_API_KEY is unset, leaving
- * the field empty rather than wrong.
- */
-async function whatThreeWords(lat: number, lng: number): Promise<string | null> {
-  const key = process.env.W3W_API_KEY;
-  if (!key) return null;
-  const url = `https://api.what3words.com/v3/convert-to-3wa?coordinates=${lat},${lng}&key=${key}`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const body = (await res.json()) as { words?: unknown };
-  return typeof body.words === "string" && body.words.trim() !== "" ? body.words.trim() : null;
-}
-
-/**
  * Fills in everything derivable from a location's address: coordinates, the
- * nearest A&E and police station, public transport, and the what3words
- * address. Runs automatically when a location is saved.
+ * nearest A&E and police station, public transport, and the Plus Code. Runs automatically when a location is saved.
  *
  * Only blank fields are written, so anything typed by hand survives.
  */
@@ -224,8 +205,7 @@ export const enrichLocation = action({
     nearestHospital?: string;
     nearestPoliceStation?: string;
     nearestStation?: string;
-    w3w?: string;
-    w3wUnavailable?: boolean;
+    plusCode?: string;
   }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
@@ -233,7 +213,7 @@ export const enrichLocation = action({
     if (!location) throw new Error("Location not found");
     if (location.address.trim().length === 0) return {};
 
-    // Coordinates first: what3words is derived from them.
+    // Coordinates first: the Plus Code is derived from them.
     let coords =
       location.lat !== undefined && location.lng !== undefined
         ? { lat: location.lat, lng: location.lng }
@@ -276,14 +256,15 @@ Rules:
     const nearestPoliceStation = text(obj?.nearestPoliceStation);
     const nearestStation = text(obj?.nearestStation);
 
-    const w3w = coords ? await whatThreeWords(coords.lat, coords.lng).catch(() => null) : null;
+    // Arithmetic, not a lookup: this cannot fail once there are coordinates.
+    const plusCode = coords ? plusCodeFor(coords.lat, coords.lng, location.address) : undefined;
 
     await ctx.runMutation(internal.locations.saveEnrichment, {
       id: args.id,
       nearestHospital,
       nearestPoliceStation,
       nearestStation,
-      w3w: w3w ?? undefined,
+      plusCode,
       lat: coords?.lat,
       lng: coords?.lng,
     });
@@ -292,9 +273,7 @@ Rules:
       nearestHospital,
       nearestPoliceStation,
       nearestStation,
-      w3w: w3w ?? undefined,
-      // Lets the UI say why w3w is blank rather than leaving it a mystery.
-      w3wUnavailable: !process.env.W3W_API_KEY,
+      plusCode,
     };
   },
 });
@@ -386,5 +365,31 @@ Rules:
       .filter((s): s is AddressSuggestion => s !== null);
 
     return { suggestions };
+  },
+});
+
+/**
+ * Fills in the Plus Code for locations saved before Plus Codes existed.
+ *
+ * A one-off, run by hand with `npx convex run locations:backfillPlusCodes`.
+ * Safe to run more than once: a location that already has a code is skipped,
+ * so a hand-typed value is never overwritten. Locations without coordinates
+ * are left alone — the next enrichment pass geocodes them and fills the code
+ * on the way through.
+ */
+export const backfillPlusCodes = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const locations = await ctx.db.query("locations").collect();
+    let filled = 0;
+    for (const location of locations) {
+      if (location.plusCode?.trim()) continue;
+      if (location.lat === undefined || location.lng === undefined) continue;
+      await ctx.db.patch(location._id, {
+        plusCode: plusCodeFor(location.lat, location.lng, location.address),
+      });
+      filled++;
+    }
+    return { scanned: locations.length, filled };
   },
 });

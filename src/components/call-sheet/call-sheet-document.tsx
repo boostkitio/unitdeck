@@ -179,10 +179,10 @@ export function CallSheetDocument({
                   </p>
                   <p className="whitespace-pre-line">{loc.address}</p>
                   <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[8.5pt] text-neutral-600">
-                    {loc.w3w && (
+                    {loc.plusCode && (
                       <>
-                        <dt className="font-semibold">what3words</dt>
-                        <dd>{loc.w3w}</dd>
+                        <dt className="font-semibold">Plus Code</dt>
+                        <dd>{loc.plusCode}</dd>
                       </>
                     )}
                     {loc.satNav && (
@@ -322,8 +322,11 @@ export function CallSheetDocument({
  *
  * Google's static map is an image rather than an embed, which is what a sheet
  * that will be printed and handed round needs. It wants a browser key, and
- * without one the panel says so plainly rather than printing a broken image
- * or a grey box nobody can explain.
+ * without one the panel falls back to the Plus Code.
+ *
+ * That fallback is the point of carrying a Plus Code at all: nobody can click
+ * a printed sheet, so a driver needs something short they can type into any
+ * maps app. A grid reference does that; an apology for a missing key does not.
  */
 function LocationMap({ location }: { location: LocationEntry }) {
   const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -334,8 +337,17 @@ function LocationMap({ location }: { location: LocationEntry }) {
 
   if (!key) {
     return (
-      <div className="flex h-[34mm] w-[46mm] shrink-0 items-center justify-center rounded border border-dashed border-neutral-300 p-2 text-center text-[7.5pt] leading-tight text-neutral-500">
-        Add a Google Maps browser key to print a map here
+      <div className="flex h-[34mm] w-[46mm] shrink-0 flex-col items-center justify-center gap-1 rounded border border-dashed border-neutral-300 p-2 text-center leading-tight">
+        {location.plusCode ? (
+          <>
+            <span className="text-[7pt] tracking-wide text-neutral-500 uppercase">Plus Code</span>
+            <span className="font-mono text-[9pt] font-semibold text-neutral-800">
+              {location.plusCode}
+            </span>
+          </>
+        ) : (
+          <span className="text-[7.5pt] text-neutral-500">{location.address || location.name}</span>
+        )}
       </div>
     );
   }

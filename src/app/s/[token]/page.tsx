@@ -159,7 +159,7 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
                   >
                     Open in Maps
                   </a>
-                  {loc.w3w && <span className="text-muted-foreground">{loc.w3w}</span>}
+                  {loc.plusCode && <span className="text-muted-foreground">{loc.plusCode}</span>}
                 </div>
                 {loc.parkingNotes && (
                   <p className="mt-2 text-xs text-muted-foreground">Parking: {loc.parkingNotes}</p>

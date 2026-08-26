@@ -35,7 +35,7 @@ export default function CallSheetTemplatePage() {
         </li>
         <li>
           <strong>Location with practicalities.</strong>{" "}Full address, a maps link, where to park
-          and how to get in. For UK shoots, add what3words and the nearest A&amp;E so nobody has
+          and how to get in. For UK shoots, add a Plus Code and the nearest A&amp;E so nobody has
           to search for it in a bad moment.
         </li>
         <li>

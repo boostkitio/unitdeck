@@ -22,21 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReleaseComposer } from "@/components/documents/release-composer";
 import { ReminderButton } from "@/components/projects/crew-section";
-
-/**
- * Google's embed API when a browser key is configured, otherwise the keyless
- * embed, which still renders a pin but without the richer place card.
- */
-function mapEmbedSrc(query: string): string {
-  const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  return key
-    ? `https://www.google.com/maps/embed/v1/place?key=${key}&q=${encodeURIComponent(query)}`
-    : `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
-}
-
-function mapLink(query: string): string {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-}
+import { mapEmbedSrc, mapLink } from "@/lib/maps";
 
 export function LocationSection({
   projectId,
@@ -56,7 +42,7 @@ export function LocationSection({
         !location.nearestHospital && "nearest A&E",
         !location.nearestPoliceStation && "police station",
         !location.nearestStation && "nearest station",
-        !location.w3w && "what3words",
+        !location.plusCode && "Plus Code",
       ].filter((v): v is string => typeof v === "string")
     : [];
   const updateProject = useMutation(api.projects.update);
@@ -163,9 +149,9 @@ export function LocationSection({
             <div className="space-y-2 text-sm">
               <p className="font-medium">{location.name}</p>
               <p className="text-muted-foreground">{location.address}</p>
-              {location.w3w && (
+              {location.plusCode && (
                 <p className="text-muted-foreground">
-                  what3words: <span className="font-mono">{location.w3w}</span>
+                  Plus Code: <span className="font-mono">{location.plusCode}</span>
                 </p>
               )}
               {location.parkingNotes && (
@@ -215,17 +201,12 @@ export function LocationSection({
                           result.nearestHospital && "nearest A&E",
                           result.nearestPoliceStation && "police station",
                           result.nearestStation && "nearest station",
-                          result.w3w && "what3words",
+                          result.plusCode && "Plus Code",
                         ].filter(Boolean);
                         if (filled.length > 0) {
                           toast.success(`Filled in ${filled.join(", ")}.`);
                         } else {
                           toast.info("Could not fill anything in from that address.");
-                        }
-                        if (result.w3wUnavailable) {
-                          toast.info(
-                            "what3words needs a W3W_API_KEY in the Convex environment.",
-                          );
                         }
                       } catch (err) {
                         toast.error(
@@ -258,15 +239,23 @@ export function LocationSection({
                  the embed's own panning is worth less than the tile being the
                  obvious way through to directions. */
               <div className="group relative overflow-hidden rounded-lg border border-border">
-                <iframe
-                  title={`Map of ${location.name}`}
-                  src={mapEmbedSrc(query)}
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  className="pointer-events-none aspect-video w-full"
-                  allowFullScreen
-                  tabIndex={-1}
-                />
+                {mapEmbedSrc(query) ? (
+                  <iframe
+                    title={`Map of ${location.name}`}
+                    src={mapEmbedSrc(query)!}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    className="pointer-events-none aspect-video w-full"
+                    allowFullScreen
+                    tabIndex={-1}
+                  />
+                ) : (
+                  /* No browser key: a link tile rather than an unsupported
+                     embed. The tile still goes to the same place. */
+                  <div className="flex aspect-video w-full items-center justify-center bg-muted px-4 text-center text-sm text-muted-foreground">
+                    Open this location in Google Maps
+                  </div>
+                )}
                 <a
                   href={mapLink(query)}
                   target="_blank"
@@ -404,7 +393,7 @@ function LocationPickerDialog({
       // geocode fills the gap when it did not. Failure is not fatal — the map
       // falls back to the address.
       // Fills coordinates, nearest A&E and police station, public transport
-      // and what3words. Only blank fields are touched, so a picked
+      // and the Plus Code. Only blank fields are touched, so a picked
       // suggestion's values survive.
       void enrichLocation({ id: locationId }).catch(() => undefined);
       onClose();

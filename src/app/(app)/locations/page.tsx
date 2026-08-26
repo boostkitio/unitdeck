@@ -10,6 +10,7 @@ import { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { mapEmbedSrc, mapLink } from "@/lib/maps";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -63,7 +64,7 @@ export default function LocationsPage() {
           matchesSearch(search, [
             l.name,
             l.address,
-            l.w3w,
+            l.plusCode,
             l.parkingNotes,
             l.accessNotes,
             l.nearestHospital,
@@ -90,7 +91,7 @@ export default function LocationsPage() {
               "Nearest A&E",
               "Nearest police station",
               "Nearest station",
-              "what3words",
+              "Plus Code",
               "Sat nav",
               "Notes",
             ]}
@@ -100,7 +101,7 @@ export default function LocationsPage() {
               l.nearestHospital,
               l.nearestPoliceStation,
               l.nearestStation,
-              l.w3w,
+              l.plusCode,
               l.satNav,
               l.notes,
             ])}
@@ -185,7 +186,7 @@ function LocationDialog({
 
   const [name, setName] = useState(location?.name ?? "");
   const [address, setAddress] = useState(location?.address ?? "");
-  const [w3w, setW3w] = useState(location?.w3w ?? "");
+  const [plusCode, setPlusCode] = useState(location?.plusCode ?? "");
   const [parkingNotes, setParkingNotes] = useState(location?.parkingNotes ?? "");
   const [accessNotes, setAccessNotes] = useState(location?.accessNotes ?? "");
   const [nearestHospital, setNearestHospital] = useState(location?.nearestHospital ?? "");
@@ -242,7 +243,7 @@ function LocationDialog({
       const fields = {
         name,
         address,
-        w3w: w3w || undefined,
+        plusCode: plusCode || undefined,
         parkingNotes: parkingNotes || undefined,
         accessNotes: accessNotes || undefined,
         nearestHospital: nearestHospital || undefined,
@@ -262,7 +263,7 @@ function LocationDialog({
       toast.success("Location saved.");
       onClose();
       // Fill everything derivable from the address — coordinates, nearest A&E
-      // and police station, public transport and what3words. Only blank fields
+      // and police station, public transport and the Plus Code. Only blank fields
       // are written, so anything typed here survives.
       void enrichLocation({ id })
         .then((r) => {
@@ -270,16 +271,13 @@ function LocationDialog({
             r.nearestHospital && "nearest A&E",
             r.nearestPoliceStation && "police station",
             r.nearestStation && "nearest station",
-            r.w3w && "what3words",
+            r.plusCode && "Plus Code",
           ].filter(Boolean);
           // Say so either way: a silent no-op looks identical to a failure.
           if (filled.length > 0) {
             toast.success(`Filled in ${filled.join(", ")}.`);
           } else {
             toast.info("Could not fill anything in from that address.");
-          }
-          if (r.w3wUnavailable) {
-            toast.info("what3words needs a W3W_API_KEY in the Convex environment.");
           }
         })
         .catch(() => undefined);
@@ -306,15 +304,8 @@ function LocationDialog({
     const t = setTimeout(() => setDebouncedMapQuery(mapQuery), 500);
     return () => clearTimeout(t);
   }, [mapQuery]);
-  const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  const mapEmbedSrc = address.trim()
-    ? mapsKey
-      ? `https://www.google.com/maps/embed/v1/place?key=${mapsKey}&q=${encodeURIComponent(debouncedMapQuery)}`
-      : `https://www.google.com/maps?q=${encodeURIComponent(debouncedMapQuery)}&output=embed`
-    : null;
-  const mapLinkHref = address.trim()
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`
-    : null;
+  const embedSrc = address.trim() ? mapEmbedSrc(debouncedMapQuery) : null;
+  const mapLinkHref = address.trim() ? mapLink(mapQuery) : null;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -421,18 +412,26 @@ function LocationDialog({
 
           {/* Embedded Google Map — the tile itself opens Google Maps, so the
               frame is inert and the link sits over it. */}
-          {mapEmbedSrc && (
+          {mapLinkHref && (
             <div className="space-y-1">
               <div className="group relative">
-                <iframe
-                  title="Map"
-                  src={mapEmbedSrc}
-                  className="pointer-events-none h-48 w-full rounded-md border border-border"
-                  loading="eager"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  allowFullScreen={false}
-                  tabIndex={-1}
-                />
+                {embedSrc ? (
+                  <iframe
+                    title="Map"
+                    src={embedSrc}
+                    className="pointer-events-none h-48 w-full rounded-md border border-border"
+                    loading="eager"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    allowFullScreen={false}
+                    tabIndex={-1}
+                  />
+                ) : (
+                  /* No browser key: a link tile rather than an unsupported
+                     embed. */
+                  <div className="flex h-48 w-full items-center justify-center rounded-md border border-border bg-muted px-4 text-center text-sm text-muted-foreground">
+                    Open this address in Google Maps
+                  </div>
+                )}
                 {mapLinkHref && (
                   <a
                     href={mapLinkHref}
@@ -458,12 +457,12 @@ function LocationDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="loc-w3w">what3words</Label>
+              <Label htmlFor="loc-plus-code">Plus Code</Label>
               <Input
-                id="loc-w3w"
-                placeholder="///filled.count.soap"
-                value={w3w}
-                onChange={(e) => setW3w(e.target.value)}
+                id="loc-plus-code"
+                placeholder="C2GX+2V Tunbridge Wells"
+                value={plusCode}
+                onChange={(e) => setPlusCode(e.target.value)}
               />
             </div>
             <div className="space-y-2">

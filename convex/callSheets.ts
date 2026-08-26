@@ -184,7 +184,7 @@ async function buildFromProject(
       address: l.address,
       lat: l.lat,
       lng: l.lng,
-      w3w: l.w3w,
+      plusCode: l.plusCode,
       parkingNotes: l.parkingNotes,
       nearestHospital: l.nearestHospital,
       satNav: l.satNav,

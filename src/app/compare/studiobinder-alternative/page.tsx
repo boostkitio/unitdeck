@@ -77,7 +77,7 @@ export default function StudioBinderAlternativePage() {
               <td className="py-3 pr-4 font-medium">UK shoots</td>
               <td className="py-3 pr-4">US-centric</td>
               <td className="py-3">
-                what3words, sunrise and sunset, UK weather and nearest A&amp;E on every sheet
+                Plus Codes, sunrise and sunset, UK weather and nearest A&amp;E on every sheet
               </td>
             </tr>
           </tbody>
