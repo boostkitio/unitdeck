@@ -8,6 +8,7 @@ import { api } from "../../../../convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatShootDate } from "@/lib/format-date";
+import { groupAttentionByProject } from "@/lib/group-attention";
 import { Button } from "@/components/ui/button";
 import { useOrganization } from "@clerk/nextjs";
 import { statusBadgeClass, statusLabel } from "@/lib/project-status";
@@ -189,22 +190,41 @@ export default function DashboardPage() {
               // with what this panel shows.
               // Fills the card, then scrolls — rather than stopping short of
               // the bottom with the height already spoken for.
+              // Grouped by production: flat, the name and the link repeated on
+              // every line, so four things missing from one job read as four
+              // separate problems instead of one job to pick up.
               <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
-                {attention.map((item, i) => (
-                  <li key={i} className="flex items-center justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">{item.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.projectName} ·{" "}
-                        {item.date ? formatShootDate(item.date) : "No shoot dates yet"}
+                {groupAttentionByProject(attention).map((group) => (
+                  <li key={String(group.projectId)} className="py-2.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="min-w-0 truncate font-medium text-foreground">
+                        {group.projectName}
+                        <span className="ml-2 text-xs font-normal text-muted-foreground tabular-nums">
+                          {group.items.length}
+                        </span>
                       </p>
+                      <Link
+                        className="shrink-0 text-xs text-primary underline underline-offset-2"
+                        href={`/projects/${group.projectId}`}
+                      >
+                        Open project
+                      </Link>
                     </div>
-                    <Link
-                      className="shrink-0 text-xs text-primary underline underline-offset-2"
-                      href={`/projects/${item.projectId}`}
-                    >
-                      Open project
-                    </Link>
+                    <ul className="mt-1 space-y-0.5">
+                      {group.items.map((item, i) => (
+                        <li key={i} className="flex items-baseline gap-2 text-xs">
+                          <span className="text-muted-foreground" aria-hidden="true">
+                            &middot;
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-foreground">
+                            {item.label}
+                          </span>
+                          <span className="shrink-0 text-muted-foreground">
+                            {item.date ? formatShootDate(item.date) : "No dates"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 ))}
               </ul>

@@ -52,7 +52,13 @@ function locationSortValue(l: LocationDoc, key: LocationSortKey): string | numbe
 
 export default function LocationsPage() {
   const { organization } = useOrganization();
-  const locations = useQuery(api.locations.list, organization ? {} : "skip");
+  // Archiving already existed with no way back to what had been archived,
+  // so a location put away by mistake was simply gone from the interface.
+  const [showArchived, setShowArchived] = useState(false);
+  const locations = useQuery(
+    api.locations.list,
+    organization ? { includeArchived: showArchived } : "skip"
+  );
   const [editing, setEditing] = useState<LocationDoc | "new" | null>(null);
   const [search, setSearch] = useState("");
   const { sort, toggle } = useTableSort<LocationSortKey>({ key: "name", dir: "asc" });
@@ -106,6 +112,9 @@ export default function LocationsPage() {
               l.notes,
             ])}
           />
+          <Button variant="ghost" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived ? "Hide archived" : "Show archived"}
+          </Button>
           <Button onClick={() => setEditing("new")}>Add location</Button>
         </div>
       </div>

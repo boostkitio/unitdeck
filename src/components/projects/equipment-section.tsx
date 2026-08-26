@@ -32,6 +32,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { matchesSearch } from "@/lib/search";
+import { CsvExportButton } from "@/components/csv-export-button";
 import { formatShootDate } from "@/lib/format-date";
 import { PROJECT_STATUSES } from "@/lib/project-status";
 import { cn } from "@/lib/utils";
@@ -95,6 +96,22 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
         onEdit={setEditing}
         actions={
           <>
+            {/* The whole kit list, both sections, in the order it reads on
+                screen — a rental house wants one list, not two. */}
+            <CsvExportButton
+              filename="kit-list"
+              disabled={(rows ?? []).length === 0}
+              headers={["Section", "Department", "Item", "Quantity", "Cost", "Status", "Notes"]}
+              rows={(rows ?? []).map((row) => [
+                row.section === "additional" ? "Additional" : "Equipment",
+                row.dept,
+                row.item,
+                row.quantity,
+                row.cost,
+                row.status,
+                row.notes,
+              ])}
+            />
             <Button size="sm" variant="secondary" onClick={() => setApplying(true)}>
               Add from package
             </Button>
