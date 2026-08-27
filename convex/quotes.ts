@@ -1025,6 +1025,81 @@ function unfilledLineFor(
   );
 }
 
+/**
+ * Makes a quote's lines the rate card's lines again.
+ *
+ * For a quote that carries rows from an older version of the card — lines
+ * whose names nothing on the card answers to any more. Anything priced is
+ * kept whatever it is called, because that is somebody's work and possibly
+ * a figure a client has already seen; an unpriced line that is not on the
+ * card goes, and anything on the card that is missing arrives.
+ */
+export const rebuildLines = mutation({
+  args: { id: v.id("quotes") },
+  handler: async (ctx, args) => {
+    const { org, quote } = await loadQuote(ctx, args.id);
+    const [card, lines] = await Promise.all([
+      ctx.db
+        .query("rateCardItems")
+        .withIndex("by_org", (q) => q.eq("orgId", org._id))
+        .collect(),
+      ctx.db
+        .query("quoteLines")
+        .withIndex("by_quote", (q) => q.eq("quoteId", args.id))
+        .collect(),
+    ]);
+
+    const lineKey = (section: string | undefined, name: string) =>
+      `${(section ?? "").trim().toLowerCase()}::${name.replace(/\s+/g, " ").trim().toLowerCase()}`;
+    const standard = new Set(
+      card.filter((i) => !i.archived).map((i) => lineKey(i.section, i.name))
+    );
+
+    let removed = 0;
+    const kept = new Set<string>();
+    for (const line of lines) {
+      const key = lineKey(line.section, line.name);
+      const priced = line.pax > 0 && line.unitAmount > 0;
+      if (!priced && !standard.has(key)) {
+        await ctx.db.delete(line._id);
+        removed += 1;
+        continue;
+      }
+      kept.add(key);
+    }
+
+    const margins = {
+      contingencyBp: quote.contingencyBp,
+      profitBp: quote.profitBp,
+      insuranceBp: quote.insuranceBp,
+    };
+    let sortOrder = lines.reduce((max, line) => Math.max(max, line.sortOrder ?? 0), 0);
+    let added = 0;
+    for (const item of card
+      .filter((i) => !i.archived)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))) {
+      if (kept.has(lineKey(item.section, item.name))) continue;
+      sortOrder += 1;
+      added += 1;
+      await ctx.db.insert("quoteLines", {
+        orgId: org._id,
+        quoteId: args.id,
+        category: item.category,
+        section: item.section,
+        name: item.name,
+        notes: item.notes,
+        unit: item.unit,
+        pax: 0,
+        unitAmount: 0,
+        costPence: item.costPence,
+        ratePence: rateFromCost(item.costPence, margins, quote.roundToPence),
+        sortOrder,
+      });
+    }
+    return { removed, added };
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Getting it to the client
 // ---------------------------------------------------------------------------

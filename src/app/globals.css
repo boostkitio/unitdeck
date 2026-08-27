@@ -128,3 +128,24 @@
     @apply font-sans;
   }
 }
+
+/*
+ * Everything this app generates is A4.
+ *
+ * A call sheet, a release form and a quote are documents somebody prints,
+ * files or sends on, and a page that comes out at whatever size the printer
+ * defaults to is no use to any of them. The page box is set here so the rule
+ * holds for the browser's own printing and for the headless renderer that
+ * makes the PDFs, and the documents themselves are laid out at 210mm wide
+ * with their own margin — hence none here.
+ */
+@page {
+  size: A4;
+  margin: 0;
+}
+
+@media print {
+  body {
+    background: white;
+  }
+}

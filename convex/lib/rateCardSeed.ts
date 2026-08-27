@@ -95,7 +95,12 @@ export const RATE_CARD_SEED: RateCardSeedItem[] = [
   { category: "production", section: "PRODUCTION CREW", name: "Vision Mixer (Overtime)", unit: "day", costPence: 6733 },
   { category: "production", section: "PRODUCTION CREW", name: "VFX Supervisor (Overtime)", unit: "day", costPence: 11970 },
   { category: "production", section: "PRODUCTION CREW", name: "Photographer (Overtime)", unit: "day", costPence: 29925 },
-  { category: "production", section: "PRODUCTION CREW", name: "Photographer (Overtime)", unit: "day", costPence: 5237 },
+  // The sheet has this row labelled "Photographer (Overtime)" a second time.
+  // Its rate and its position both say Photographer Assistant: the overtime
+  // block mirrors the crew block name for name, and this is where the
+  // assistant falls. Named for what it is rather than carried across as a
+  // duplicate nobody could tell apart.
+  { category: "production", section: "PRODUCTION CREW", name: "Photographer Assistant (Overtime)", unit: "day", costPence: 5237 },
   { category: "production", section: "PRODUCTION CREW", name: "Other", unit: "generic", costPence: 0 },
   { category: "art", section: "ART DEPARTMENT / LOCATION", name: "Art Director", unit: "day", costPence: 39900, notes: "Include prep day(s)" },
   { category: "art", section: "ART DEPARTMENT / LOCATION", name: "Art Department Assistant", unit: "day", costPence: 29925 },
@@ -204,8 +209,8 @@ export const RATE_CARD_SEED: RateCardSeedItem[] = [
   { category: "equipment", section: "GRIP", name: "K Clamps", unit: "day", costPence: 624 },
   { category: "equipment", section: "GRIP", name: "Manfrotto Magic Arm", unit: "day", costPence: 624, notes: "with Bracket" },
   { category: "equipment", section: "GRIP", name: "Matthews Scissor Clamp", unit: "day", costPence: 624, notes: "w/Cable Holder" },
-  { category: "equipment", section: "GRIP", name: "Matthellini Clamp", unit: "day", costPence: 624, notes: "3” Center Jaw" },
-  { category: "equipment", section: "GRIP", name: "Matthellini Clamp", unit: "day", costPence: 624, notes: "2” End Jaw" },
+  { category: "equipment", section: "GRIP", name: "Matthellini Clamp (3” centre jaw)", unit: "day", costPence: 624 },
+  { category: "equipment", section: "GRIP", name: "Matthellini Clamp (2” end jaw)", unit: "day", costPence: 624 },
   { category: "equipment", section: "GRIP", name: "Sakk (Cinesaddle)", unit: "day", costPence: 1247 },
   { category: "equipment", section: "GRIP", name: "Other", unit: "generic", costPence: 0 },
   { category: "equipment", section: "MONITORING", name: "Sumo Monitor / Recorder", unit: "day", costPence: 12469 },
@@ -244,8 +249,8 @@ export const RATE_CARD_SEED: RateCardSeedItem[] = [
   { category: "equipment", section: "SOUND", name: "Rode NTG 3", unit: "day", costPence: 2078 },
   { category: "equipment", section: "SOUND", name: "Rode NTG 4", unit: "day", costPence: 2909 },
   { category: "equipment", section: "SOUND", name: "Rode NTG VideoMic", unit: "day", costPence: 1247 },
-  { category: "equipment", section: "SOUND", name: "Rodecaster Pro II", unit: "day", costPence: 9975, notes: "Podcast Set (4 Mics)" },
-  { category: "equipment", section: "SOUND", name: "Rodecaster Pro II", unit: "day", costPence: 3325, notes: "Mixer Only" },
+  { category: "equipment", section: "SOUND", name: "Rodecaster Pro II — podcast set (4 mics)", unit: "day", costPence: 9975 },
+  { category: "equipment", section: "SOUND", name: "Rodecaster Pro II — mixer only", unit: "day", costPence: 3325 },
   { category: "equipment", section: "SOUND", name: "Rode Boom Pole", unit: "day", costPence: 831 },
   { category: "equipment", section: "SOUND", name: "Rode Interview Go Handle", unit: "day", costPence: 831 },
   { category: "equipment", section: "SOUND", name: "Zoom H6 Kit", unit: "day", costPence: 2078 },

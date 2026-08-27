@@ -38,6 +38,10 @@ export async function POST(req: NextRequest) {
     await page.goto(printUrl, { waitUntil: "networkidle0", timeout: 30000 });
     pdf = await page.pdf({
       format: "a4",
+      // The document's own CSS says A4 with no page margin; honouring it
+      // keeps one answer to what size these come out, wherever they are
+      // made from.
+      preferCSSPageSize: true,
       printBackground: true,
       margin: { top: "0", right: "0", bottom: "0", left: "0" },
     });

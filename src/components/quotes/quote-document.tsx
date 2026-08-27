@@ -64,7 +64,11 @@ export function QuoteDocument({
   const filled = data.byCategory.filter((c) => c.totals.total !== 0);
 
   return (
-    <article className="mx-auto max-w-4xl bg-white p-8 text-[10pt] text-neutral-900 print:p-0">
+    <article
+      // A4, like every other document this app makes: 210mm across with its
+      // own 14mm margin, running to as many pages as it needs.
+      className="mx-auto w-[210mm] min-h-[297mm] bg-white p-[14mm] text-[10pt] text-neutral-900"
+    >
       <header className="flex items-start justify-between gap-6 border-b-2 border-neutral-900 pb-3">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">Quote</h1>

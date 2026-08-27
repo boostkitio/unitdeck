@@ -171,6 +171,47 @@ export const seed = mutation({
   },
 });
 
+/**
+ * Throws the card away and writes the standard one out again.
+ *
+ * The blunt instrument, and sometimes the right one: a card that has been
+ * seeded, topped up and renamed across several goes ends up carrying rows
+ * from every version of itself, and no amount of matching by name sorts that
+ * out — the rows that do not belong are exactly the ones whose names no
+ * longer match anything. This makes the card the standard card, exactly, and
+ * loses any cost that had been edited by hand.
+ *
+ * Quotes are untouched. A quote's lines are copies with their own costs and
+ * rates, which is what lets a quote sent last year still say what it said.
+ */
+export const rebuild = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const existing = await ctx.db
+      .query("rateCardItems")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    for (const row of existing) await ctx.db.delete(row._id);
+
+    let sortOrder = 0;
+    for (const item of RATE_CARD_SEED) {
+      sortOrder += 1;
+      await ctx.db.insert("rateCardItems", {
+        orgId: org._id,
+        category: item.category,
+        section: item.section,
+        name: item.name,
+        notes: item.notes,
+        unit: item.unit,
+        costPence: item.costPence,
+        sortOrder,
+      });
+    }
+    return { removed: existing.length, added: RATE_CARD_SEED.length };
+  },
+});
+
 /** Case- and space-insensitive, because a card is typed by people. */
 function key(section: string, name: string): string {
   return `${section.trim().toLowerCase()}::${name.replace(/\s+/g, " ").trim().toLowerCase()}`;

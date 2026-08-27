@@ -1047,3 +1047,98 @@ test("a quote is not sent to something that is not an address", async () => {
     })
   ).rejects.toThrow(/email address/i);
 });
+
+test("the standard card has no line twice", async () => {
+  // A card is read by eye. Two rows with the same name in the same section
+  // are indistinguishable in the list and a coin toss on the quote, so the
+  // sheet's three — two told apart by a note, one a mislabelled row — are
+  // named for what they are.
+  const seen = new Map<string, number>();
+  for (const item of RATE_CARD_SEED) {
+    const key = `${item.section}::${item.name}`;
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+  expect([...seen.values()].filter((n) => n > 1)).toEqual([]);
+  expect(seen.size).toBe(279);
+
+  const grip = RATE_CARD_SEED.filter((i) => i.name.startsWith("Matthellini"));
+  expect(grip.map((i) => i.name)).toEqual([
+    "Matthellini Clamp (3” centre jaw)",
+    "Matthellini Clamp (2” end jaw)",
+  ]);
+});
+
+test("rebuilding the card makes it the standard card again", async () => {
+  const { asA } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+
+  // A card that has drifted: rows from an older version of the standard list
+  // under headings nothing matches any more, and an edited cost.
+  await asA.mutation(api.rateCard.add, {
+    category: "equipment",
+    section: "EQUIPMENT - KIT FOR JOBS",
+    name: "Sony FX9 Camera Kit",
+    unit: "day",
+    costPence: 22444,
+  });
+  const producer = (await asA.query(api.rateCard.list, {})).find(
+    (i) => i.name === "Producer" && i.section === "PRE - PRODUCTION"
+  )!;
+  await asA.mutation(api.rateCard.update, { id: producer._id, costPence: 99900 });
+  expect((await asA.query(api.rateCard.list, {})).length).toBe(280);
+
+  const result = await asA.mutation(api.rateCard.rebuild, {});
+  expect(result).toEqual({ removed: 280, added: 279 });
+
+  const after = await asA.query(api.rateCard.list, {});
+  expect(after).toHaveLength(279);
+  expect(after.some((i) => i.section === "EQUIPMENT - KIT FOR JOBS")).toBe(false);
+  // Deliberately not a merge: the edited cost goes with everything else, which
+  // is what the confirmation says it will do.
+  expect(after.find((i) => i.name === "Producer")?.costPence).toBe(48628);
+});
+
+test("rebuilding a quote's lines keeps what is priced and drops what is stale", async () => {
+  const { asA, ids } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+
+  // Two lines from an older card: one priced onto the quote, one not.
+  const stalePriced = await asA.mutation(api.quotes.addLine, {
+    quoteId: id,
+    category: "equipment",
+    section: "EQUIPMENT - KIT FOR JOBS",
+    name: "Sony FX9 Camera Kit",
+    unit: "day",
+    costPence: 22444,
+  });
+  await asA.mutation(api.quotes.updateLine, { id: stalePriced, pax: 1, unitAmount: 3 });
+  await asA.mutation(api.quotes.addLine, {
+    quoteId: id,
+    category: "equipment",
+    section: "EQUIPMENT - KIT FOR JOBS",
+    name: "Gimbal Kit",
+    unit: "day",
+    costPence: 19950,
+    // Nothing against it: on the quote in name only, which is what makes it
+    // stale rather than somebody's work.
+    pax: 0,
+    unitAmount: 0,
+  });
+  // And one standard line deleted along the way.
+  const before = (await asA.query(api.quotes.get, { id }))!;
+  await asA.mutation(api.quotes.removeLine, {
+    id: before.lines.find((l) => l.section === "SOUND")!._id,
+  });
+
+  const result = await asA.mutation(api.quotes.rebuildLines, { id });
+  expect(result).toEqual({ removed: 1, added: 1 });
+
+  const after = (await asA.query(api.quotes.get, { id }))!;
+  // The priced one stays, whatever it is called: it is somebody's work, and
+  // possibly a figure a client has already been shown.
+  const kept = after.lines.find((l) => l._id === stalePriced)!;
+  expect(kept.pax).toBe(1);
+  expect(after.lines).toHaveLength(280);
+  expect(after.lines.filter((l) => l.section === "EQUIPMENT - KIT FOR JOBS")).toHaveLength(1);
+});

@@ -10,6 +10,13 @@ import { Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -45,6 +52,7 @@ export default function RateCardPage() {
   const update = useMutation(api.rateCard.update);
   const remove = useMutation(api.rateCard.remove);
   const seed = useMutation(api.rateCard.seed);
+  const rebuild = useMutation(api.rateCard.rebuild);
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
@@ -106,6 +114,14 @@ export default function RateCardPage() {
           <Button variant="ghost" size="sm" render={<Link href="/quotes" />}>
             Back to quotes
           </Button>
+          <RebuildDialog
+            onRebuild={async () => {
+              const result = await rebuild({});
+              toast.success(`Rebuilt: ${result.added} lines, exactly as the sheet has them.`, {
+                description: `${result.removed} replaced.`,
+              });
+            }}
+          />
           <Button
             size="sm"
             disabled={busy}
@@ -347,5 +363,67 @@ export default function RateCardPage() {
         )}
       </div>
     </div>
+  );
+}
+
+
+/**
+ * Putting the card back to the standard one.
+ *
+ * Behind a confirmation because it is not an undo: a cost somebody has edited
+ * goes with everything else. It is here for the card that has drifted — rows
+ * from an older version of the standard list that nothing matches any more,
+ * which is the one mess that cannot be tidied line by line.
+ */
+function RebuildDialog({ onRebuild }: { onRebuild: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [working, setWorking] = useState(false);
+
+  async function run() {
+    setWorking(true);
+    try {
+      await onRebuild();
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not rebuild it.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <>
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Rebuild from the standard card
+      </Button>
+      {open && (
+        <Dialog open onOpenChange={(next) => (!next ? setOpen(false) : undefined)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Rebuild the rate card?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2 text-sm text-muted-foreground">
+              <p>
+                Every line goes and the standard card is written out again — the same 279 lines
+                the quote sheet has, in its order, under its headings.
+              </p>
+              <p>
+                Any cost you have edited here goes with it. Quotes are not touched: their lines
+                are copies with their own figures, so a quote already sent still says what it
+                said.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" disabled={working} onClick={() => void run()}>
+                {working ? "Rebuilding…" : "Rebuild"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }

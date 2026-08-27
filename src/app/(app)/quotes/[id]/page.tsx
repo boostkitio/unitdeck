@@ -65,6 +65,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   const addKit = useMutation(api.quotes.addKitFromProject);
   const newVersion = useMutation(api.quotes.newVersion);
   const setArchived = useMutation(api.quotes.setArchived);
+  const rebuildLines = useMutation(api.quotes.rebuildLines);
   const saveName = useCallback(
     async (value: string) => {
       await update({ id: quoteId, title: value });
@@ -168,6 +169,28 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
               ))}
             </SelectContent>
           </Select>
+          {/* For a quote carrying lines from an older rate card. Anything
+              priced is kept; only unpriced lines nothing answers to go. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            title="Puts this quote's lines back to the rate card. Anything priced is kept exactly as it is."
+            onClick={() =>
+              void run(
+                rebuildLines({ id: quoteId }).then((r) =>
+                  toast.success(
+                    r.added === 0 && r.removed === 0
+                      ? "Already matches the rate card."
+                      : `${r.removed} old line${r.removed === 1 ? "" : "s"} removed, ${r.added} added.`
+                  )
+                ),
+                "Could not rebuild the lines."
+              )
+            }
+          >
+            Rebuild lines
+          </Button>
           <Button variant="secondary" size="sm" render={<Link href={`/quotes/${quoteId}/view`} />}>
             Client copy
           </Button>
@@ -465,14 +488,14 @@ function CategoryCard({
   const priced = lines.filter((l) => l.pax > 0 && l.unitAmount > 0);
   const visible = lines;
 
-  // The individual kit lists stay folded away until they are wanted — open
-  // already if anything in them is on the quote, because a priced line must
-  // never be hidden.
+  // The individual kit lists are a section of their own, folded away until
+  // somebody is hiring kit out — open already if anything in them is on the
+  // quote, because a priced line must never be hidden.
   const dryHire = visible.filter((l) => isDryHire(l.section));
   const [showDryHire, setShowDryHire] = useState(
     dryHire.some((l) => l.pax > 0 && l.unitAmount > 0)
   );
-  const shown = showDryHire ? visible : visible.filter((l) => !isDryHire(l.section));
+  const shown = visible;
 
   async function save(work: Promise<unknown>, failure: string) {
     try {
@@ -514,7 +537,29 @@ function CategoryCard({
               </tr>
             </thead>
             <tbody>
-              {withSectionRows(shown).map((row) => {
+              {withSectionRows(shown, showDryHire).map((row) => {
+                if (row.kind === "dryHire") {
+                  return (
+                    <tr key="dry-hire" className="border-b border-border bg-muted/40">
+                      <td colSpan={9} className="p-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowDryHire((open) => !open)}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-muted"
+                        >
+                          <span className="text-xs font-semibold tracking-wide text-foreground">
+                            {showDryHire ? "▾" : "▸"} DRY HIRE EQUIPMENT
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {row.subtotal > 0
+                              ? formatPence(row.subtotal)
+                              : `${row.count} lines — cameras, lenses, grip, lighting and the rest`}
+                          </span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                }
                 // The sheet's own dividers, kept: a producer scanning
                 // Equipment wants Cameras, Lenses, Grip, Sound as separate
                 // blocks rather than a hundred lines running together.
@@ -713,21 +758,6 @@ function CategoryCard({
               })}
             </tbody>
           </table>
-          {dryHire.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowDryHire((open) => !open)}
-              className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            >
-              <span className="text-[10px]">{showDryHire ? "▾" : "▸"}</span>
-              Dry hire equipment
-              <span className="font-normal">
-                {showDryHire
-                  ? "— hide the individual kit lists"
-                  : `— ${dryHire.length} lines across cameras, lenses, grip, lighting and the rest`}
-              </span>
-            </button>
-          )}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border px-3 pt-2 text-sm">
@@ -1037,24 +1067,42 @@ function isDryHire(section: string | undefined): boolean {
 
 type SectionRow =
   | { kind: "section"; name: string; subtotal: number }
+  | { kind: "dryHire"; count: number; subtotal: number }
   | { kind: "line"; line: QuoteData["lines"][number] };
 
-function withSectionRows(lines: QuoteData["lines"]): SectionRow[] {
+function total(lines: QuoteData["lines"]): number {
+  return lines.reduce(
+    (sum, l) => sum + (l.pax > 0 && l.unitAmount > 0 ? l.pax * l.unitAmount * l.ratePence : 0),
+    0
+  );
+}
+
+function withSectionRows(lines: QuoteData["lines"], dryHireOpen: boolean): SectionRow[] {
   const rows: SectionRow[] = [];
+  const dryHire = lines.filter((l) => isDryHire(l.section));
   let current: string | null = null;
+  let announcedDryHire = false;
+
   for (const line of lines) {
+    if (isDryHire(line.section)) {
+      // One heading of its own for the lot, at the point they start. Closed,
+      // that is all there is; open, the individual lists follow under it.
+      if (!announcedDryHire) {
+        announcedDryHire = true;
+        current = null;
+        rows.push({ kind: "dryHire", count: dryHire.length, subtotal: total(dryHire) });
+      }
+      if (!dryHireOpen) continue;
+    }
+
     const section = line.section ?? null;
     if (section !== current) {
       current = section;
       if (section) {
-        const inSection = lines.filter((l) => l.section === section);
         rows.push({
           kind: "section",
           name: section,
-          subtotal: inSection.reduce(
-            (sum, l) => sum + (l.pax > 0 && l.unitAmount > 0 ? l.pax * l.unitAmount * l.ratePence : 0),
-            0
-          ),
+          subtotal: total(lines.filter((l) => l.section === section)),
         });
       }
     }
