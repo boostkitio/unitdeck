@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { YourName } from "@/components/settings/your-name";
 
 type Invoicing = Infer<typeof invoicingValidator>;
 type SettingsView = {
@@ -130,6 +131,13 @@ function SettingsForm({ settings }: { settings: SettingsView }) {
 
   return (
     <div className="space-y-8">
+      {/* Your own details come first: they are the only thing on this page
+          about you rather than about the company. */}
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold">Your name</h2>
+        <YourName />
+      </section>
+
       {/* Branding */}
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Branding</h2>
