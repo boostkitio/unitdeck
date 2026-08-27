@@ -188,7 +188,7 @@ export default function DashboardPage() {
           so it is capped instead.
         */}
         <div className="relative">
-        <Card className="max-h-[32rem] lg:absolute lg:inset-0 lg:max-h-none">
+        <Card className="max-h-[26rem] lg:absolute lg:inset-0 lg:max-h-none">
           <CardHeader>
             <CardTitle>Needs attention</CardTitle>
           </CardHeader>

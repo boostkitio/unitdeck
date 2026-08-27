@@ -123,7 +123,11 @@ export function MonthCalendar({
                 onClick={() => onDayClick?.(key)}
                 aria-pressed={state.selected}
                 className={cn(
-                  "flex aspect-square w-full flex-col items-center justify-center rounded-md border border-transparent text-sm tabular-nums transition-colors",
+                  // Square until that would make it tall: in a half-width
+                  // column a square cell is 60-odd pixels a side, and six rows
+                  // of them set the height of the whole dashboard row. Capped,
+                  // the month takes the room it needs to be read and no more.
+                  "flex aspect-square max-h-10 w-full flex-col items-center justify-center rounded-md border border-transparent text-sm tabular-nums transition-colors",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   !state.disabled && "hover:bg-muted",
                   state.disabled && "cursor-not-allowed opacity-40",

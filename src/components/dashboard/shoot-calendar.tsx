@@ -133,7 +133,7 @@ export function ShootCalendar() {
               No shoot days in {MONTH_NAMES[month.month]}. Use ‹ and › to look at other months.
             </p>
           ) : (
-            <ul className="-mx-2 max-h-64 divide-y divide-border overflow-y-auto">
+            <ul className="-mx-2 max-h-48 divide-y divide-border overflow-y-auto">
               {monthShoots.map((shoot) => (
                 <ShootEntry key={shoot.shootDayId} day={shoot} />
               ))}
