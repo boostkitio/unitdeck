@@ -1,4 +1,5 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { byCrewOrder } from "./lib/crewOrder";
@@ -87,6 +88,19 @@ export const listForProject = query({
  * Books someone onto a project, or adds a role with nobody in it yet so the
  * gap is visible until it is filled.
  */
+
+/**
+ * Bring this production's staff calendar entries back in line.
+ *
+ * Every mutation that changes who is booked, or how, says so — the sync then
+ * works the whole production out again rather than trying to translate one
+ * change into one calendar write. It does nothing at all unless the
+ * organisation has calendar sync switched on.
+ */
+async function syncCalendar(ctx: MutationCtx, projectId: Id<"projects">) {
+  await ctx.scheduler.runAfter(0, internal.calendarSync.reconcileProject, { projectId });
+}
+
 export const add = mutation({
   args: {
     projectId: v.id("projects"),
@@ -103,7 +117,9 @@ export const add = mutation({
     if (args.personId === undefined) {
       // Nothing else names the row, so the role has to be there.
       if (!args.role?.trim()) throw new Error("Name the role you need to fill");
-      return await ctx.db.insert("projectCrew", {
+      // Nobody is in it yet, so there is nothing to put on a calendar — but
+      // the sync is harmless and keeps one rule rather than two.
+      const unfilled = await ctx.db.insert("projectCrew", {
         orgId: org._id,
         projectId: args.projectId,
         role: args.role.trim(),
@@ -111,6 +127,8 @@ export const add = mutation({
         status: "pencilled",
         kind: args.kind,
       });
+      await syncCalendar(ctx, args.projectId);
+      return unfilled;
     }
 
     const person = await ctx.db.get(args.personId);
@@ -125,7 +143,7 @@ export const add = mutation({
       .unique();
     if (existing) throw new Error(`${person.name} is already on this project`);
 
-    return await ctx.db.insert("projectCrew", {
+    const booked = await ctx.db.insert("projectCrew", {
       orgId: org._id,
       projectId: args.projectId,
       personId: args.personId,
@@ -134,6 +152,8 @@ export const add = mutation({
       status: "pencilled",
       kind: args.kind,
     });
+    await syncCalendar(ctx, args.projectId);
+    return booked;
   },
 });
 
@@ -157,6 +177,7 @@ export const assign = mutation({
 
     // The role stays as typed — that is what the slot was created for.
     await ctx.db.patch(args.id, { personId: args.personId });
+    await syncCalendar(ctx, booking.projectId);
     return null;
   },
 });
@@ -183,6 +204,7 @@ export const update = mutation({
     if (args.kind !== undefined) patch.kind = args.kind;
 
     await ctx.db.patch(args.id, patch);
+    await syncCalendar(ctx, booking.projectId);
     return null;
   },
 });
@@ -195,6 +217,8 @@ export const remove = mutation({
     if (!booking || booking.orgId !== org._id) throw new Error("Crew member not found");
     // Hard delete: the booking is the record, and `people` keeps the contact.
     await ctx.db.delete(args.id);
+    // Their entry comes off their calendar with it.
+    await syncCalendar(ctx, booking.projectId);
     return null;
   },
 });

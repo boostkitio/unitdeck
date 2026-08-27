@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { YourName } from "@/components/settings/your-name";
+import { CalendarSync } from "@/components/settings/calendar-sync";
 
 type Invoicing = Infer<typeof invoicingValidator>;
 type SettingsView = {
@@ -300,6 +301,8 @@ function SettingsForm({ settings }: { settings: SettingsView }) {
           {saving ? "Saving…" : "Save settings"}
         </Button>
       </div>
+
+      <CalendarSync />
     </div>
   );
 }

@@ -47,6 +47,12 @@ export default defineSchema({
         // House wording for releases. A document keeps the clause it was
         // raised under, so changing this never rewrites one already signed.
         releaseWording: v.optional(releaseWordingValidator),
+        // Google Workspace calendar sync. `calendarDomain` is the company's
+        // own email domain — the only addresses staff bookings are ever
+        // written to, and the same domain whose admin authorised us. Absent,
+        // or sync off, and nothing is written at all.
+        calendarDomain: v.optional(v.string()),
+        calendarSync: v.optional(v.boolean()),
       })
     ),
   }).index("by_clerk_org", ["clerkOrgId"]),
@@ -691,6 +697,34 @@ export default defineSchema({
     decidedAt: v.optional(v.number()),
   })
     .index("by_org", ["orgId"])
+    .index("by_shoot_day", ["shootDayId"]),
+
+  /**
+   * What UnitDeck has put on a colleague's Google Calendar.
+   *
+   * Kept because an entry has to be taken down as well as put up: unbook
+   * somebody, move a shoot, archive the job, and something has to know which
+   * entries existed in order to cancel them. The row is the record of the
+   * write, not of the booking — the booking lives in projectCrew.
+   */
+  calendarEvents: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.id("projects"),
+    shootDayId: v.id("shootDays"),
+    personId: v.id("people"),
+    /** The calendar written to, kept as it was: the address may change later. */
+    email: v.string(),
+    /** Google's id for the entry, which we choose so writes are idempotent. */
+    eventId: v.string(),
+    /** What was last written, so an unchanged booking is not written again. */
+    summary: v.string(),
+    date: v.string(),
+    state: v.union(v.literal("synced"), v.literal("failed")),
+    lastError: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"])
     .index("by_shoot_day", ["shootDayId"]),
 
   waitlist: defineTable({

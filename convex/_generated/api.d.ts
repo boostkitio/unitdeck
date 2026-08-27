@@ -11,6 +11,7 @@
 import type * as agents_briefParser from "../agents/briefParser.js";
 import type * as agents_callSheetChecker from "../agents/callSheetChecker.js";
 import type * as agents_messageDrafter from "../agents/messageDrafter.js";
+import type * as calendarSync from "../calendarSync.js";
 import type * as callSheets from "../callSheets.js";
 import type * as clients from "../clients.js";
 import type * as crons from "../crons.js";
@@ -24,7 +25,10 @@ import type * as feedback from "../feedback.js";
 import type * as lib_agentProposals from "../lib/agentProposals.js";
 import type * as lib_ai from "../lib/ai.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_calendarPlan from "../lib/calendarPlan.js";
 import type * as lib_callSheetData from "../lib/callSheetData.js";
+import type * as lib_googleAuth from "../lib/googleAuth.js";
+import type * as lib_googleCalendarApi from "../lib/googleCalendarApi.js";
 import type * as lib_documentData from "../lib/documentData.js";
 import type * as lib_email from "../lib/email.js";
 import type * as lib_geocode from "../lib/geocode.js";
@@ -78,7 +82,10 @@ declare const fullApi: ApiFromModules<{
   "lib/agentProposals": typeof lib_agentProposals;
   "lib/ai": typeof lib_ai;
   "lib/auth": typeof lib_auth;
+  "lib/calendarPlan": typeof lib_calendarPlan;
   "lib/callSheetData": typeof lib_callSheetData;
+  "lib/googleAuth": typeof lib_googleAuth;
+  "lib/googleCalendarApi": typeof lib_googleCalendarApi;
   "lib/documentData": typeof lib_documentData;
   "lib/email": typeof lib_email;
   "lib/geocode": typeof lib_geocode;
@@ -90,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   "lib/projectStatus": typeof lib_projectStatus;
   "lib/sun": typeof lib_sun;
   "lib/weather": typeof lib_weather;
+  calendarSync: typeof calendarSync;
   locations: typeof locations;
   organisations: typeof organisations;
   people: typeof people;

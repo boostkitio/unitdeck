@@ -340,6 +340,13 @@ export const update = mutation({
     }
 
     await ctx.db.patch(args.id, patch);
+    // The job's name and number are what a calendar entry is called, so a
+    // rename has to reach the diaries that carry it.
+    if (patch.name !== undefined || patch.jobNumber !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.calendarSync.reconcileProject, {
+        projectId: args.id,
+      });
+    }
     return null;
   },
 });
@@ -360,6 +367,10 @@ export const setArchived = mutation({
     // would still read as archived once the flag is cleared.
     if (project.status === "archived") patch.status = normaliseStatus(project.status);
     await ctx.db.patch(args.id, patch);
+    // Archiving takes the job out of everyone's diary; restoring puts it back.
+    await ctx.scheduler.runAfter(0, internal.calendarSync.reconcileProject, {
+      projectId: args.id,
+    });
     return null;
   },
 });

@@ -17,6 +17,12 @@ async function requireProject(ctx: QueryCtx | MutationCtx, projectId: Id<"projec
   return { org, project };
 }
 
+
+/** See convex/calendarSync.ts: the days a production runs decide the entries. */
+async function syncCalendar(ctx: MutationCtx, projectId: Id<"projects">) {
+  await ctx.scheduler.runAfter(0, internal.calendarSync.reconcileProject, { projectId });
+}
+
 export const listForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -67,13 +73,15 @@ export const create = mutation({
       const location = await ctx.db.get(locationId);
       if (!location || location.orgId !== org._id) throw new Error("Unknown location");
     }
-    return await ctx.db.insert("shootDays", {
+    const day = await ctx.db.insert("shootDays", {
       orgId: org._id,
       projectId: args.projectId,
       date: args.date,
       label: args.label,
       locationIds: args.locationIds,
     });
+    await syncCalendar(ctx, args.projectId);
+    return day;
   },
 });
 
@@ -133,6 +141,8 @@ export const update = mutation({
       patch.locationIds = args.locationIds;
     }
     await ctx.db.patch(args.id, patch);
+    // A day that moved moves in everyone's diary too.
+    if (patch.date !== undefined) await syncCalendar(ctx, day.projectId);
     return null;
   },
 });
@@ -150,6 +160,8 @@ export const remove = mutation({
       .take(1);
     if (sheets.length > 0) throw new Error("This shoot day has call sheets and cannot be deleted");
     await ctx.db.delete(args.id);
+    // The day is gone, so its entries come off the diaries that had it.
+    await syncCalendar(ctx, day.projectId);
     return null;
   },
 });
@@ -248,6 +260,9 @@ export const setRange = mutation({
       removed++;
     }
     kept.sort();
+    // Days created and days dropped, in one go: work the whole production out
+    // again rather than chase each one.
+    await syncCalendar(ctx, args.projectId);
 
     return { created, removed, kept };
   },
