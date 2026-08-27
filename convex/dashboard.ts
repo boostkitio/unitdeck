@@ -229,10 +229,29 @@ export const attention = query({
       }
     }
 
+    // ---- Which productions are behind us ------------------------------------
+    // Nothing upcoming is not the same as never scheduled: a job that shot
+    // last month has no day from today onwards, and reading that as "no dates
+    // set" chased every finished production for ever. Only asked of the
+    // productions with nothing upcoming, and it stops at the first row.
+    const wrapped = new Set<Id<"projects">>();
+    for (const project of live.values()) {
+      if (daysByProject.has(project._id)) continue;
+      const everScheduled = await ctx.db
+        .query("shootDays")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .first();
+      if (everScheduled) wrapped.add(project._id);
+    }
+
     // ---- One pass over every production --------------------------------------
     const items: AttentionItem[] = [];
 
     for (const project of live.values()) {
+      // This production's chases, held back until the end of the pass: a
+      // production that has wrapped keeps only the ones that still mean
+      // something once the shoot is over.
+      const mine: AttentionItem[] = [];
       const day = firstDayByProject.get(project._id);
       const projectDays = daysByProject.get(project._id) ?? [];
       const base = {
@@ -248,11 +267,11 @@ export const attention = query({
       // Crew — a line per person, because each one is a different phone call.
       const crew = crewByProject.get(project._id) ?? [];
       if (crew.length === 0) {
-        items.push({ ...base, kind: "no_crew", label: "No crew on this project yet" });
+        mine.push({ ...base, kind: "no_crew", label: "No crew on this project yet" });
       } else {
         for (const row of crew) {
           if (row.personId === undefined) {
-            items.push({
+            mine.push({
               ...base,
               kind: "unfilled_role",
               label: `${roleName(row)} still to book`,
@@ -261,7 +280,7 @@ export const attention = query({
             // Bookings predating the status field read as pencilled.
             const name = names.get(row.personId) ?? "Somebody";
             const role = row.role?.trim();
-            items.push({
+            mine.push({
               ...base,
               kind: "unconfirmed_crew",
               label: role ? `${name} (${role}) still to confirm` : `${name} still to confirm`,
@@ -277,7 +296,7 @@ export const attention = query({
       const needed = (kitByProject.get(project._id) ?? []).filter((r) => r.status === "needed");
       if (needed.length > 0) {
         const distinct = [...new Map(needed.map((r) => [itemKey(r.item), r.item.trim()])).values()];
-        items.push({
+        mine.push({
           ...base,
           kind: "kit_unconfirmed",
           label:
@@ -293,7 +312,7 @@ export const attention = query({
         const clashDay = days.find(
           (d) => d.projectId === project._id && d.date === clash.date
         );
-        items.push({
+        mine.push({
           ...base,
           kind: "kit_clash",
           shootDayId: clashDay?._id ?? base.shootDayId,
@@ -308,7 +327,7 @@ export const attention = query({
         (d) => d.projectId === project._id && d.status === "sent"
       );
       if (unsigned.length > 0) {
-        items.push({
+        mine.push({
           ...base,
           kind: "release_unsigned",
           label:
@@ -320,12 +339,12 @@ export const attention = query({
 
       // Booked with the client and still not in the diary.
       if (booked && projectDays.length === 0) {
-        items.push({ ...base, kind: "no_dates", label: "Booked, but no shoot dates set" });
+        mine.push({ ...base, kind: "no_dates", label: "Booked, but no shoot dates set" });
       }
 
       // Booked with nobody to invoice.
       if (booked && project.clientId === undefined) {
-        items.push({ ...base, kind: "no_client", label: "No client on this project" });
+        mine.push({ ...base, kind: "no_client", label: "No client on this project" });
       }
 
       // Shooting soon with nowhere to go.
@@ -334,7 +353,7 @@ export const attention = query({
         project.locationId === undefined &&
         projectDays.every((d) => d.locationIds.length === 0)
       ) {
-        items.push({ ...base, kind: "no_location", label: "No location set" });
+        mine.push({ ...base, kind: "no_location", label: "No location set" });
       }
 
       // Shooting soon with no running order.
@@ -343,7 +362,7 @@ export const attention = query({
           (d) => d.date <= imminentUntil && !daysWithSchedule.has(d._id)
         );
         if (bare.length > 0) {
-          items.push({
+          mine.push({
             ...base,
             kind: "no_schedule",
             shootDayId: bare[0]._id,
@@ -352,6 +371,17 @@ export const attention = query({
           });
         }
       }
+
+      // A production whose shoot has been and gone is not work to chase. Its
+      // dates are not missing — they are behind us — and neither its crew nor
+      // its kit can be booked for a day that has already happened. Release
+      // forms are the exception: an unsigned one is still outstanding after
+      // the wrap, and chasing it is the point of tracking them.
+      items.push(
+        ...(wrapped.has(project._id)
+          ? mine.filter((item) => item.kind === "release_unsigned")
+          : mine)
+      );
     }
 
     // Weather is the one thing that genuinely differs day by day, so it stays

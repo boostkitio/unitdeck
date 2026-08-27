@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useOrganization } from "@clerk/nextjs";
 import { statusBadgeClass, statusLabel } from "@/lib/project-status";
 import { ShootCalendar } from "@/components/dashboard/shoot-calendar";
+import { NewQuoteDialog } from "@/components/quotes/new-quote-dialog";
 import { cn } from "@/lib/utils";
 
 // ── Inline sub-components ────────────────────────────────────────────────────
@@ -76,6 +77,7 @@ export default function DashboardPage() {
   const week = useQuery(api.dashboard.upcomingShootDays, organization ? {} : "skip");
   const seedDemo = useMutation(api.demoData.seedDemo);
   const [seeding, setSeeding] = useState(false);
+  const [quoting, setQuoting] = useState(false);
 
   async function handleLoadSampleData() {
     setSeeding(true);
@@ -131,12 +133,23 @@ export default function DashboardPage() {
               <Skeleton className="mt-2 h-4 w-56 bg-white/20" />
             )}
           </div>
-          <Button
-            render={<Link href="/projects" />}
-            className="w-fit shrink-0 border-white/30 bg-white/15 text-white hover:bg-white/25 focus-visible:ring-white/40"
-          >
-            + New project
-          </Button>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button
+              render={<Link href="/projects" />}
+              className="w-fit shrink-0 border-white/30 bg-white/15 text-white hover:bg-white/25 focus-visible:ring-white/40"
+            >
+              + New project
+            </Button>
+            {/* Straight into the quote, not to the Quotes tab: a quote is
+                usually started off the back of a phone call, and it does not
+                need a production to belong to. */}
+            <Button
+              onClick={() => setQuoting(true)}
+              className="w-fit shrink-0 border-white/30 bg-white/15 text-white hover:bg-white/25 focus-visible:ring-white/40"
+            >
+              + New quote
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -307,6 +320,8 @@ export default function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {quoting && <NewQuoteDialog onClose={() => setQuoting(false)} />}
     </div>
   );
 }

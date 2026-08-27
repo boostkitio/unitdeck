@@ -747,3 +747,86 @@ test("a day of a multi-day shoot with no running order of its own is still chase
   expect(bare[0].label).toBe("1 shoot day with no running order");
   expect(bare[0].date).toBe(dayTwo);
 });
+
+test("a production whose shoot has been and gone is not chased for dates", async () => {
+  const t = convexTest(schema, modules);
+  const lastMonth = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org R", clerkOrgId: "org_r" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Wrapped film",
+      status: "confirmed",
+    });
+    // Shot and wrapped, with the crew never marked confirmed — which is
+    // exactly what a finished job looks like in practice.
+    await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: lastMonth,
+      locationIds: [],
+    });
+  });
+  const asR = t.withIdentity({ subject: "user_r", org_id: "org_r" });
+
+  // The day is behind us, so the feed read it as a production with no dates
+  // at all and chased it for ever.
+  expect(await asR.query(api.dashboard.attention, {})).toEqual([]);
+});
+
+test("an unsigned release form is still chased after the wrap", async () => {
+  const t = convexTest(schema, modules);
+  const lastMonth = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org S", clerkOrgId: "org_s" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Wrapped film",
+      status: "confirmed",
+    });
+    await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: lastMonth,
+      locationIds: [],
+    });
+    await ctx.db.insert("documents", {
+      orgId: org,
+      projectId: project,
+      type: "talent_release" as const,
+      title: "Talent release — Ada Lovelace",
+      status: "sent",
+      signer: { name: "Ada Lovelace", email: "ada@example.test" },
+      signToken: "tok_wrapped",
+      data: {
+        talentName: "Ada Lovelace",
+        producerName: "Matt",
+        productionCompany: "Boostkit",
+        productionTitle: "Wrapped film",
+        governingLaw: "England and Wales",
+      },
+    });
+  });
+  const asS = t.withIdentity({ subject: "user_s", org_id: "org_s" });
+
+  // Nothing else about a finished job is work, but a form that went out and
+  // never came back still is.
+  const kinds = (await asS.query(api.dashboard.attention, {})).map((i) => i.kind);
+  expect(kinds).toEqual(["release_unsigned"]);
+});
+
+test("a production never put in the diary is still chased for dates", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org T", clerkOrgId: "org_t" });
+    await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Unscheduled film",
+      status: "confirmed",
+    });
+  });
+  const asT = t.withIdentity({ subject: "user_t", org_id: "org_t" });
+
+  const kinds = (await asT.query(api.dashboard.attention, {})).map((i) => i.kind);
+  expect(kinds).toContain("no_dates");
+});

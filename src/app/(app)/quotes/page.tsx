@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { SearchInput } from "@/components/search-input";
 import { NewQuoteDialog } from "@/components/quotes/new-quote-dialog";
+import { DeleteQuoteDialog } from "@/components/quotes/delete-quote-dialog";
 import { matchesSearch } from "@/lib/search";
 import { formatPence } from "@/lib/money";
 import { statusLabel } from "@/lib/quote-labels";
@@ -120,6 +121,9 @@ export default function QuotesPage() {
                     <TableCell className="font-medium">Status</TableCell>
                     <TableCell className="text-right font-medium">Net</TableCell>
                     <TableCell className="text-right font-medium">Gross</TableCell>
+                    {/* Deleting is offered only here, against an archived quote:
+                        the quote itself can only be archived. */}
+                    {showArchived && <TableCell className="w-0" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -164,11 +168,22 @@ export default function QuotesPage() {
                       <TableCell className="text-right tabular-nums text-muted-foreground">
                         {formatPence(quote.totals.grossTotal)}
                       </TableCell>
+                      {showArchived && (
+                        <TableCell className="w-0 text-right">
+                          <DeleteQuoteDialog
+                            quoteId={quote._id}
+                            quoteName={quote.number}
+                          />
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                   {shown.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                      <TableCell
+                        colSpan={showArchived ? 7 : 6}
+                        className="py-8 text-center text-sm text-muted-foreground"
+                      >
                         Nothing matches “{search}”.
                       </TableCell>
                     </TableRow>

@@ -9,9 +9,7 @@ import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -21,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CellInput } from "@/components/quotes/cell-input";
+import { SyncedInput, SyncedTextarea } from "@/components/synced-text-field";
 import { saveStateLabel, useSyncedField } from "@/lib/use-debounced-save";
 import { AddLineDialog } from "@/components/quotes/add-line-dialog";
 import { QuoteStatusChip } from "../page";
@@ -61,7 +60,6 @@ type QuoteData = NonNullable<typeof api.quotes.get._returnType>;
 function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData }) {
   const router = useRouter();
   const update = useMutation(api.quotes.update);
-  const remove = useMutation(api.quotes.remove);
   const repriceLines = useMutation(api.quotes.repriceLines);
   const addCrew = useMutation(api.quotes.addCrewFromProject);
   const addKit = useMutation(api.quotes.addKitFromProject);
@@ -82,7 +80,6 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   } = useSyncedField(data.quote.title ?? "", saveName);
   const [adding, setAdding] = useState<QuoteCategory | null>(null);
   const [hideEmpty, setHideEmpty] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const { quote, totals } = data;
@@ -106,7 +103,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
     <div>
       {quote.archived && (
         <div className="mb-4 rounded-lg border border-amber-400/40 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200">
-          Archived quote — kept for reference. Restore it from the button above.
+          Archived quote — kept for reference. Restore it from the button above, or delete it for good from the Quotes tab.
         </div>
       )}
       {/* Header */}
@@ -189,8 +186,11 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
           >
             New version
           </Button>
+          {/* Red, the same as archiving a production or a location. Deleting is
+              not offered here at all: it lives beside the archived quote on the
+              Quotes tab, so getting rid of one takes going to look for it. */}
           <Button
-            variant="secondary"
+            variant={quote.archived ? "secondary" : "destructive"}
             size="sm"
             disabled={busy}
             onClick={() =>
@@ -202,21 +202,6 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             }
           >
             {quote.archived ? "Restore" : "Archive"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={confirmingDelete ? "text-destructive" : undefined}
-            onBlur={() => setConfirmingDelete(false)}
-            onClick={() => {
-              if (!confirmingDelete) {
-                setConfirmingDelete(true);
-                return;
-              }
-              void remove({ id: quoteId }).then(() => router.push("/quotes"));
-            }}
-          >
-            {confirmingDelete ? "Sure?" : "Delete"}
           </Button>
         </div>
       </div>
@@ -780,6 +765,39 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
     );
   }
 
+  // Stable, because the debounced boxes below restart their timer whenever the
+  // save they were handed changes identity.
+  const saveNumber = useCallback(
+    async (value: string) => {
+      await update({ id: quoteId, number: value.trim() });
+    },
+    [update, quoteId]
+  );
+  const saveContact = useCallback(
+    async (value: string) => {
+      await update({ id: quoteId, clientContact: value });
+    },
+    [update, quoteId]
+  );
+  const saveDeliverables = useCallback(
+    async (value: string) => {
+      await update({ id: quoteId, deliverables: value });
+    },
+    [update, quoteId]
+  );
+  const saveCaveats = useCallback(
+    async (value: string) => {
+      await update({
+        id: quoteId,
+        caveats: value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0),
+      });
+    },
+    [update, quoteId]
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -791,12 +809,12 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
           <Label htmlFor="quote-number" className="text-xs text-muted-foreground">
             Number
           </Label>
-          <Input
+          <SyncedInput
             id="quote-number"
-            defaultValue={quote.number}
-            onBlur={(e) =>
-              e.target.value !== quote.number && save({ number: e.target.value })
-            }
+            value={quote.number}
+            onSave={saveNumber}
+            failure="Could not save the number."
+            canSave={(v) => v.trim().length > 0}
           />
         </div>
         <div className="space-y-1.5">
@@ -867,13 +885,14 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
               </SelectContent>
             </Select>
           ) : (
-            <Input
+            <SyncedInput
               id="quote-contact"
-              defaultValue={quote.clientContact ?? ""}
+              value={quote.clientContact ?? ""}
+              onSave={saveContact}
+              failure="Could not save the contact."
               placeholder={
                 quote.clientId ? "No contacts on that client yet" : "Who it is going to"
               }
-              onBlur={(e) => save({ clientContact: e.target.value })}
             />
           )}
         </div>
@@ -919,12 +938,13 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
           <Label htmlFor="quote-deliverables" className="text-xs text-muted-foreground">
             Deliverables
           </Label>
-          <Textarea
+          <SyncedTextarea
             id="quote-deliverables"
             rows={3}
-            defaultValue={quote.deliverables ?? ""}
+            value={quote.deliverables ?? ""}
+            onSave={saveDeliverables}
+            failure="Could not save the deliverables."
             placeholder="3x ~10min episodes, 9x social cutdowns…"
-            onBlur={(e) => save({ deliverables: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
             Printed on the client&apos;s copy. Anything not listed is not quoted for.
@@ -934,19 +954,17 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
           <Label htmlFor="quote-caveats" className="text-xs text-muted-foreground">
             Assumptions and caveats
           </Label>
-          <Textarea
+          <SyncedTextarea
             id="quote-caveats"
             rows={6}
-            defaultValue={(quote.caveats ?? []).join("\n")}
+            value={(quote.caveats ?? []).join("\n")}
+            onSave={saveCaveats}
+            failure="Could not save the caveats."
+            // Held while the line you are on is still blank: saving strips
+            // empty lines, so writing one back mid-caveat would take the
+            // newline you just pressed away again.
+            canSave={(v) => !v.endsWith("\n")}
             placeholder={"- This quote is valid for 30 days.\n- Three edit amends are included per deliverable."}
-            onBlur={(e) =>
-              save({
-                caveats: e.target.value
-                  .split("\n")
-                  .map((line) => line.trim())
-                  .filter((line) => line.length > 0),
-              })
-            }
           />
           <p className="text-xs text-muted-foreground">One per line, in the order they print.</p>
         </div>
