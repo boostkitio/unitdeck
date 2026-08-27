@@ -14,7 +14,7 @@ export function TopBar() {
   const { open } = useCommandPalette();
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur md:hidden">
+    <header className="sticky top-[var(--dev-banner-h,0px)] z-30 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur md:hidden">
       <Link
         href="/"
         onClick={(e) => {
