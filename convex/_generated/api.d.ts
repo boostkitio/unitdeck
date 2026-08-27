@@ -27,6 +27,7 @@ import type * as lib_ai from "../lib/ai.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_calendarPlan from "../lib/calendarPlan.js";
 import type * as lib_callSheetData from "../lib/callSheetData.js";
+import type * as lib_crewOrder from "../lib/crewOrder.js";
 import type * as lib_googleAuth from "../lib/googleAuth.js";
 import type * as lib_googleCalendarApi from "../lib/googleCalendarApi.js";
 import type * as lib_documentData from "../lib/documentData.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/calendarPlan": typeof lib_calendarPlan;
   "lib/callSheetData": typeof lib_callSheetData;
+  "lib/crewOrder": typeof lib_crewOrder;
   "lib/googleAuth": typeof lib_googleAuth;
   "lib/googleCalendarApi": typeof lib_googleCalendarApi;
   "lib/documentData": typeof lib_documentData;
