@@ -534,6 +534,11 @@ export default defineSchema({
     projectId: v.id("projects"),
     date: v.string(), // "YYYY-MM-DD"
     label: v.optional(v.string()), // "Day 1: interviews"
+    // When the unit is called and when it wraps, "HH:MM" local to the shoot.
+    // Optional, because a day put in the diary months out has no hours yet —
+    // and a day without them is a whole-day entry in anyone's calendar.
+    callTime: v.optional(v.string()),
+    wrapTime: v.optional(v.string()),
     locationIds: v.array(v.id("locations")),
     weather: v.optional(weatherSnapshotValidator),
     sun: v.optional(v.object({ sunrise: v.string(), sunset: v.string() })),

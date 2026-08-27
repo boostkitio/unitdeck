@@ -60,3 +60,64 @@ test("cross-org project is rejected", async () => {
     })
   ).rejects.toThrow("Project not found");
 });
+
+test("a shoot day takes a call and a wrap time, and gives them back up", async () => {
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org T", clerkOrgId: "org_t" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    const day = await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: "2026-09-14",
+      locationIds: [],
+    });
+    return { project, day };
+  });
+  const asT = t.withIdentity({ subject: "user_t", org_id: "org_t" });
+
+  await asT.mutation(api.shootDays.update, {
+    id: ids.day,
+    callTime: "07:30",
+    wrapTime: "19:00",
+  });
+  let days = await asT.query(api.shootDays.listForProject, { projectId: ids.project });
+  expect(days[0].callTime).toBe("07:30");
+  expect(days[0].wrapTime).toBe("19:00");
+
+  // Emptying the box clears the time rather than storing "".
+  await asT.mutation(api.shootDays.update, { id: ids.day, wrapTime: "" });
+  days = await asT.query(api.shootDays.listForProject, { projectId: ids.project });
+  expect(days[0].callTime).toBe("07:30");
+  expect(days[0].wrapTime).toBeUndefined();
+});
+
+test("a time that is not a time is refused", async () => {
+  const t = convexTest(schema, modules);
+  const dayId = await t.run(async (ctx) => {
+    const org = await ctx.db.insert("organisations", { name: "Org U", clerkOrgId: "org_u" });
+    const project = await ctx.db.insert("projects", {
+      orgId: org,
+      name: "Brand film",
+      status: "confirmed",
+    });
+    return await ctx.db.insert("shootDays", {
+      orgId: org,
+      projectId: project,
+      date: "2026-09-14",
+      locationIds: [],
+    });
+  });
+  const asU = t.withIdentity({ subject: "user_u", org_id: "org_u" });
+
+  await expect(
+    asU.mutation(api.shootDays.update, { id: dayId, callTime: "half seven" })
+  ).rejects.toThrow("HH:MM");
+  await expect(
+    asU.mutation(api.shootDays.update, { id: dayId, callTime: "25:00" })
+  ).rejects.toThrow("HH:MM");
+});

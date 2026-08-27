@@ -7,6 +7,8 @@ import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** 24-hour, zero-padded: what a native time box produces. */
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 async function requireProject(ctx: QueryCtx | MutationCtx, projectId: Id<"projects">) {
   const { org } = await requireOrg(ctx);
@@ -80,6 +82,9 @@ export const update = mutation({
     id: v.id("shootDays"),
     date: v.optional(v.string()),
     label: v.optional(v.string()),
+    // Null clears a time; "" from an emptied box means the same thing.
+    callTime: v.optional(v.union(v.string(), v.null())),
+    wrapTime: v.optional(v.union(v.string(), v.null())),
     locationIds: v.optional(v.array(v.id("locations"))),
     // Null clears the block; an object replaces it wholesale, because a
     // half-edited hotel is worse than none on a call sheet.
@@ -107,6 +112,16 @@ export const update = mutation({
       patch.date = args.date;
     }
     if (args.label !== undefined) patch.label = args.label;
+    for (const field of ["callTime", "wrapTime"] as const) {
+      const value = args[field];
+      if (value === undefined) continue;
+      if (value === null || value === "") {
+        patch[field] = undefined;
+        continue;
+      }
+      if (!TIME_RE.test(value)) throw new Error("Time must be HH:MM");
+      patch[field] = value;
+    }
     if (args.accommodation !== undefined) {
       patch.accommodation = args.accommodation ?? undefined;
     }

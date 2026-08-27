@@ -10,6 +10,8 @@ import { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { formatShootDate } from "@/lib/format-date";
 
 /**
@@ -80,6 +82,7 @@ export function CallSheetSection({
                       {day.label ?? `Day ${i + 1}`}
                     </span>
                   </span>
+                  <DayTimes day={day} />
                   <Button
                     size="sm"
                     variant="secondary"
@@ -110,5 +113,62 @@ export function CallSheetSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * When the unit is called and when it wraps.
+ *
+ * Here rather than on its own screen because this is the one list of a
+ * production's days, and the times are the two facts about a day that
+ * everything else wants: the call sheet prints them, and a crew member's
+ * calendar entry runs between them. A day with neither is a whole-day entry,
+ * which is the honest answer before the times are known.
+ *
+ * Native time boxes: they commit a whole value at a time rather than a
+ * keystroke, so saving on change is safe and a colleague's edit lands here
+ * without anything to reconcile.
+ */
+function DayTimes({
+  day,
+}: {
+  day: { _id: Id<"shootDays">; callTime?: string; wrapTime?: string };
+}) {
+  const update = useMutation(api.shootDays.update);
+
+  function save(field: "callTime" | "wrapTime", value: string) {
+    void update({ id: day._id, [field]: value === "" ? null : value }).catch(
+      (err: unknown) =>
+        toast.error(err instanceof Error ? err.message : "Could not save the time.")
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-2">
+      <span className="flex items-center gap-1.5">
+        <Label htmlFor={`call-${day._id}`} className="text-xs text-muted-foreground">
+          Call
+        </Label>
+        <Input
+          id={`call-${day._id}`}
+          type="time"
+          value={day.callTime ?? ""}
+          onChange={(e) => save("callTime", e.target.value)}
+          className="h-8 w-28 px-2 text-sm"
+        />
+      </span>
+      <span className="flex items-center gap-1.5">
+        <Label htmlFor={`wrap-${day._id}`} className="text-xs text-muted-foreground">
+          Wrap
+        </Label>
+        <Input
+          id={`wrap-${day._id}`}
+          type="time"
+          value={day.wrapTime ?? ""}
+          onChange={(e) => save("wrapTime", e.target.value)}
+          className="h-8 w-28 px-2 text-sm"
+        />
+      </span>
+    </span>
   );
 }
