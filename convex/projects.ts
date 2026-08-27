@@ -247,7 +247,7 @@ export const create = mutation({
     briefSummary: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { org } = await requireOrg(ctx);
+    const { identity, org } = await requireOrg(ctx);
     if (args.name.trim().length === 0) throw new Error("Project name is required");
     if (args.clientId) {
       const client = await ctx.db.get(args.clientId);
@@ -257,6 +257,10 @@ export const create = mutation({
       orgId: org._id,
       name: args.name.trim(),
       clientId: args.clientId,
+      // Whoever starts a job owns it until somebody says otherwise. Left
+      // empty, every new production reads as belonging to nobody, which is
+      // never true and is one more field to remember to fill in.
+      ownerId: identity.subject,
       jobNumber: await nextJobNumber(ctx, org._id),
       status: "not_booked",
       briefSummary: args.briefSummary,

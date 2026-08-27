@@ -124,9 +124,14 @@ export default defineSchema({
     ),
     /** Put away, not deleted — the same as an archived production. */
     archived: v.optional(v.boolean()),
-    /** Who wrote it, by Clerk user id, so the name on the client copy can be
-     *  the one they have since set rather than whatever was stamped here. */
+    /** Who wrote it, by Clerk user id. Never changes. */
     createdBy: v.optional(v.string()),
+    /**
+     * Whose quote it is, by Clerk user id — the name and address that go on
+     * the client copy. Starts as whoever wrote it, as a production's owner
+     * does, and can be handed over.
+     */
+    ownerId: v.optional(v.string()),
     /** "Ballpark" or "Firm" — how much the figures should be relied on. */
     quoteType: v.optional(v.string()),
     // Who it is for. The names are captured as well as the link, because a

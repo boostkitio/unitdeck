@@ -27,6 +27,8 @@ import { QuoteStatusChip } from "../page";
 import { formatPence, bpInput, parsePercent, parsePounds, poundsInput } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { NEW_CLIENT, NewClientDialog } from "@/components/clients/new-client-dialog";
+import { useOrganization } from "@clerk/nextjs";
+import { displayName } from "../../../../../convex/lib/personName";
 import {
   QUOTE_CATEGORIES,
   QUOTE_STATUSES,
@@ -754,9 +756,23 @@ const NOBODY = "nobody";
 function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData }) {
   const update = useMutation(api.quotes.update);
   const clients = useQuery(api.clients.list, {});
+  const { memberships } = useOrganization({ memberships: { infinite: true } });
+  const members = memberships?.data ?? [];
+  const profiles = useQuery(api.memberProfiles.listForOrg, {});
   const [addingClient, setAddingClient] = useState(false);
   const { quote } = data;
   const contacts = (clients ?? []).find((c) => c._id === quote.clientId)?.contacts ?? [];
+
+  // The same rule the Owner dropdown on a production uses.
+  const memberName = (userId: string) => {
+    const data = members.find((m) => m.publicUserData?.userId === userId)?.publicUserData;
+    return displayName({
+      chosen: profiles?.find((p) => p.userId === userId),
+      fromAuth: data,
+      email: data?.identifier,
+      fallback: "Someone who has since left",
+    });
+  };
 
   function save(patch: Record<string, unknown>) {
     void update({ id: quoteId, ...patch }).catch((err: unknown) =>
@@ -770,6 +786,7 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
         <CardTitle className="text-base">Details</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
+        <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="quote-number" className="text-xs text-muted-foreground">
             Number
@@ -859,6 +876,37 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
               onBlur={(e) => save({ clientContact: e.target.value })}
             />
           )}
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Owner</Label>
+          <Select
+            value={quote.ownerId ?? NOBODY}
+            onValueChange={(value) =>
+              value && save({ ownerId: value === NOBODY ? null : value })
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue>
+                {quote.ownerId ? memberName(quote.ownerId) : "Nobody yet"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NOBODY}>Nobody yet</SelectItem>
+              {members.map((m) => {
+                const userId = m.publicUserData?.userId;
+                if (!userId) return null;
+                return (
+                  <SelectItem key={userId} value={userId}>
+                    {memberName(userId)}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Whose quote it is. Their name and email go on the client copy.
+          </p>
+        </div>
         </div>
 
         {addingClient && (

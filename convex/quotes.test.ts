@@ -25,6 +25,7 @@ async function setup() {
     t,
     ids,
     asA: t.withIdentity({ subject: "user_a", org_id: "org_a" }),
+    asCharlie: t.withIdentity({ subject: "user_charlie", org_id: "org_a" }),
     asB: t.withIdentity({ subject: "user_b", org_id: "org_b" }),
   };
 }
@@ -766,6 +767,50 @@ test("the client copy is prepared by the name they set, not their email", async 
   const id = await asA.mutation(api.quotes.create, { title: "Docuseries" });
 
   expect((await asA.query(api.quotes.get, { id }))!.quote.producerName).toBe("Matt West");
+});
+
+test("whoever writes a quote owns it", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const loaded = await asA.query(api.quotes.get, { id });
+  expect(loaded!.quote.ownerId).toBe("user_a");
+  expect(loaded!.quote.createdBy).toBe("user_a");
+});
+
+// The name on the client copy is the owner's, so handing a quote over hands
+// over whose quote it reads as.
+test("handing a quote over changes the name on the client copy", async () => {
+  const { ids, asA, asCharlie } = await setup();
+  await asA.mutation(api.memberProfiles.setName, { firstName: "Matt", lastName: "West" });
+  await asCharlie.mutation(api.memberProfiles.setName, {
+    firstName: "Charlie",
+    lastName: "Fox",
+  });
+
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  expect((await asA.query(api.quotes.get, { id }))!.quote.producerName).toBe("Matt West");
+
+  await asA.mutation(api.quotes.update, { id, ownerId: "user_charlie" });
+  const handed = await asA.query(api.quotes.get, { id });
+  expect(handed!.quote.ownerId).toBe("user_charlie");
+  expect(handed!.quote.producerName).toBe("Charlie Fox");
+  // Who wrote it does not change with it.
+  expect(handed!.quote.createdBy).toBe("user_a");
+});
+
+test("a quote can belong to nobody", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await asA.mutation(api.quotes.update, { id, ownerId: null });
+  expect((await asA.query(api.quotes.get, { id }))!.quote.ownerId).toBeUndefined();
+});
+
+test("a new version keeps the same owner", async () => {
+  const { ids, asA } = await setup();
+  const first = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await asA.mutation(api.quotes.update, { id: first, ownerId: "user_charlie" });
+  const second = await asA.mutation(api.quotes.newVersion, { id: first });
+  expect((await asA.query(api.quotes.get, { id: second }))!.quote.ownerId).toBe("user_charlie");
 });
 
 // The name is the person, not a stamp on the row: a quote written before

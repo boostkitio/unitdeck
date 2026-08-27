@@ -3,6 +3,7 @@
 import { use } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
+import { useOrganization } from "@clerk/nextjs";
 import { api } from "../../../../../../convex/_generated/api";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,8 @@ function Fields({
 export default function QuoteViewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const data = useQuery(api.quotes.get, { id: id as Id<"quotes"> });
+  const { memberships } = useOrganization({ memberships: { infinite: true } });
+  const members = memberships?.data ?? [];
 
   if (data === undefined) {
     return (
@@ -61,6 +64,15 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
   }
 
   const { quote, totals, company } = data;
+
+  // The owner's own details. The name is resolved on the backend from what
+  // they set in UnitDeck; the address comes off their login, which only the
+  // browser can see.
+  const owner = members.find((m) => m.publicUserData?.userId === quote.ownerId)?.publicUserData;
+  const ownerName =
+    quote.producerName ??
+    ([owner?.firstName, owner?.lastName].filter(Boolean).join(" ").trim() || null);
+  const ownerEmail = quote.producerEmail ?? owner?.identifier ?? null;
   const issued = new Date(quote.issuedAt ?? quote._creationTime).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -119,14 +131,12 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
             <h2 className="text-[8.5pt] font-bold uppercase tracking-widest text-neutral-600">
               Prepared by
             </h2>
-            <p className="mt-1 text-[11pt] font-semibold">
-              {quote.producerName ?? company.name}
-            </p>
+            <p className="mt-1 text-[11pt] font-semibold">{ownerName ?? company.name}</p>
             <dl className="mt-0.5 space-y-0.5 text-[9.5pt]">
               {(
                 [
-                  ["Company", quote.producerName ? company.name : null],
-                  ["Email", quote.producerEmail],
+                  ["Company", ownerName ? company.name : null],
+                  ["Email", ownerEmail],
                   ["Phone", quote.producerPhone],
                 ] as [string, string | null | undefined][]
               )

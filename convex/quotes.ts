@@ -185,17 +185,24 @@ export const get = query({
       (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a._creationTime - b._creationTime
     );
 
-    // A quote written before its author had a name should read as them now
-    // that they do — the name is the person, not a stamp on the row.
+    // The name on the client copy follows whoever owns the quote, and a quote
+    // written before its owner had a name should read as them now that they
+    // do — the name is the person, not a stamp on the row. A name typed into
+    // the quote by hand still wins, since somebody meant it.
+    // Falls back to whoever wrote it, which is what an owner was before there
+    // was one to set, and keeps a quote from going out unsigned. The owner
+    // itself is reported as it is stored: a quote set to nobody says nobody.
+    const namedBy = quote.ownerId ?? quote.createdBy;
     let producerName = quote.producerName;
-    if (!producerName && quote.createdBy) {
+    if (namedBy) {
       const profile = await ctx.db
         .query("memberProfiles")
         .withIndex("by_org_user", (q) =>
-          q.eq("orgId", quote.orgId).eq("userId", quote.createdBy!)
+          q.eq("orgId", quote.orgId).eq("userId", namedBy)
         )
         .unique();
-      producerName = joinName(profile) || undefined;
+      const owned = joinName(profile);
+      if (owned) producerName = owned;
     }
 
     return {
@@ -315,6 +322,7 @@ export const create = mutation({
       number,
       status: "draft",
       createdBy: identity.subject,
+      ownerId: identity.subject,
       quoteType: args.quoteType ?? "Ballpark",
       clientId,
       clientName: client?.name,
@@ -503,6 +511,7 @@ export const update = mutation({
     quoteType: v.optional(v.string()),
     clientId: v.optional(v.union(v.id("clients"), v.null())),
     clientContact: v.optional(v.union(v.string(), v.null())),
+    ownerId: v.optional(v.union(v.string(), v.null())),
     producerName: v.optional(v.union(v.string(), v.null())),
     producerEmail: v.optional(v.union(v.string(), v.null())),
     producerPhone: v.optional(v.union(v.string(), v.null())),
@@ -545,6 +554,13 @@ export const update = mutation({
     for (const key of ["title", "clientContact", "producerName", "producerEmail", "producerPhone", "deliverables"] as const) {
       const value = args[key];
       if (value !== undefined) patch[key] = value?.trim() || undefined;
+    }
+    if (args.ownerId !== undefined) {
+      patch.ownerId = args.ownerId ?? undefined;
+      // Handing a quote over hands over the name on it, so a name stamped in
+      // for the old owner is cleared and read from the new one instead.
+      patch.producerName = undefined;
+      patch.producerEmail = undefined;
     }
     if (args.caveats !== undefined) patch.caveats = args.caveats;
     for (const key of ["contingencyBp", "profitBp", "insuranceBp", "vatBp", "roundToPence", "discountPence"] as const) {
@@ -859,6 +875,8 @@ export const newVersion = mutation({
       clientId: quote.clientId,
       clientName: quote.clientName,
       clientContact: quote.clientContact,
+      createdBy: quote.createdBy,
+      ownerId: quote.ownerId,
       producerName: quote.producerName,
       producerEmail: quote.producerEmail,
       producerPhone: quote.producerPhone,
