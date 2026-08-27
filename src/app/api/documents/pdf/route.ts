@@ -57,7 +57,9 @@ export async function POST(req: NextRequest) {
       // made from.
       preferCSSPageSize: true,
       printBackground: true,
-      margin: { top: "0", right: "0", bottom: "0", left: "0" },
+      // Ignored while the document declares its own @page margin, and the
+      // same figures if it ever does not.
+      margin: { top: "16mm", right: "14mm", bottom: "16mm", left: "14mm" },
     });
   } finally {
     await browser.close();

@@ -140,12 +140,42 @@
  * with their own margin — hence none here.
  */
 @page {
+  /*
+   * The margin lives here rather than in the documents' own padding, because
+   * padding only indents the first page's top and the last page's bottom. A
+   * quote that runs to four pages needs the same white edge on every one of
+   * them, and only the page box can give it that.
+   */
   size: A4;
-  margin: 0;
+  margin: 16mm 14mm;
 }
 
 @media print {
   body {
     background: white;
+  }
+
+  /*
+   * What may and may not be broken across a page.
+   *
+   * A row split down the middle, a heading orphaned at the foot of a page, a
+   * signature block half on one page and half on the next — all of them read
+   * as a document that went wrong rather than one that ran on. Tables repeat
+   * their heading instead, so page three still says which column is which.
+   */
+  tr,
+  li,
+  dl {
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
   }
 }
