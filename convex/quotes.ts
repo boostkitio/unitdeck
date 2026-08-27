@@ -110,7 +110,7 @@ export const list = query({
     const out = [];
     for (const quote of quotes) {
       const [project, lines, overrides] = await Promise.all([
-        ctx.db.get(quote.projectId),
+        quote.projectId ? ctx.db.get(quote.projectId) : null,
         ctx.db
           .query("quoteLines")
           .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
@@ -127,8 +127,9 @@ export const list = query({
         status: quote.status,
         quoteType: quote.quoteType ?? null,
         clientName: quote.clientName ?? null,
-        projectId: quote.projectId,
-        projectName: project?.name ?? "A production since removed",
+        title: quote.title ?? null,
+        projectId: quote.projectId ?? null,
+        projectName: project?.name ?? null,
         totals: totalsFor(quote, lines, overrides),
       });
     }
@@ -144,8 +145,8 @@ export const get = query({
     const quote = await ctx.db.get(args.id);
     if (!quote || quote.orgId !== org._id) return null;
 
-    const [project, lines, overrides, settings] = await Promise.all([
-      ctx.db.get(quote.projectId),
+    const [project, lines, overrides, company] = await Promise.all([
+      quote.projectId ? ctx.db.get(quote.projectId) : null,
       ctx.db
         .query("quoteLines")
         .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
@@ -173,10 +174,10 @@ export const get = query({
         totals: categoryTotalsFor(quote, lines, overrides, category),
       })),
       company: {
-        name: settings?.name ?? "",
-        invoicing: settings?.settings?.invoicing ?? null,
-        logoUrl: settings?.settings?.logoStorageId
-          ? ((await ctx.storage.getUrl(settings.settings.logoStorageId)) ?? null)
+        name: company?.name ?? "",
+        invoicing: company?.settings?.invoicing ?? null,
+        logoUrl: company?.settings?.logoStorageId
+          ? ((await ctx.storage.getUrl(company.settings.logoStorageId)) ?? null)
           : null,
       },
     };
@@ -209,38 +210,59 @@ function totalsFor(
 }
 
 /**
- * Starts a quote on a production.
+ * Starts a quote.
  *
- * The client, the producer and the caveats marked "always include" are filled
- * in from what the account already knows, because retyping them is the part of
- * quoting that wastes the most time.
+ * A production is optional, because a quote is often what wins the work: the
+ * job does not exist yet, and making somebody invent a project to price
+ * against would put a fake production in the list every time a client asked
+ * "roughly what would this cost". Attach it to a production later, from the
+ * production.
+ *
+ * Where a production is given, the client and the caveats marked "always
+ * include" come across with it, because retyping them is the part of quoting
+ * that wastes the most time.
  */
 export const create = mutation({
   args: {
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")),
+    clientId: v.optional(v.id("clients")),
+    title: v.optional(v.string()),
     number: v.optional(v.string()),
     quoteType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { identity, org } = await requireOrg(ctx);
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.orgId !== org._id) throw new Error("Project not found");
 
-    const client = project.clientId ? await ctx.db.get(project.clientId) : null;
+    const project = args.projectId ? await ctx.db.get(args.projectId) : null;
+    if (args.projectId && (!project || project.orgId !== org._id)) {
+      throw new Error("Project not found");
+    }
+
+    // Named on the quote if given, otherwise whoever the production is for.
+    const clientId = args.clientId ?? project?.clientId;
+    const client = clientId ? await ctx.db.get(clientId) : null;
+    if (clientId && (!client || client.orgId !== org._id)) {
+      throw new Error("Client not found");
+    }
+
     const houseCaveats = await ctx.db
       .query("caveats")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .collect();
 
-    const number = args.number?.trim() || (await nextNumber(ctx, org._id, project, client));
+    const title = args.title?.trim() || undefined;
+    const number =
+      args.number?.trim() ||
+      (await nextNumber(ctx, org._id, client?.name ?? project?.name ?? title ?? null));
 
     return await ctx.db.insert("quotes", {
       orgId: org._id,
       projectId: args.projectId,
+      title,
       number,
       status: "draft",
       quoteType: args.quoteType ?? "Ballpark",
-      clientId: project.clientId,
+      clientId,
       clientName: client?.name,
       producerName: typeof identity.name === "string" ? identity.name : undefined,
       producerEmail: typeof identity.email === "string" ? identity.email : undefined,
@@ -256,20 +278,22 @@ export const create = mutation({
 
 /**
  * The house reference, in the shape the spreadsheet used: two-digit year, the
- * first three letters of the client, then QV and a version.
+ * first three letters of whoever it is for, then QV and a version.
  */
 async function nextNumber(
   ctx: MutationCtx,
   orgId: Id<"organisations">,
-  project: Doc<"projects">,
-  client: Doc<"clients"> | null
+  named: string | null
 ): Promise<string> {
   const year = new Date().getFullYear().toString().slice(-2);
-  const stem = (client?.name ?? project.name).replace(/[^A-Za-z]/g, "").slice(0, 3);
+  const stem = (named ?? "").replace(/[^A-Za-z]/g, "").slice(0, 3);
   const initials = stem ? stem[0].toUpperCase() + stem.slice(1).toLowerCase() : "Job";
   const prefix = `${year}_${initials}_QV`;
 
-  const existing = await ctx.db.query("quotes").withIndex("by_org", (q) => q.eq("orgId", orgId)).collect();
+  const existing = await ctx.db
+    .query("quotes")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .collect();
   const taken = existing
     .map((q) => q.number)
     .filter((n) => n.startsWith(prefix))
@@ -279,10 +303,85 @@ async function nextNumber(
   return `${prefix}${next}`;
 }
 
+/** Quotes not yet on any production, for picking one from a production. */
+export const listUnattached = query({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const quotes = await ctx.db
+      .query("quotes")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+
+    const out = [];
+    for (const quote of quotes.filter((q) => q.projectId === undefined)) {
+      const [lines, overrides] = await Promise.all([
+        ctx.db
+          .query("quoteLines")
+          .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
+          .collect(),
+        ctx.db
+          .query("quoteCategoryOverrides")
+          .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
+          .collect(),
+      ]);
+      out.push({
+        _id: quote._id,
+        _creationTime: quote._creationTime,
+        number: quote.number,
+        title: quote.title ?? null,
+        status: quote.status,
+        clientName: quote.clientName ?? null,
+        totals: totalsFor(quote, lines, overrides),
+      });
+    }
+    return out.sort((a, b) => b._creationTime - a._creationTime);
+  },
+});
+
+/**
+ * Puts a quote on a production, or takes it off again with `projectId: null`.
+ *
+ * A quote that has no client of its own takes the production's, since that is
+ * plainly who it is for. One that already names a client keeps it: the quote
+ * is the document, and it should not change under whoever it was sent to.
+ */
+export const setProject = mutation({
+  args: {
+    id: v.id("quotes"),
+    projectId: v.union(v.id("projects"), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const quote = await ctx.db.get(args.id);
+    if (!quote || quote.orgId !== org._id) throw new Error("Quote not found");
+
+    if (args.projectId === null) {
+      await ctx.db.patch(args.id, { projectId: undefined });
+      return null;
+    }
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) throw new Error("Project not found");
+
+    const patch: Record<string, unknown> = { projectId: args.projectId };
+    if (quote.clientId === undefined && project.clientId !== undefined) {
+      const client = await ctx.db.get(project.clientId);
+      if (client && client.orgId === org._id) {
+        patch.clientId = client._id;
+        patch.clientName = client.name;
+      }
+    }
+    await ctx.db.patch(args.id, patch);
+    return null;
+  },
+});
+
 export const update = mutation({
   args: {
     id: v.id("quotes"),
     number: v.optional(v.string()),
+    title: v.optional(v.union(v.string(), v.null())),
     status: v.optional(
       v.union(v.literal("draft"), v.literal("sent"), v.literal("accepted"), v.literal("declined"))
     ),
@@ -328,7 +427,7 @@ export const update = mutation({
         patch.clientName = undefined;
       }
     }
-    for (const key of ["clientContact", "producerName", "producerEmail", "producerPhone", "deliverables"] as const) {
+    for (const key of ["title", "clientContact", "producerName", "producerEmail", "producerPhone", "deliverables"] as const) {
       const value = args[key];
       if (value !== undefined) patch[key] = value?.trim() || undefined;
     }
@@ -633,9 +732,11 @@ export const addCrewFromProject = mutation({
   args: { quoteId: v.id("quotes"), unitAmount: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const { org, quote } = await loadQuote(ctx, args.quoteId);
+    const projectId = quote.projectId;
+    if (!projectId) throw new Error("Put this quote on a production first");
     const bookings = await ctx.db
       .query("projectCrew")
-      .withIndex("by_project", (q) => q.eq("projectId", quote.projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
     const card = await ctx.db
       .query("rateCardItems")
@@ -687,9 +788,11 @@ export const addKitFromProject = mutation({
   args: { quoteId: v.id("quotes"), unitAmount: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const { org, quote } = await loadQuote(ctx, args.quoteId);
+    const projectId = quote.projectId;
+    if (!projectId) throw new Error("Put this quote on a production first");
     const kit = await ctx.db
       .query("projectEquipment")
-      .withIndex("by_project", (q) => q.eq("projectId", quote.projectId))
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
     const card = await ctx.db
       .query("rateCardItems")

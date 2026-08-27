@@ -106,7 +106,14 @@ export default defineSchema({
    */
   quotes: defineTable({
     orgId: v.id("organisations"),
-    projectId: v.id("projects"),
+    /**
+     * The production this was quoted for, once there is one. Absent while the
+     * job is still an enquiry: a quote is often what wins the work, so it has
+     * to be able to exist before there is anything to attach it to.
+     */
+    projectId: v.optional(v.id("projects")),
+    /** What to call it before a production gives it a name. */
+    title: v.optional(v.string()),
     /** The house reference, e.g. "26_Ala_QV1". */
     number: v.string(),
     status: v.union(

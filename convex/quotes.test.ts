@@ -360,6 +360,110 @@ test("deleting a quote takes its lines and overrides with it", async () => {
   expect(left.quotes).toHaveLength(0);
 });
 
+// ---------------------------------------------------------------------------
+// A quote before there is a job to hang it on
+// ---------------------------------------------------------------------------
+
+test("a quote can be started with no production at all", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, {
+    clientId: ids.client,
+    title: "Docuseries, three episodes",
+  });
+
+  const loaded = await asA.query(api.quotes.get, { id });
+  expect(loaded!.quote.projectId).toBeUndefined();
+  expect(loaded!.quote.title).toBe("Docuseries, three episodes");
+  expect(loaded!.quote.clientName).toBe("Alan");
+  expect(loaded!.project).toBeNull();
+});
+
+test("a quote with nobody named still gets a number", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, {});
+  const loaded = await asA.query(api.quotes.get, { id });
+  expect(loaded!.quote.number).toMatch(/^\d\d_Job_QV1$/);
+});
+
+test("an unattached quote is offered to a production, an attached one is not", async () => {
+  const { ids, asA } = await setup();
+  const loose = await asA.mutation(api.quotes.create, { title: "An enquiry" });
+  await asA.mutation(api.quotes.create, { projectId: ids.project });
+
+  const offered = await asA.query(api.quotes.listUnattached, {});
+  expect(offered.map((q) => q._id)).toEqual([loose]);
+});
+
+test("putting a quote on a production shows it there and takes it off the pile", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "An enquiry" });
+  await asA.mutation(api.quotes.setProject, { id, projectId: ids.project });
+
+  expect(await asA.query(api.quotes.listUnattached, {})).toEqual([]);
+  const onProject = await asA.query(api.quotes.listForProject, { projectId: ids.project });
+  expect(onProject.map((q) => q._id)).toEqual([id]);
+});
+
+// The quote is the document. Whoever it was addressed to does not change
+// because it was later filed against a job for somebody else.
+test("attaching fills in a missing client but never overwrites one", async () => {
+  const { t, ids, asA } = await setup();
+  const other = await t.run((ctx) =>
+    ctx.db.insert("clients", { orgId: ids.org, name: "Somebody else" })
+  );
+
+  const blank = await asA.mutation(api.quotes.create, { title: "No client yet" });
+  await asA.mutation(api.quotes.setProject, { id: blank, projectId: ids.project });
+  expect((await asA.query(api.quotes.get, { id: blank }))!.quote.clientName).toBe("Alan");
+
+  const named = await asA.mutation(api.quotes.create, { clientId: other, title: "Theirs" });
+  await asA.mutation(api.quotes.setProject, { id: named, projectId: ids.project });
+  expect((await asA.query(api.quotes.get, { id: named }))!.quote.clientName).toBe(
+    "Somebody else"
+  );
+});
+
+test("a quote can be taken back off a production", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await asA.mutation(api.quotes.setProject, { id, projectId: null });
+
+  expect(await asA.query(api.quotes.listForProject, { projectId: ids.project })).toEqual([]);
+  expect((await asA.query(api.quotes.listUnattached, {})).map((q) => q._id)).toEqual([id]);
+});
+
+test("pulling in crew or kit asks for a production first", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "No job yet" });
+
+  await expect(
+    asA.mutation(api.quotes.addCrewFromProject, { quoteId: id })
+  ).rejects.toThrow(/on a production first/i);
+  await expect(
+    asA.mutation(api.quotes.addKitFromProject, { quoteId: id })
+  ).rejects.toThrow(/on a production first/i);
+});
+
+test("a quote cannot be filed against another account's production", async () => {
+  const { t, asA, asB } = await setup();
+  const theirProject = await t.run(async (ctx) => {
+    const org = await ctx.db
+      .query("organisations")
+      .filter((q) => q.eq(q.field("clerkOrgId"), "org_b"))
+      .unique();
+    return ctx.db.insert("projects", { orgId: org!._id, name: "Theirs", status: "confirmed" });
+  });
+  const id = await asA.mutation(api.quotes.create, { title: "Mine" });
+
+  await expect(
+    asA.mutation(api.quotes.setProject, { id, projectId: theirProject })
+  ).rejects.toThrow(/not found/i);
+  await expect(
+    asB.mutation(api.quotes.setProject, { id, projectId: theirProject })
+  ).rejects.toThrow(/not found/i);
+  expect(await asB.query(api.quotes.listUnattached, {})).toEqual([]);
+});
+
 test("a quote does not cross to another account", async () => {
   const { ids, asA, asB } = await setup();
   const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });

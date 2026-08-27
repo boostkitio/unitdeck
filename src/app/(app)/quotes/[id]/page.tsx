@@ -98,7 +98,9 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
                 {data.project.name}
               </Link>
             ) : (
-              "A production since removed"
+              // Not an error: a quote is usually written before there is a job
+              // to hang it on. It is put on one from the production itself.
+              (quote.title ?? "Not on a production yet")
             )}
             {quote.clientName ? ` · ${quote.clientName}` : ""}
           </p>
@@ -154,11 +156,16 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_20rem]">
         {/* Lines, by category */}
         <div className="min-w-0 space-y-6">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant="secondary"
-              disabled={busy}
+              disabled={busy || !data.project}
+              title={
+                data.project
+                  ? undefined
+                  : "Put this quote on a production first, from the production's Quotes section."
+              }
               onClick={() =>
                 void run(
                   addCrew({ quoteId }).then((r) =>
@@ -177,7 +184,12 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             <Button
               size="sm"
               variant="secondary"
-              disabled={busy}
+              disabled={busy || !data.project}
+              title={
+                data.project
+                  ? undefined
+                  : "Put this quote on a production first, from the production's Quotes section."
+              }
               onClick={() =>
                 void run(
                   addKit({ quoteId }).then((r) =>
@@ -191,6 +203,12 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             >
               Pull in the kit list
             </Button>
+            {!data.project && (
+              <p className="text-xs text-muted-foreground">
+                Put this quote on a production — from that production&apos;s Quotes section —
+                to pull its crew and kit in.
+              </p>
+            )}
           </div>
 
           {QUOTE_CATEGORIES.map((category) => {
@@ -645,6 +663,17 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
             onBlur={(e) =>
               e.target.value !== quote.number && save({ number: e.target.value })
             }
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="quote-title" className="text-xs text-muted-foreground">
+            What it is for
+          </Label>
+          <Input
+            id="quote-title"
+            defaultValue={quote.title ?? ""}
+            placeholder="Docuseries, three episodes"
+            onBlur={(e) => save({ title: e.target.value })}
           />
         </div>
         <div className="space-y-1.5">

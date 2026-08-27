@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SearchInput } from "@/components/search-input";
+import { NewQuoteDialog } from "@/components/quotes/new-quote-dialog";
 import { matchesSearch } from "@/lib/search";
 import { formatPence } from "@/lib/money";
 import { statusLabel } from "@/lib/quote-labels";
@@ -44,9 +45,16 @@ export default function QuotesPage() {
   const { organization } = useOrganization();
   const quotes = useQuery(api.quotes.list, organization ? {} : "skip");
   const [search, setSearch] = useState("");
+  const [starting, setStarting] = useState(false);
 
   const shown = (quotes ?? []).filter((q) =>
-    matchesSearch(search, [q.number, q.clientName, q.projectName, statusLabel(q.status)])
+    matchesSearch(search, [
+      q.number,
+      q.clientName,
+      q.projectName,
+      q.title,
+      statusLabel(q.status),
+    ])
   );
 
   return (
@@ -58,9 +66,14 @@ export default function QuotesPage() {
             What each job was priced at, and what it was priced on.
           </p>
         </div>
-        <Button variant="secondary" size="sm" render={<Link href="/quotes/rate-card" />}>
-          Rate card
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" render={<Link href="/quotes/rate-card" />}>
+            Rate card
+          </Button>
+          <Button size="sm" onClick={() => setStarting(true)}>
+            New quote
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6">
@@ -69,11 +82,11 @@ export default function QuotesPage() {
         ) : quotes.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border py-16 text-center">
             <p className="text-sm text-muted-foreground">
-              No quotes yet. Open a production and start one from there — it picks up the
-              client, the crew and the kit already on the job.
+              No quotes yet. Start one here — it does not need a production, so you can
+              price an enquiry before the job exists.
             </p>
-            <Button variant="secondary" size="sm" className="mt-4" render={<Link href="/projects" />}>
-              Go to projects
+            <Button size="sm" className="mt-4" onClick={() => setStarting(true)}>
+              New quote
             </Button>
           </div>
         ) : (
@@ -112,12 +125,18 @@ export default function QuotesPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Link
-                          href={`/projects/${quote.projectId}`}
-                          className="hover:underline"
-                        >
-                          {quote.projectName}
-                        </Link>
+                        {quote.projectId ? (
+                          <Link
+                            href={`/projects/${quote.projectId}`}
+                            className="hover:underline"
+                          >
+                            {quote.projectName}
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            {quote.title ?? "Not on a production yet"}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {quote.clientName ?? "—"}
@@ -146,6 +165,8 @@ export default function QuotesPage() {
           </>
         )}
       </div>
+
+      {starting && <NewQuoteDialog onClose={() => setStarting(false)} />}
     </div>
   );
 }
