@@ -36,6 +36,7 @@ import type * as lib_weather from "../lib/weather.js";
 import type * as locations from "../locations.js";
 import type * as organisations from "../organisations.js";
 import type * as people from "../people.js";
+import type * as accommodation from "../accommodation.js";
 import type * as projectClients from "../projectClients.js";
 import type * as projectCrew from "../projectCrew.js";
 import type * as projectEquipment from "../projectEquipment.js";
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   locations: typeof locations;
   organisations: typeof organisations;
   people: typeof people;
+  accommodation: typeof accommodation;
   projectClients: typeof projectClients;
   projectCrew: typeof projectCrew;
   projectEquipment: typeof projectEquipment;

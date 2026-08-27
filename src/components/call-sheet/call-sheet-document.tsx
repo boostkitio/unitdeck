@@ -285,40 +285,6 @@ export function CallSheetDocument({
           <p className="mt-2 whitespace-pre-line">{data.notes}</p>
         </section>
       )}
-      {data.accommodation && (
-        <section className="mt-5 rounded border border-neutral-300 p-3">
-          <h2 className="text-[9pt] font-bold tracking-widest text-neutral-700 uppercase">
-            Accommodation
-          </h2>
-          <p className="mt-1 font-semibold">{data.accommodation.name}</p>
-          {data.accommodation.address && (
-            <p className="whitespace-pre-line text-neutral-700">{data.accommodation.address}</p>
-          )}
-          <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[8.5pt] text-neutral-600">
-            {data.accommodation.phone && (
-              <>
-                <dt className="font-semibold">Phone</dt>
-                <dd>{data.accommodation.phone}</dd>
-              </>
-            )}
-            {data.accommodation.checkIn && (
-              <>
-                <dt className="font-semibold">Check-in</dt>
-                <dd>{data.accommodation.checkIn}</dd>
-              </>
-            )}
-            {data.accommodation.bookingRef && (
-              <>
-                <dt className="font-semibold">Booking</dt>
-                <dd>{data.accommodation.bookingRef}</dd>
-              </>
-            )}
-          </dl>
-          {data.accommodation.notes && (
-            <p className="mt-1 whitespace-pre-line text-neutral-700">{data.accommodation.notes}</p>
-          )}
-        </section>
-      )}
       {data.safetyNotes && (
         <section className="mt-5 rounded border-2 border-amber-500 bg-amber-50 p-3">
           <h2 className="text-[9pt] font-bold uppercase tracking-widest text-amber-800">

@@ -365,6 +365,32 @@ export default defineSchema({
     .index("by_org_and_date", ["orgId", "date"])
     .index("by_project", ["projectId"]),
 
+  /**
+   * Where the unit sleeps on a production.
+   *
+   * A list rather than one hotel, because a job that moves books more than
+   * one, and because "three nights at the Premier Inn then two at the Ibis"
+   * is the shape the answer actually takes. Kept per production, alongside
+   * the location, rather than inside a call sheet: it is booked long before
+   * anyone drafts one and is read by whoever is doing the paying.
+   */
+  accommodation: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.id("projects"),
+    /** The hotel. The one thing an entry cannot be without. */
+    name: v.string(),
+    address: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    /** Written for a person to read — "Mon 12 May, from 3pm". */
+    checkIn: v.optional(v.string()),
+    nights: v.optional(v.number()),
+    /** Booking reference. A string: they are rarely just digits. */
+    bookingRef: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"]),
+
   // The running order for a production: what happens when. Kept per project
   // rather than inside a call sheet, because the schedule exists long before
   // anyone drafts one and is useful on its own.
