@@ -133,3 +133,93 @@ async function text(res: Response): Promise<string> {
     return "";
   }
 }
+
+
+export type FetchedEvent = {
+  eventId: string;
+  summary: string;
+  /** Inclusive "YYYY-MM-DD" bounds, whether the entry was all-day or timed. */
+  startDate: string;
+  endDate: string;
+  /** Whether UnitDeck wrote it. Ours are bookings; the rest are commitments. */
+  ours: boolean;
+};
+
+/**
+ * What somebody has in their diary between two dates.
+ *
+ * Read-only, and used only to show the office who is already committed before
+ * they book somebody onto a shoot. `singleEvents` expands a repeating entry
+ * into its occurrences, which is what a person reading a week actually wants.
+ *
+ * An entry with no summary is a private one on a calendar shared as
+ * free/busy: it is reported as busy without a name, because that is exactly
+ * what its owner chose to share.
+ */
+export async function listEvents(args: {
+  token: string;
+  calendarId: string;
+  from: string;
+  to: string;
+}): Promise<FetchedEvent[]> {
+  const params = new URLSearchParams({
+    timeMin: `${args.from}T00:00:00Z`,
+    timeMax: `${nextDay(args.to)}T00:00:00Z`,
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "250",
+  });
+  const res = await fetch(
+    `${BASE}/${encodeURIComponent(args.calendarId)}/events?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${args.token}` } }
+  );
+  if (!res.ok) {
+    throw new Error(`Google would not list the calendar (${res.status}): ${await text(res)}`);
+  }
+  const json = (await res.json()) as { items?: RawEvent[] };
+  return (json.items ?? []).filter(isBusy).map(toFetched);
+}
+
+type RawEvent = {
+  id?: string;
+  status?: string;
+  summary?: string;
+  transparency?: string;
+  start?: { date?: string; dateTime?: string };
+  end?: { date?: string; dateTime?: string };
+  extendedProperties?: { private?: Record<string, string> };
+};
+
+/** Cancelled entries and ones marked free are not commitments. */
+function isBusy(event: RawEvent): boolean {
+  if (!event.id) return false;
+  if (event.status === "cancelled") return false;
+  if (event.transparency === "transparent") return false;
+  return true;
+}
+
+function toFetched(event: RawEvent): FetchedEvent {
+  const start = dayOf(event.start) ?? "";
+  // An all-day entry ends on the exclusive following day, so the last day it
+  // actually covers is the one before. A timed entry ends when it ends.
+  const rawEnd = dayOf(event.end) ?? start;
+  const end = event.end?.date ? previousDay(rawEnd) : rawEnd;
+  return {
+    eventId: event.id!,
+    summary: event.summary?.trim() || "Busy",
+    startDate: start,
+    endDate: end < start ? start : end,
+    ours: event.extendedProperties?.private?.[MARKER] === "1",
+  };
+}
+
+function dayOf(when: { date?: string; dateTime?: string } | undefined): string | undefined {
+  if (!when) return undefined;
+  if (when.date) return when.date;
+  return when.dateTime?.slice(0, 10);
+}
+
+function previousDay(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+}

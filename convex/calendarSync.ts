@@ -11,9 +11,9 @@ import {
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { requireOrg } from "./lib/auth";
-import { eventIdFor, planEvents, type PlannedEvent } from "./lib/calendarPlan";
+import { eventIdFor, isStaffEmail, planEvents, type PlannedEvent } from "./lib/calendarPlan";
 import { accessTokenFor, serviceAccountFromEnv } from "./lib/googleAuth";
-import { deleteEvent, writeEvent } from "./lib/googleCalendarApi";
+import { deleteEvent, listEvents, writeEvent } from "./lib/googleCalendarApi";
 
 /**
  * Putting a production's bookings on its own staff's Google calendars.
@@ -340,5 +340,200 @@ export const assertMember = internalQuery({
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== org._id) throw new Error("Project not found");
     return null;
+  },
+});
+
+
+// ---------------------------------------------------------------------------
+// Reading what else people have on
+// ---------------------------------------------------------------------------
+
+/**
+ * How far ahead the office is shown. Far enough to plan a shoot around
+ * somebody's holiday, short enough that the cache stays small and a stale row
+ * cannot survive long.
+ */
+const BUSY_DAYS_AHEAD = 90;
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function daysFromToday(days: number): string {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The organisations with sync on, and the staff whose diaries we may read. */
+export const orgsToRead = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const orgs = await ctx.db.query("organisations").take(200);
+    const enabled = orgs.filter(
+      (org) => org.settings?.calendarSync === true && org.settings?.calendarDomain
+    );
+    return enabled.map((org) => ({ orgId: org._id, domain: org.settings!.calendarDomain! }));
+  },
+});
+
+export const staffFor = internalQuery({
+  args: { orgId: v.id("organisations"), domain: v.string() },
+  handler: async (ctx, args) => {
+    const people = await ctx.db
+      .query("people")
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+      .take(1000);
+    return people
+      .filter((person) => person.archived !== true && isStaffEmail(person.email, args.domain))
+      .map((person) => ({ personId: person._id, email: person.email! }));
+  },
+});
+
+/**
+ * Replace one person's window wholesale.
+ *
+ * Wholesale rather than merged: an appointment that was cancelled has to
+ * disappear, and working out which of the rows we hold no longer exists is the
+ * same work as writing them all again.
+ */
+export const replaceBusy = internalMutation({
+  args: {
+    orgId: v.id("organisations"),
+    personId: v.id("people"),
+    email: v.string(),
+    events: v.array(
+      v.object({
+        eventId: v.string(),
+        summary: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        ours: v.boolean(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const held = await ctx.db
+      .query("calendarBusy")
+      .withIndex("by_person", (q) => q.eq("personId", args.personId))
+      .take(2000);
+    for (const row of held) await ctx.db.delete(row._id);
+
+    const fetchedAt = Date.now();
+    for (const event of args.events) {
+      await ctx.db.insert("calendarBusy", {
+        orgId: args.orgId,
+        personId: args.personId,
+        email: args.email,
+        fetchedAt,
+        ...event,
+      });
+    }
+    return null;
+  },
+});
+
+/** Refresh every staff diary in one organisation. */
+export const refreshBusyForOrg = internalAction({
+  args: { orgId: v.id("organisations"), domain: v.string() },
+  handler: async (ctx, args): Promise<{ people: number; events: number }> => {
+    const account = serviceAccountFromEnv(process.env);
+    if (!account) return { people: 0, events: 0 };
+
+    const staff = await ctx.runQuery(internal.calendarSync.staffFor, {
+      orgId: args.orgId,
+      domain: args.domain,
+    });
+    const from = today();
+    const to = daysFromToday(BUSY_DAYS_AHEAD);
+
+    let events = 0;
+    for (const person of staff) {
+      try {
+        const token = await accessTokenFor(account, person.email);
+        const found = await listEvents({
+          token,
+          calendarId: person.email,
+          from,
+          to,
+        });
+        await ctx.runMutation(internal.calendarSync.replaceBusy, {
+          orgId: args.orgId,
+          personId: person.personId,
+          email: person.email,
+          events: found,
+        });
+        events += found.length;
+      } catch {
+        // One person's calendar being unreadable — they left, they were never
+        // in the domain — must not stop everybody else's from refreshing.
+      }
+    }
+    return { people: staff.length, events };
+  },
+});
+
+/** The hourly sweep. Every organisation with sync switched on. */
+export const refreshAllBusy = internalAction({
+  args: {},
+  handler: async (ctx): Promise<null> => {
+    const orgs = await ctx.runQuery(internal.calendarSync.orgsToRead, {});
+    for (const org of orgs) {
+      await ctx.runAction(internal.calendarSync.refreshBusyForOrg, org);
+    }
+    return null;
+  },
+});
+
+/** Refresh on demand, for when somebody wants to be sure before booking. */
+export const refreshBusyNow = action({
+  args: {},
+  handler: async (ctx): Promise<{ people: number; events: number }> => {
+    const org = await ctx.runQuery(internal.calendarSync.myOrg, {});
+    if (!org) return { people: 0, events: 0 };
+    return await ctx.runAction(internal.calendarSync.refreshBusyForOrg, org);
+  },
+});
+
+export const myOrg = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    if (org.settings?.calendarSync !== true || !org.settings?.calendarDomain) return null;
+    return { orgId: org._id, domain: org.settings.calendarDomain };
+  },
+});
+
+/**
+ * Who is otherwise committed between two dates.
+ *
+ * Entries UnitDeck wrote are left out: those are the bookings the schedule is
+ * already showing, and listing a shoot again as a clash with itself would be
+ * nonsense. Everything else is read-only here and says so.
+ */
+export const busy = query({
+  args: { from: v.string(), to: v.string() },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const rows = await ctx.db
+      .query("calendarBusy")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(4000);
+
+    const overlapping = rows.filter(
+      (row) => !row.ours && row.startDate <= args.to && row.endDate >= args.from
+    );
+    const names = new Map<string, string>();
+    for (const row of overlapping) {
+      if (names.has(row.personId)) continue;
+      const person = await ctx.db.get(row.personId);
+      names.set(row.personId, person?.name ?? "Somebody");
+    }
+
+    return overlapping.map((row) => ({
+      personId: row.personId,
+      name: names.get(row.personId) ?? "Somebody",
+      summary: row.summary,
+      startDate: row.startDate,
+      endDate: row.endDate,
+    }));
   },
 });

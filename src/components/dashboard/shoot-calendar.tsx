@@ -54,6 +54,10 @@ export function ShootCalendar() {
   }, [month]);
 
   const shoots = useQuery(api.dashboard.shootDaysInRange, range ?? "skip");
+  // What the office's own people already have on. Read-only, and read from
+  // their Google calendars: it is here so a shoot is not booked over
+  // somebody's holiday, not to be edited.
+  const busy = useQuery(api.calendarSync.busy, range ?? "skip");
 
   // date -> shoots on that date, for O(1) lookup while painting cells.
   const byDate = useMemo(() => {
@@ -119,15 +123,18 @@ export function ShootCalendar() {
               <Skeleton className="h-5 w-1/2" />
             </div>
           ) : selectedShoots !== null ? (
-            selectedShoots.length === 0 ? (
-              <p className="text-muted-foreground">No shoots on {formatShootDate(selected!)}.</p>
-            ) : (
-              <ul className="-mx-2 divide-y divide-border">
-                {selectedShoots.map((shoot) => (
-                  <ShootEntry key={shoot.shootDayId} day={shoot} />
-                ))}
-              </ul>
-            )
+            <>
+              {selectedShoots.length === 0 ? (
+                <p className="text-muted-foreground">No shoots on {formatShootDate(selected!)}.</p>
+              ) : (
+                <ul className="-mx-2 divide-y divide-border">
+                  {selectedShoots.map((shoot) => (
+                    <ShootEntry key={shoot.shootDayId} day={shoot} />
+                  ))}
+                </ul>
+              )}
+              <OtherCommitments busy={busy ?? []} date={selected!} />
+            </>
           ) : monthShoots.length === 0 ? (
             <p className="text-muted-foreground">
               No shoot days in {MONTH_NAMES[month.month]}. Use ‹ and › to look at other months.
@@ -142,5 +149,41 @@ export function ShootCalendar() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+
+/**
+ * What your own people already have on that day.
+ *
+ * Read from their Google calendars and shown here so a shoot is not booked
+ * over a holiday or a hospital appointment. Nothing here can be edited — these
+ * are their entries, not ours, and UnitDeck never writes to them.
+ */
+function OtherCommitments({
+  busy,
+  date,
+}: {
+  busy: { personId: string; name: string; summary: string; startDate: string; endDate: string }[];
+  date: string;
+}) {
+  const onThisDay = busy.filter((entry) => entry.startDate <= date && entry.endDate >= date);
+  if (onThisDay.length === 0) return null;
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="text-xs font-medium text-muted-foreground">Also on that day</p>
+      <ul className="mt-1 space-y-1">
+        {onThisDay.map((entry, i) => (
+          <li key={i} className="flex items-baseline gap-2 text-xs">
+            <span className="shrink-0 font-medium text-foreground">{entry.name}</span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.summary}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">
+        From their own calendars. UnitDeck does not change these.
+      </p>
+    </div>
   );
 }

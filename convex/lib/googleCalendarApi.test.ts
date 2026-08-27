@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { afterEach, expect, test, vi } from "vitest";
-import { deleteEvent, nextDay, writeEvent } from "./googleCalendarApi";
+import { deleteEvent, listEvents, nextDay, writeEvent } from "./googleCalendarApi";
 
 type Call = { url: string; method: string; body?: unknown };
 
@@ -114,4 +114,115 @@ test("an all-day entry ends the next day, across a month and a leap year", () =>
   expect(nextDay("2026-09-30")).toBe("2026-10-01");
   expect(nextDay("2026-12-31")).toBe("2027-01-01");
   expect(nextDay("2028-02-28")).toBe("2028-02-29");
+});
+
+test("reading a diary keeps the days, and marks which entries are ours", async () => {
+  stubGoogle([
+    {
+      status: 200,
+      body: {
+        items: [
+          // A week's holiday, all-day: Google reports the end exclusively, so
+          // the last day it actually covers is the 21st, not the 22nd.
+          {
+            id: "holiday1",
+            summary: "Annual leave",
+            start: { date: "2026-09-14" },
+            end: { date: "2026-09-22" },
+          },
+          // A timed meeting on one day.
+          {
+            id: "meeting1",
+            summary: "Client call",
+            start: { dateTime: "2026-09-15T10:00:00+01:00" },
+            end: { dateTime: "2026-09-15T11:00:00+01:00" },
+          },
+          // One of ours, recognised by its stamp.
+          {
+            id: "ud00",
+            summary: "Brand film — Producer",
+            start: { date: "2026-09-16" },
+            end: { date: "2026-09-17" },
+            extendedProperties: { private: { unitdeck: "1" } },
+          },
+          // Cancelled, and marked free: neither is a commitment.
+          { id: "gone", status: "cancelled", start: { date: "2026-09-15" } },
+          {
+            id: "free",
+            summary: "Reminder",
+            transparency: "transparent",
+            start: { date: "2026-09-15" },
+            end: { date: "2026-09-16" },
+          },
+        ],
+      },
+    },
+  ]);
+
+  const events = await listEvents({
+    token: "t",
+    calendarId: "sam@klaxon.studio",
+    from: "2026-09-01",
+    to: "2026-09-30",
+  });
+
+  expect(events).toEqual([
+    {
+      eventId: "holiday1",
+      summary: "Annual leave",
+      startDate: "2026-09-14",
+      endDate: "2026-09-21",
+      ours: false,
+    },
+    {
+      eventId: "meeting1",
+      summary: "Client call",
+      startDate: "2026-09-15",
+      endDate: "2026-09-15",
+      ours: false,
+    },
+    {
+      eventId: "ud00",
+      summary: "Brand film — Producer",
+      startDate: "2026-09-16",
+      endDate: "2026-09-16",
+      ours: true,
+    },
+  ]);
+});
+
+test("a private entry is reported as busy without a name", async () => {
+  stubGoogle([
+    {
+      status: 200,
+      body: {
+        items: [{ id: "private1", start: { date: "2026-09-15" }, end: { date: "2026-09-16" } }],
+      },
+    },
+  ]);
+  const [event] = await listEvents({
+    token: "t",
+    calendarId: "sam@klaxon.studio",
+    from: "2026-09-01",
+    to: "2026-09-30",
+  });
+  // Whoever shares their calendar as free/busy chose not to say what it is,
+  // and that choice is theirs to keep.
+  expect(event.summary).toBe("Busy");
+});
+
+test("reading is a read: the request is a GET and asks for a window", async () => {
+  const calls = stubGoogle([{ status: 200, body: { items: [] } }]);
+  await listEvents({
+    token: "t",
+    calendarId: "sam@klaxon.studio",
+    from: "2026-09-01",
+    to: "2026-09-30",
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0].method).toBe("GET");
+  expect(calls[0].url).toContain("timeMin=2026-09-01T00%3A00%3A00Z");
+  // Exclusive end, so the last day asked for is included.
+  expect(calls[0].url).toContain("timeMax=2026-10-01T00%3A00%3A00Z");
+  expect(calls[0].url).toContain("singleEvents=true");
 });

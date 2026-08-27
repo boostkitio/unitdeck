@@ -17,4 +17,9 @@ crons.cron(
 // work. Early, before anyone is looking at their list for the day.
 crons.cron("archive finished productions", "30 3 * * *", internal.projects.archiveFinished, {});
 
+// What the office's own people have on, read from their calendars so the
+// schedule can show who is already committed. Hourly: a diary changes through
+// the day, and reading it is cheap.
+crons.cron("read staff calendars", "5 * * * *", internal.calendarSync.refreshAllBusy, {});
+
 export default crons;

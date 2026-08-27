@@ -727,6 +727,35 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_shoot_day", ["shootDayId"]),
 
+  /**
+   * What else your own people have in their diaries.
+   *
+   * Read from their Google calendars and cached here so the schedule can show
+   * who is already committed before somebody is booked onto a shoot. Read-only
+   * in every sense: these are copies, nothing is ever written back, and the
+   * ones UnitDeck put there are marked so they are not shown twice.
+   *
+   * Kept for a rolling window rather than for ever — an old holiday is not
+   * worth storing, and the window is refreshed wholesale so a cancelled
+   * appointment disappears rather than lingering.
+   */
+  calendarBusy: defineTable({
+    orgId: v.id("organisations"),
+    personId: v.id("people"),
+    email: v.string(),
+    /** Google's id, so an entry of ours can be recognised and skipped. */
+    eventId: v.string(),
+    summary: v.string(),
+    /** Inclusive "YYYY-MM-DD" bounds; a single day has both the same. */
+    startDate: v.string(),
+    endDate: v.string(),
+    /** True for entries UnitDeck itself wrote — shown as bookings, not clashes. */
+    ours: v.boolean(),
+    fetchedAt: v.number(),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_person", ["personId"]),
+
   waitlist: defineTable({
     email: v.string(),
     source: v.string(), // which page captured it
