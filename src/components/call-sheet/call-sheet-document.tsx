@@ -329,41 +329,24 @@ export function CallSheetDocument({
  * maps app. A grid reference does that; an apology for a missing key does not.
  */
 function LocationMap({ location }: { location: LocationEntry }) {
-  const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  const centre =
-    location.lat !== undefined && location.lng !== undefined
-      ? `${location.lat},${location.lng}`
-      : location.address.trim() || location.name;
-
-  if (!key) {
-    return (
-      <div className="flex h-[34mm] w-[46mm] shrink-0 flex-col items-center justify-center gap-1 rounded border border-dashed border-neutral-300 p-2 text-center leading-tight">
-        {location.plusCode ? (
-          <>
-            <span className="text-[7pt] tracking-wide text-neutral-500 uppercase">Plus Code</span>
-            <span className="font-mono text-[9pt] font-semibold text-neutral-800">
-              {location.plusCode}
-            </span>
-          </>
-        ) : (
-          <span className="text-[7.5pt] text-neutral-500">{location.address || location.name}</span>
-        )}
-      </div>
-    );
-  }
-
-  const src =
-    `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(centre)}` +
-    `&zoom=15&size=368x272&scale=2&maptype=roadmap` +
-    `&markers=color:red%7C${encodeURIComponent(centre)}&key=${key}`;
-
+  // No map image on a printed sheet. Only the Maps Embed API is licensed here,
+  // and that is an iframe: it cannot be printed. The Static Maps API could,
+  // but it is billed per request for a picture nobody navigates by — on paper
+  // the Plus Code is what actually gets somebody to the gate, and it survives
+  // being photocopied, faxed and read down a phone.
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt={`Map of ${location.name}`}
-      className="h-[34mm] w-[46mm] shrink-0 rounded border border-neutral-300 object-cover"
-    />
+    <div className="flex h-[34mm] w-[46mm] shrink-0 flex-col items-center justify-center gap-1 rounded border border-dashed border-neutral-300 p-2 text-center leading-tight">
+      {location.plusCode ? (
+        <>
+          <span className="text-[7pt] tracking-wide text-neutral-500 uppercase">Plus Code</span>
+          <span className="font-mono text-[9pt] font-semibold text-neutral-800">
+            {location.plusCode}
+          </span>
+        </>
+      ) : (
+        <span className="text-[7.5pt] text-neutral-500">{location.address || location.name}</span>
+      )}
+    </div>
   );
 }
 
