@@ -35,6 +35,21 @@ export const CATEGORY_LABELS: Record<QuoteCategory, string> = {
   post: "Post Production",
 };
 
+/**
+ * The caveats that go on every quote unless somebody has written their own.
+ *
+ * These are the ones that were ticked "always include" on the spreadsheet.
+ * They are a starting point, not a rule: the caveats box on the quote is free
+ * text, so a job with different terms says so.
+ */
+export const DEFAULT_CAVEATS = [
+  "ALL ESTIMATES ARE SUBJECT TO CHANGE",
+  "- This quote is valid for 30 days.",
+  "- 50% of quoted amount to be paid upfront before work commences, the remaining 50% to be paid on delivery of project.",
+  "- Once this quote is accepted any amendment to the scope of work will be subject to additional fees.",
+  "- Three edit amends are included per deliverable. Further amends will incur an additional cost.",
+];
+
 /** House defaults for a new quote: contingency 10%, profit 10%, insurance 0.30%. */
 export const DEFAULT_MARGINS = {
   contingencyBp: 1000,
@@ -250,13 +265,17 @@ export const create = mutation({
       .query("caveats")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .collect();
+    const chosen = houseCaveats
+      .filter((c) => c.alwaysInclude && !c.archived)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      .map((c) => c.text);
 
     const title = args.title?.trim() || undefined;
     const number =
       args.number?.trim() ||
       (await nextNumber(ctx, org._id, client?.name ?? project?.name ?? title ?? null));
 
-    return await ctx.db.insert("quotes", {
+    const quoteId = await ctx.db.insert("quotes", {
       orgId: org._id,
       projectId: args.projectId,
       title,
@@ -267,41 +286,100 @@ export const create = mutation({
       clientName: client?.name,
       producerName: typeof identity.name === "string" ? identity.name : undefined,
       producerEmail: typeof identity.email === "string" ? identity.email : undefined,
-      caveats: houseCaveats
-        .filter((c) => c.alwaysInclude && !c.archived)
-        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-        .map((c) => c.text),
+      // The house list where there is one, otherwise the standing terms —
+      // never an empty box, since the terms are the same on almost every job
+      // and a quote that goes out without them is a quote with no terms.
+      caveats: chosen.length > 0 ? chosen : DEFAULT_CAVEATS,
       ...DEFAULT_MARGINS,
       discountPence: 0,
     });
+
+    // Every line on the rate card comes onto the quote, priced but with
+    // nothing against it. Pricing then means filling in how many and how long,
+    // exactly as the spreadsheet worked — and a chargeable line you have
+    // forgotten is a line you can see, rather than one you never thought to
+    // look for. A line with nothing against it totals zero and is not printed.
+    const card = await ctx.db
+      .query("rateCardItems")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    const margins = {
+      contingencyBp: DEFAULT_MARGINS.contingencyBp,
+      profitBp: DEFAULT_MARGINS.profitBp,
+      insuranceBp: DEFAULT_MARGINS.insuranceBp,
+    };
+
+    let sortOrder = 0;
+    for (const item of card
+      .filter((i) => !i.archived)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))) {
+      sortOrder += 1;
+      await ctx.db.insert("quoteLines", {
+        orgId: org._id,
+        quoteId,
+        category: item.category,
+        section: item.section,
+        name: item.name,
+        notes: item.notes,
+        unit: item.unit,
+        pax: 0,
+        unitAmount: 0,
+        costPence: item.costPence,
+        ratePence: rateFromCost(item.costPence, margins, DEFAULT_MARGINS.roundToPence),
+        sortOrder,
+      });
+    }
+
+    return quoteId;
   },
 });
 
 /**
- * The house reference, in the shape the spreadsheet used: two-digit year, the
- * first three letters of whoever it is for, then QV and a version.
+ * The house reference: the date backwards, who it is for, and which go this is.
+ *
+ * 260827_Ala_1 — 27 August 2026, for Alan, first version. Sorting by name puts
+ * quotes in date order, which is the point of writing the date that way round.
+ *
+ * The version is the next one free for that day and that name, so a second
+ * quote written for the same client on the same day is _2 rather than a
+ * collision.
  */
+export function quoteNumber(date: Date, named: string | null, version: number): string {
+  const yy = String(date.getFullYear()).slice(-2);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const letters = (named ?? "").replace(/[^A-Za-z]/g, "").slice(0, 3);
+  const stem = letters
+    ? letters[0].toUpperCase() + letters.slice(1).toLowerCase()
+    : "Job";
+  return `${yy}${mm}${dd}_${stem}_${version}`;
+}
+
+/** Splits a reference back into the part that identifies it and its version. */
+export function parseQuoteNumber(
+  number: string
+): { stem: string; version: number } | null {
+  const match = /^(\d{6}_[A-Za-z]{1,3})_(\d+)$/.exec(number);
+  if (!match) return null;
+  return { stem: match[1], version: Number(match[2]) };
+}
+
 async function nextNumber(
   ctx: MutationCtx,
   orgId: Id<"organisations">,
   named: string | null
 ): Promise<string> {
-  const year = new Date().getFullYear().toString().slice(-2);
-  const stem = (named ?? "").replace(/[^A-Za-z]/g, "").slice(0, 3);
-  const initials = stem ? stem[0].toUpperCase() + stem.slice(1).toLowerCase() : "Job";
-  const prefix = `${year}_${initials}_QV`;
-
+  const now = new Date();
   const existing = await ctx.db
     .query("quotes")
     .withIndex("by_org", (q) => q.eq("orgId", orgId))
     .collect();
-  const taken = existing
-    .map((q) => q.number)
-    .filter((n) => n.startsWith(prefix))
-    .map((n) => Number(n.slice(prefix.length)))
-    .filter((n) => Number.isFinite(n));
-  const next = taken.length === 0 ? 1 : Math.max(...taken) + 1;
-  return `${prefix}${next}`;
+
+  let version = 1;
+  while (existing.some((q) => q.number === quoteNumber(now, named, version))) {
+    version += 1;
+  }
+  return quoteNumber(now, named, version);
 }
 
 /** Quotes not yet on any production, for picking one from a production. */
@@ -661,11 +739,13 @@ export const removeLine = mutation({
 });
 
 /**
- * Re-prices every line that has not been pinned.
+ * Re-prices every line on the quote at its current margins.
  *
- * Moving the profit margin should move the quote, which is what the sheet did
- * when you changed the percentage. A pinned line — a pass-through, a rate
- * agreed with the client — is left exactly where it is.
+ * Every line, including one whose rate was typed by hand. Moving the profit
+ * margin is a statement about the whole quote, and a handful of lines quietly
+ * exempt from it is how a quote ends up carrying a margin nobody can account
+ * for. A hand-typed rate set its own cost on the way in, so re-pricing works
+ * from that cost and the line lands where the new margins put it.
  */
 export const repriceLines = mutation({
   args: { quoteId: v.id("quotes") },
@@ -678,13 +758,101 @@ export const repriceLines = mutation({
 
     let repriced = 0;
     for (const line of lines) {
-      if (line.rateOverridden) continue;
       const ratePence = rateFromCost(line.costPence, marginsOf(quote), quote.roundToPence);
       if (ratePence === line.ratePence) continue;
-      await ctx.db.patch(line._id, { ratePence });
+      await ctx.db.patch(line._id, { ratePence, rateOverridden: undefined });
       repriced++;
     }
     return { repriced };
+  },
+});
+
+/**
+ * The next version of a quote: a copy, numbered _2, _3 and so on.
+ *
+ * A quote that has gone out is a document somebody has read. Revising it in
+ * place would change what they were sent, so a revision is a new quote beside
+ * it and the old one stays exactly as it was issued.
+ */
+export const newVersion = mutation({
+  args: { id: v.id("quotes") },
+  handler: async (ctx, args) => {
+    const { org, quote } = await loadQuote(ctx, args.id);
+
+    const existing = await ctx.db
+      .query("quotes")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    const parsed = parseQuoteNumber(quote.number);
+    let number: string;
+    if (parsed) {
+      let version = parsed.version + 1;
+      while (existing.some((q) => q.number === `${parsed.stem}_${version}`)) version += 1;
+      number = `${parsed.stem}_${version}`;
+    } else {
+      number = await nextNumber(ctx, org._id, quote.title ?? quote.clientName ?? null);
+    }
+
+    // Written out field by field rather than spread from the original: the
+    // three timestamps say when *that* quote went out, and a copy of them on a
+    // draft would be a lie the document tells about itself.
+    const copyId = await ctx.db.insert("quotes", {
+      orgId: quote.orgId,
+      projectId: quote.projectId,
+      title: quote.title,
+      number,
+      status: "draft",
+      quoteType: quote.quoteType,
+      clientId: quote.clientId,
+      clientName: quote.clientName,
+      clientContact: quote.clientContact,
+      producerName: quote.producerName,
+      producerEmail: quote.producerEmail,
+      producerPhone: quote.producerPhone,
+      deliverables: quote.deliverables,
+      caveats: quote.caveats,
+      contingencyBp: quote.contingencyBp,
+      profitBp: quote.profitBp,
+      insuranceBp: quote.insuranceBp,
+      vatBp: quote.vatBp,
+      roundToPence: quote.roundToPence,
+      discountPence: quote.discountPence,
+    });
+
+    for (const line of await ctx.db
+      .query("quoteLines")
+      .withIndex("by_quote", (q) => q.eq("quoteId", args.id))
+      .collect()) {
+      await ctx.db.insert("quoteLines", {
+        orgId: line.orgId,
+        quoteId: copyId,
+        category: line.category,
+        section: line.section,
+        name: line.name,
+        notes: line.notes,
+        clientNotes: line.clientNotes,
+        unit: line.unit,
+        pax: line.pax,
+        unitAmount: line.unitAmount,
+        costPence: line.costPence,
+        ratePence: line.ratePence,
+        rateOverridden: line.rateOverridden,
+        sortOrder: line.sortOrder,
+      });
+    }
+    for (const o of await ctx.db
+      .query("quoteCategoryOverrides")
+      .withIndex("by_quote", (q) => q.eq("quoteId", args.id))
+      .collect()) {
+      await ctx.db.insert("quoteCategoryOverrides", {
+        orgId: o.orgId,
+        quoteId: copyId,
+        category: o.category,
+        totalPence: o.totalPence,
+      });
+    }
+
+    return copyId;
   },
 });
 
@@ -731,6 +899,26 @@ export const setCategoryTotal = mutation({
 });
 
 /**
+ * The line already on the quote for something, if there is one.
+ *
+ * Every rate card line is on the quote from the start, so pulling in the crew
+ * or the kit should fill the line that is already there rather than add a
+ * second one beside it — two Camera Op rows, one priced and one blank, is
+ * worse than the retyping it was meant to save.
+ */
+function unfilledLineFor(
+  lines: Doc<"quoteLines">[],
+  name: string
+): Doc<"quoteLines"> | undefined {
+  const wanted = name.trim().toLowerCase();
+  return lines.find(
+    (line) =>
+      line.name.trim().toLowerCase() === wanted &&
+      (line.pax === 0 || line.unitAmount === 0)
+  );
+}
+
+/**
  * Pulls the crew already booked on the production onto the quote.
  *
  * The rate card is matched by role, so a booked DoP arrives as the DoP line
@@ -753,6 +941,10 @@ export const addCrewFromProject = mutation({
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .collect();
 
+    const existing = await ctx.db
+      .query("quoteLines")
+      .withIndex("by_quote", (q) => q.eq("quoteId", args.quoteId))
+      .collect();
     let sortOrder = await nextSortOrder(ctx, args.quoteId);
     let added = 0;
 
@@ -765,22 +957,37 @@ export const addCrewFromProject = mutation({
         (item) => !item.archived && item.name.toLowerCase() === role.toLowerCase()
       );
       const costPence = match?.costPence ?? Math.round((person?.dayRate ?? 0) * 100);
+      const name = match?.name ?? role ?? person?.name ?? "Crew";
+      const unitAmount = args.unitAmount ?? 1;
 
-      await ctx.db.insert("quoteLines", {
-        orgId: org._id,
-        quoteId: args.quoteId,
-        category: match?.category ?? "production",
-        section: match?.section ?? "PRODUCTION CREW",
-        name: match?.name ?? role ?? person?.name ?? "Crew",
-        // Who is actually booked, which the rate card cannot know.
-        notes: person?.name,
-        unit: match?.unit ?? "day",
-        pax: 1,
-        unitAmount: args.unitAmount ?? 1,
-        costPence,
-        ratePence: rateFromCost(costPence, marginsOf(quote), quote.roundToPence),
-        sortOrder: sortOrder++,
-      });
+      const line = unfilledLineFor(existing, name);
+      if (line) {
+        await ctx.db.patch(line._id, {
+          pax: line.pax > 0 ? line.pax + 1 : 1,
+          unitAmount,
+          // Who is actually booked, which the rate card cannot know.
+          notes: person?.name ?? line.notes,
+        });
+        // So a second person in the same role adds to the count rather than
+        // filling the line twice.
+        line.pax = line.pax > 0 ? line.pax + 1 : 1;
+        line.unitAmount = unitAmount;
+      } else {
+        await ctx.db.insert("quoteLines", {
+          orgId: org._id,
+          quoteId: args.quoteId,
+          category: match?.category ?? "production",
+          section: match?.section ?? "PRODUCTION CREW",
+          name,
+          notes: person?.name,
+          unit: match?.unit ?? "day",
+          pax: 1,
+          unitAmount,
+          costPence,
+          ratePence: rateFromCost(costPence, marginsOf(quote), quote.roundToPence),
+          sortOrder: sortOrder++,
+        });
+      }
       added++;
     }
     return { added };
@@ -809,6 +1016,10 @@ export const addKitFromProject = mutation({
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .collect();
 
+    const existing = await ctx.db
+      .query("quoteLines")
+      .withIndex("by_quote", (q) => q.eq("quoteId", args.quoteId))
+      .collect();
     let sortOrder = await nextSortOrder(ctx, args.quoteId);
     let added = 0;
 
@@ -817,21 +1028,30 @@ export const addKitFromProject = mutation({
         (item) => !item.archived && item.name.toLowerCase() === row.item.trim().toLowerCase()
       );
       const costPence = match?.costPence ?? Math.round((row.cost ?? 0) * 100);
+      const pax = row.quantity ?? 1;
+      const unitAmount = args.unitAmount ?? 1;
 
-      await ctx.db.insert("quoteLines", {
-        orgId: org._id,
-        quoteId: args.quoteId,
-        category: "equipment",
-        section: match?.section ?? "EQUIPMENT",
-        name: row.item,
-        notes: row.notes,
-        unit: match?.unit ?? "day",
-        pax: row.quantity ?? 1,
-        unitAmount: args.unitAmount ?? 1,
-        costPence,
-        ratePence: rateFromCost(costPence, marginsOf(quote), quote.roundToPence),
-        sortOrder: sortOrder++,
-      });
+      const line = unfilledLineFor(existing, row.item);
+      if (line) {
+        await ctx.db.patch(line._id, { pax, unitAmount, notes: row.notes ?? line.notes });
+        line.pax = pax;
+        line.unitAmount = unitAmount;
+      } else {
+        await ctx.db.insert("quoteLines", {
+          orgId: org._id,
+          quoteId: args.quoteId,
+          category: "equipment",
+          section: match?.section ?? "EQUIPMENT",
+          name: row.item,
+          notes: row.notes,
+          unit: match?.unit ?? "day",
+          pax,
+          unitAmount,
+          costPence,
+          ratePence: rateFromCost(costPence, marginsOf(quote), quote.roundToPence),
+          sortOrder: sortOrder++,
+        });
+      }
       added++;
     }
     return { added };

@@ -50,8 +50,9 @@ test("quote numbers follow the house scheme and do not collide", async () => {
 
   const a = await asA.query(api.quotes.get, { id: first });
   const b = await asA.query(api.quotes.get, { id: second });
-  expect(a!.quote.number).toMatch(/^\d\d_Ala_QV1$/);
-  expect(b!.quote.number).toMatch(/^\d\d_Ala_QV2$/);
+  // The date backwards, who it is for, then which go this is.
+  expect(a!.quote.number).toMatch(/^\d{6}_Ala_1$/);
+  expect(b!.quote.number).toMatch(/^\d{6}_Ala_2$/);
 });
 
 test("a line is priced off the cost and the quote's margins", async () => {
@@ -91,7 +92,7 @@ test("a pass-through line keeps the rate it was given", async () => {
   expect(loaded!.lines[0].rateOverridden).toBe(true);
 });
 
-test("moving a margin re-prices the quote but leaves pinned lines alone", async () => {
+test("moving a margin re-prices every line, hand-set ones included", async () => {
   const { ids, asA } = await setup();
   const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
   await asA.mutation(api.quotes.addLine, {
@@ -112,13 +113,15 @@ test("moving a margin re-prices the quote but leaves pinned lines alone", async 
 
   // Profit off, so the multiplier drops from 1.203 to 1.103.
   await asA.mutation(api.quotes.update, { id: quoteId, profitBp: 0 });
-  const result = await asA.mutation(api.quotes.repriceLines, { quoteId });
-  expect(result.repriced).toBe(1);
+  await asA.mutation(api.quotes.repriceLines, { quoteId });
 
   const loaded = await asA.query(api.quotes.get, { id: quoteId });
   const byName = Object.fromEntries(loaded!.lines.map((l) => [l.name, l.ratePence]));
   expect(byName["Camera Op"]).toBe(p(445)); // 399 x 1.103 = 440.10, up to 445
-  expect(byName["Archiving"]).toBe(p(150)); // pinned, untouched
+  // A hand-set line moves too. This one was added with a cost and a rate both
+  // £150, so the cost is £150 and the new margins put it at 150 x 1.103 = 165.45,
+  // up to the next fiver.
+  expect(byName["Archiving"]).toBe(p(170));
 });
 
 // A quote that has gone out must not move when the rate card does.
@@ -137,11 +140,11 @@ test("editing the rate card does not touch a quote already written", async () =>
   await asA.mutation(api.rateCard.update, { id: itemId, costPence: p(500) });
 
   const loaded = await asA.query(api.quotes.get, { id: quoteId });
-  expect(loaded!.lines[0].costPence).toBe(p(399));
-  expect(loaded!.lines[0].ratePence).toBe(p(480));
+  expect(loaded!.lines.every((l) => l.costPence === p(399))).toBe(true);
+  expect(loaded!.lines.every((l) => l.ratePence === p(480))).toBe(true);
 });
 
-test("deleting a rate card line does not empty a quote that used it", async () => {
+test("deleting a rate card line does not empty a quote that carries it", async () => {
   const { ids, asA } = await setup();
   const itemId = await asA.mutation(api.rateCard.add, {
     category: "equipment",
@@ -151,12 +154,12 @@ test("deleting a rate card line does not empty a quote that used it", async () =
     costPence: p(224.44),
   });
   const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
-  await asA.mutation(api.quotes.addFromRateCard, { quoteId, itemIds: [itemId] });
   await asA.mutation(api.rateCard.remove, { id: itemId });
 
   const loaded = await asA.query(api.quotes.get, { id: quoteId });
   expect(loaded!.lines).toHaveLength(1);
   expect(loaded!.lines[0].name).toBe("Sony FX9 Camera Kit");
+  expect(loaded!.lines[0].costPence).toBe(p(224.44));
 });
 
 test("a category total can be set by hand, and the contingency absorbs it", async () => {
@@ -411,8 +414,9 @@ test("setting cost and rate together leaves both exactly as given", async () => 
   expect(loaded!.lines[0].ratePence).toBe(p(19000));
 });
 
-// A line whose rate was typed must not move when the margins are touched.
-test("a hand-typed rate survives a re-price", async () => {
+// Moving a margin is a statement about the whole quote, so a line whose rate
+// was typed moves with it — from the cost that rate implied.
+test("a hand-typed rate moves when the margins move", async () => {
   const { ids, asA } = await setup();
   const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
   const id = await asA.mutation(api.quotes.addLine, {
@@ -427,7 +431,8 @@ test("a hand-typed rate survives a re-price", async () => {
   await asA.mutation(api.quotes.repriceLines, { quoteId });
 
   const loaded = await asA.query(api.quotes.get, { id: quoteId });
-  expect(loaded!.lines[0].ratePence).toBe(p(600));
+  // 600 / 1.203 = 498.75 cost, then x 1.103 = 550.12, up to the next fiver.
+  expect(loaded!.lines[0].ratePence).toBe(p(555));
 });
 
 test("a quote can be started with no production at all", async () => {
@@ -448,7 +453,7 @@ test("a quote with nobody named still gets a number", async () => {
   const { asA } = await setup();
   const id = await asA.mutation(api.quotes.create, {});
   const loaded = await asA.query(api.quotes.get, { id });
-  expect(loaded!.quote.number).toMatch(/^\d\d_Job_QV1$/);
+  expect(loaded!.quote.number).toMatch(/^\d{6}_Job_1$/);
 });
 
 test("an unattached quote is offered to a production, an attached one is not", async () => {
@@ -528,6 +533,168 @@ test("a quote cannot be filed against another account's production", async () =>
     asB.mutation(api.quotes.setProject, { id, projectId: theirProject })
   ).rejects.toThrow(/not found/i);
   expect(await asB.query(api.quotes.listUnattached, {})).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Everything chargeable is on the quote from the start
+// ---------------------------------------------------------------------------
+
+test("a new quote carries every line on the rate card, priced but empty", async () => {
+  const { ids, asA } = await setup();
+  await asA.mutation(api.rateCard.add, {
+    category: "production",
+    section: "PRODUCTION CREW",
+    name: "Camera Op",
+    unit: "day",
+    costPence: p(399),
+  });
+  await asA.mutation(api.rateCard.add, {
+    category: "post",
+    section: "POST - PRODUCTION",
+    name: "Offline Editor",
+    unit: "day",
+    costPence: p(415.63),
+  });
+
+  const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const loaded = await asA.query(api.quotes.get, { id: quoteId });
+
+  expect(loaded!.lines.map((l) => l.name).sort()).toEqual(["Camera Op", "Offline Editor"]);
+  // Priced, so the figure is there the moment somebody says how many.
+  expect(loaded!.lines.every((l) => l.ratePence > 0)).toBe(true);
+  // But nothing against them, so nothing is on the quote yet.
+  expect(loaded!.lines.every((l) => l.pax === 0 && l.unitAmount === 0)).toBe(true);
+  expect(loaded!.totals.netTotal).toBe(0);
+});
+
+test("a line only counts once it has how many and how long", async () => {
+  const { ids, asA } = await setup();
+  await asA.mutation(api.rateCard.add, {
+    category: "production",
+    section: "PRODUCTION CREW",
+    name: "Camera Op",
+    unit: "day",
+    costPence: p(399),
+  });
+  const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const line = (await asA.query(api.quotes.get, { id: quoteId }))!.lines[0];
+
+  // Only one of the two filled in is still nothing.
+  await asA.mutation(api.quotes.updateLine, { id: line._id, pax: 1 });
+  expect((await asA.query(api.quotes.get, { id: quoteId }))!.totals.netTotal).toBe(0);
+
+  await asA.mutation(api.quotes.updateLine, { id: line._id, unitAmount: 3 });
+  expect((await asA.query(api.quotes.get, { id: quoteId }))!.totals.netTotal).toBe(p(1440));
+});
+
+test("pulling in the crew fills the line that is already there", async () => {
+  const { t, ids, asA } = await setup();
+  await asA.mutation(api.rateCard.add, {
+    category: "production",
+    section: "PRODUCTION CREW",
+    name: "Director of Photography",
+    unit: "day",
+    costPence: p(457.19),
+  });
+  await t.run(async (ctx) => {
+    const person = await ctx.db.insert("people", {
+      orgId: ids.org,
+      name: "Sam Reed",
+      role: "Director of Photography",
+    });
+    await ctx.db.insert("projectCrew", {
+      orgId: ids.org,
+      projectId: ids.project,
+      personId: person,
+      role: "Director of Photography",
+    });
+  });
+
+  const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await asA.mutation(api.quotes.addCrewFromProject, { quoteId, unitAmount: 3 });
+
+  const loaded = await asA.query(api.quotes.get, { id: quoteId });
+  // One row, filled in — not a second one beside the blank original.
+  expect(loaded!.lines).toHaveLength(1);
+  expect(loaded!.lines[0]).toMatchObject({ pax: 1, unitAmount: 3, notes: "Sam Reed" });
+});
+
+test("a new quote comes with the standing terms on it", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, {});
+  const caveats = (await asA.query(api.quotes.get, { id }))!.quote.caveats ?? [];
+
+  expect(caveats.some((c) => /valid for 30 days/i.test(c))).toBe(true);
+  expect(caveats.some((c) => /three edit amends are included per deliverable/i.test(c))).toBe(
+    true
+  );
+});
+
+test("the house caveats win over the standing ones where there are any", async () => {
+  const { t, ids, asA } = await setup();
+  await t.run((ctx) =>
+    ctx.db.insert("caveats", { orgId: ids.org, text: "- Ours, not yours.", alwaysInclude: true })
+  );
+  const id = await asA.mutation(api.quotes.create, {});
+  expect((await asA.query(api.quotes.get, { id }))!.quote.caveats).toEqual([
+    "- Ours, not yours.",
+  ]);
+});
+
+// ---------------------------------------------------------------------------
+// Versions
+// ---------------------------------------------------------------------------
+
+test("a new version is a copy, numbered on, with the old one left as sent", async () => {
+  const { ids, asA } = await setup();
+  const first = await asA.mutation(api.quotes.create, {
+    projectId: ids.project,
+    title: "Veeam docuseries",
+  });
+  await asA.mutation(api.quotes.addLine, {
+    quoteId: first,
+    category: "production",
+    name: "Camera Op",
+    unit: "day",
+    pax: 1,
+    unitAmount: 3,
+    costPence: p(399),
+  });
+  await asA.mutation(api.quotes.setCategoryTotal, {
+    quoteId: first,
+    category: "production",
+    totalPence: p(1500),
+  });
+  await asA.mutation(api.quotes.update, { id: first, status: "sent" });
+
+  const secondId = await asA.mutation(api.quotes.newVersion, { id: first });
+  const one = await asA.query(api.quotes.get, { id: first });
+  const two = await asA.query(api.quotes.get, { id: secondId });
+
+  expect(one!.quote.number).toMatch(/_1$/);
+  expect(two!.quote.number).toBe(one!.quote.number.replace(/_1$/, "_2"));
+  // The copy starts again as a draft; what went out keeps its stamp.
+  expect(two!.quote.status).toBe("draft");
+  expect(two!.quote.issuedAt).toBeUndefined();
+  expect(one!.quote.status).toBe("sent");
+  expect(one!.quote.issuedAt).toBeGreaterThan(0);
+  // And it is the same quote: lines, overrides and totals come across.
+  expect(two!.totals.netTotal).toBe(one!.totals.netTotal);
+  expect(two!.lines.map((l) => l.name)).toEqual(one!.lines.map((l) => l.name));
+  expect(two!.overrides).toEqual(one!.overrides);
+});
+
+test("versions keep going up rather than colliding", async () => {
+  const { asA } = await setup();
+  const first = await asA.mutation(api.quotes.create, { title: "Docuseries" });
+  const second = await asA.mutation(api.quotes.newVersion, { id: first });
+  const third = await asA.mutation(api.quotes.newVersion, { id: second });
+
+  const numbers = await Promise.all(
+    [first, second, third].map(async (id) => (await asA.query(api.quotes.get, { id }))!.quote.number)
+  );
+  expect(numbers.map((n) => n.split("_")[2])).toEqual(["1", "2", "3"]);
+  expect(new Set(numbers).size).toBe(3);
 });
 
 test("a quote does not cross to another account", async () => {

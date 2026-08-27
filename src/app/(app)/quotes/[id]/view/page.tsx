@@ -18,6 +18,32 @@ import { unitLabel } from "@/lib/quote-labels";
  * assumed, and somewhere to sign — which is the document the spreadsheet was
  * printing, laid out as a document rather than as a tab.
  */
+function Fields({
+  heading,
+  rows,
+}: {
+  heading: string;
+  rows: [string, string | null | undefined][];
+}) {
+  const filled = rows.filter(([, value]) => value);
+  if (filled.length === 0) return null;
+  return (
+    <div>
+      <h2 className="text-[8.5pt] font-bold uppercase tracking-widest text-neutral-600">
+        {heading}
+      </h2>
+      <dl className="mt-1 space-y-0.5 text-[9.5pt]">
+        {filled.map(([label, value], i) => (
+          <div key={`${label}-${i}`} className="flex gap-2">
+            <dt className="w-24 shrink-0 text-neutral-600">{label}</dt>
+            <dd className="min-w-0 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 export default function QuoteViewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const data = useQuery(api.quotes.get, { id: id as Id<"quotes"> });
@@ -76,25 +102,29 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
           )}
         </header>
 
-        <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-1 text-[9.5pt]">
-          {[
-            ["Client", quote.clientName],
-            ["Date", issued],
-            ["Project", data.project?.name],
-            ["Quote number", quote.number],
-            ["Contact", quote.clientContact],
-            ["Producer", quote.producerName],
-            ["", ""],
-            ["Email", quote.producerEmail],
-          ]
-            .filter(([, value]) => value)
-            .map(([label, value], i) => (
-              <div key={`${label}-${i}`} className="flex gap-2">
-                <dt className="w-28 shrink-0 font-semibold text-neutral-600">{label}</dt>
-                <dd className="min-w-0 break-words">{value}</dd>
-              </div>
-            ))}
-        </dl>
+        <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+          <Fields
+            heading="Quote"
+            rows={[
+              ["Client", quote.clientName],
+              ["Contact", quote.clientContact],
+              ["Project", data.project?.name ?? quote.title],
+              ["Quote number", quote.number],
+              ["Date", issued],
+            ]}
+          />
+          {/* Who wrote it and how to reach them — the first thing a client
+              looks for when they want to say yes or ask a question. */}
+          <Fields
+            heading="Prepared by"
+            rows={[
+              ["Name", quote.producerName],
+              ["Email", quote.producerEmail],
+              ["Phone", quote.producerPhone],
+              ["Company", company.name],
+            ]}
+          />
+        </div>
 
         {quote.deliverables && (
           <section className="mt-4 rounded border border-neutral-300 bg-neutral-50 p-3 text-[9.5pt]">
@@ -166,7 +196,9 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
             Quote breakdown
           </h2>
           {filled.map((c) => {
-            const lines = data.lines.filter((l) => l.category === c.category);
+            const lines = data.lines.filter(
+              (l) => l.category === c.category && l.pax > 0 && l.unitAmount > 0
+            );
             if (lines.length === 0) return null;
             return (
               <div key={c.category} className="mt-4 break-inside-avoid">

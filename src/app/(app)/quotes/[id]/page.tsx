@@ -25,6 +25,8 @@ import { saveStateLabel, useSyncedField } from "@/lib/use-debounced-save";
 import { AddLineDialog } from "@/components/quotes/add-line-dialog";
 import { QuoteStatusChip } from "../page";
 import { formatPence, bpInput, parsePercent, parsePounds, poundsInput } from "@/lib/money";
+import { cn } from "@/lib/utils";
+import { NEW_CLIENT, NewClientDialog } from "@/components/clients/new-client-dialog";
 import {
   QUOTE_CATEGORIES,
   QUOTE_STATUSES,
@@ -61,6 +63,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   const repriceLines = useMutation(api.quotes.repriceLines);
   const addCrew = useMutation(api.quotes.addCrewFromProject);
   const addKit = useMutation(api.quotes.addKitFromProject);
+  const newVersion = useMutation(api.quotes.newVersion);
   const saveName = useCallback(
     async (value: string) => {
       await update({ id: quoteId, title: value });
@@ -75,6 +78,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
     state: nameState,
   } = useSyncedField(data.quote.title ?? "", saveName);
   const [adding, setAdding] = useState<QuoteCategory | null>(null);
+  const [hideEmpty, setHideEmpty] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -164,6 +168,20 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             Client copy
           </Button>
           <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            title="Copies this quote as the next version, leaving what was sent exactly as it went out."
+            onClick={() =>
+              void run(
+                newVersion({ id: quoteId }).then((id) => router.push(`/quotes/${id}`)),
+                "Could not start a new version."
+              )
+            }
+          >
+            New version
+          </Button>
+          <Button
             variant="ghost"
             size="sm"
             className={confirmingDelete ? "text-destructive" : undefined}
@@ -239,13 +257,23 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
                 to pull its crew and kit in.
               </p>
             )}
+            {/* Everything chargeable is listed so nothing is forgotten. Once
+                it is priced, the empty lines are just in the way. */}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto"
+              onClick={() => setHideEmpty((on) => !on)}
+            >
+              {hideEmpty ? "Show every line" : "Hide unpriced lines"}
+            </Button>
           </div>
 
           {QUOTE_CATEGORIES.map((category) => {
             const lines = data.lines.filter((l) => l.category === category.value);
             const cat = data.byCategory.find((c) => c.category === category.value)!;
             const override = data.overrides.find((o) => o.category === category.value);
-            if (lines.length === 0 && !override) {
+            if (lines.length === 0) {
               return (
                 <EmptyCategory
                   key={category.value}
@@ -263,6 +291,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
                 lines={lines}
                 subtotal={cat.totals.total}
                 overrideTotal={override?.totalPence ?? null}
+                hideEmpty={hideEmpty}
                 onAdd={() => setAdding(category.value)}
               />
             );
@@ -390,7 +419,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
                 Re-price the quote
               </Button>
               <p className="text-xs text-muted-foreground">
-                Lines with a rate you set by hand are left alone.
+                Every line moves, including any rate you set by hand.
               </p>
             </CardContent>
           </Card>
@@ -423,6 +452,7 @@ function CategoryCard({
   lines,
   subtotal,
   overrideTotal,
+  hideEmpty,
   onAdd,
 }: {
   quoteId: Id<"quotes">;
@@ -431,12 +461,16 @@ function CategoryCard({
   lines: QuoteData["lines"];
   subtotal: number;
   overrideTotal: number | null;
+  hideEmpty: boolean;
   onAdd: () => void;
 }) {
   const updateLine = useMutation(api.quotes.updateLine);
   const removeLine = useMutation(api.quotes.removeLine);
   const setCategoryTotal = useMutation(api.quotes.setCategoryTotal);
   const [confirming, setConfirming] = useState<Id<"quoteLines"> | null>(null);
+
+  const priced = lines.filter((l) => l.pax > 0 && l.unitAmount > 0);
+  const shown = hideEmpty ? priced : lines;
 
   async function save(work: Promise<unknown>, failure: string) {
     try {
@@ -449,19 +483,26 @@ function CategoryCard({
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-        <CardTitle className="text-base">{label}</CardTitle>
+        <CardTitle className="flex items-baseline gap-2 text-base">
+          {label}
+          <span className="text-xs font-normal text-muted-foreground">
+            {priced.length} of {lines.length} priced
+          </span>
+        </CardTitle>
         <Button size="sm" onClick={onAdd}>
           Add
         </Button>
       </CardHeader>
       <CardContent className="px-0">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[44rem] text-sm">
+          <table className="w-full min-w-[54rem] text-sm">
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
                 <th className="px-3 py-1.5 text-left font-medium">Line</th>
                 <th className="px-1 py-1.5 text-left font-medium">Notes</th>
                 <th className="px-1 py-1.5 text-right font-medium">Pax</th>
+                <th className="px-1 py-1.5 text-right font-medium">Units</th>
+                <th className="px-1 py-1.5 text-left font-medium">Per</th>
                 <th className="px-1 py-1.5 text-right font-medium">Cost</th>
                 <th className="px-1 py-1.5 text-right font-medium">Rate</th>
                 <th className="px-1 py-1.5 text-right font-medium">Total</th>
@@ -469,71 +510,33 @@ function CategoryCard({
               </tr>
             </thead>
             <tbody>
-              {lines.map((line) => (
-                <tr key={line._id} className="border-b border-border last:border-0">
-                  <td className="min-w-52 px-2 py-1 align-top">
+              {shown.map((line) => {
+                // Nothing against it means it is not on the quote — the same
+                // as an empty row on the sheet this replaces. It stays visible
+                // so it can be priced, but it reads as what it is.
+                const priced = line.pax > 0 && line.unitAmount > 0;
+                return (
+                <tr
+                  key={line._id}
+                  className={cn(
+                    "border-b border-border last:border-0",
+                    !priced && "text-muted-foreground"
+                  )}
+                >
+                  <td className="min-w-40 px-2 py-0.5">
                     <CellInput
                       value={line.name}
                       onCommit={(name) =>
                         save(updateLine({ id: line._id, name }), "Could not rename it.")
                       }
                     />
-                    {/* How long, and of what. Under the name rather than in
-                        columns of its own: it is part of describing the line,
-                        and it keeps the money columns next to each other where
-                        they can be read down. */}
-                    <div className="flex items-center gap-1 px-1.5 pb-0.5">
-                      <span className="text-xs text-muted-foreground">&times;</span>
-                      <span className="w-12">
-                        <CellInput
-                          inputMode="decimal"
-                          className="px-1 py-0 text-xs"
-                          value={String(line.unitAmount)}
-                          onCommit={(raw) => {
-                            const unitAmount = Number(raw);
-                            if (!Number.isFinite(unitAmount) || unitAmount < 0) {
-                              toast.error("That is not a number.");
-                              return;
-                            }
-                            return save(
-                              updateLine({ id: line._id, unitAmount }),
-                              "Could not save it."
-                            );
-                          }}
-                        />
-                      </span>
-                      <Select
-                        value={line.unit}
-                        onValueChange={(v) =>
-                          v &&
-                          void save(
-                            updateLine({
-                              id: line._id,
-                              unit: v as (typeof QUOTE_UNITS)[number]["value"],
-                            }),
-                            "Could not change the unit."
-                          )
-                        }
-                      >
-                        <SelectTrigger className="h-6 w-24 border-0 bg-transparent px-1 text-xs text-muted-foreground shadow-none hover:bg-muted/60">
-                          <SelectValue>{unitLabel(line.unit)}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {QUOTE_UNITS.map((u) => (
-                            <SelectItem key={u.value} value={u.value}>
-                              {u.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {line.notes && (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {line.notes}
-                        </span>
-                      )}
-                    </div>
+                    {line.notes && (
+                      <p className="truncate px-1.5 pb-1 text-xs text-muted-foreground">
+                        {line.notes}
+                      </p>
+                    )}
                   </td>
-                  <td className="min-w-36 px-1 py-1 align-top">
+                  <td className="min-w-32 px-1 py-0.5">
                     <CellInput
                       value={line.clientNotes ?? ""}
                       placeholder="—"
@@ -546,13 +549,14 @@ function CategoryCard({
                       }
                     />
                   </td>
-                  <td className="w-20 px-1 py-1 align-top">
+                  <td className="w-20 px-1 py-0.5">
                     <CellInput
                       align="right"
                       inputMode="decimal"
-                      value={String(line.pax)}
+                      placeholder="—"
+                      value={line.pax === 0 ? "" : String(line.pax)}
                       onCommit={(raw) => {
-                        const pax = Number(raw);
+                        const pax = raw.trim() === "" ? 0 : Number(raw);
                         if (!Number.isFinite(pax) || pax < 0) {
                           toast.error("That is not a number.");
                           return;
@@ -561,7 +565,52 @@ function CategoryCard({
                       }}
                     />
                   </td>
-                  <td className="w-24 px-1 py-1 align-top">
+                  <td className="w-20 px-1 py-0.5">
+                    <CellInput
+                      align="right"
+                      inputMode="decimal"
+                      placeholder="—"
+                      value={line.unitAmount === 0 ? "" : String(line.unitAmount)}
+                      onCommit={(raw) => {
+                        const unitAmount = raw.trim() === "" ? 0 : Number(raw);
+                        if (!Number.isFinite(unitAmount) || unitAmount < 0) {
+                          toast.error("That is not a number.");
+                          return;
+                        }
+                        return save(
+                          updateLine({ id: line._id, unitAmount }),
+                          "Could not save it."
+                        );
+                      }}
+                    />
+                  </td>
+                  <td className="w-24 px-1 py-0.5">
+                    <Select
+                      value={line.unit}
+                      onValueChange={(v) =>
+                        v &&
+                        void save(
+                          updateLine({
+                            id: line._id,
+                            unit: v as (typeof QUOTE_UNITS)[number]["value"],
+                          }),
+                          "Could not change the unit."
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-7 w-full border-0 bg-transparent px-1.5 text-xs shadow-none hover:bg-muted/60">
+                        <SelectValue>{unitLabel(line.unit)}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {QUOTE_UNITS.map((u) => (
+                          <SelectItem key={u.value} value={u.value}>
+                            {u.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className="w-24 px-1 py-0.5">
                     <CellInput
                       align="right"
                       inputMode="decimal"
@@ -580,7 +629,7 @@ function CategoryCard({
                       }}
                     />
                   </td>
-                  <td className="w-24 px-1 py-1 align-top">
+                  <td className="w-24 px-1 py-0.5">
                     <CellInput
                       align="right"
                       inputMode="decimal"
@@ -612,12 +661,12 @@ function CategoryCard({
                       }}
                     />
                   </td>
-                  <td className="w-28 px-2 py-1 text-right align-top text-sm tabular-nums">
-                    <span className="inline-block py-1">
-                      {formatPence(Math.round(line.ratePence * line.pax * line.unitAmount))}
-                    </span>
+                  <td className="w-28 px-2 py-0.5 text-right tabular-nums">
+                    {priced
+                      ? formatPence(Math.round(line.ratePence * line.pax * line.unitAmount))
+                      : "—"}
                   </td>
-                  <td className="w-14 px-1 py-1 text-right align-top">
+                  <td className="w-14 px-1 py-0.5 text-right">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -636,7 +685,8 @@ function CategoryCard({
                     </Button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -677,9 +727,14 @@ function CategoryCard({
   );
 }
 
+const NOBODY = "nobody";
+
 function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData }) {
   const update = useMutation(api.quotes.update);
+  const clients = useQuery(api.clients.list, {});
+  const [addingClient, setAddingClient] = useState(false);
   const { quote } = data;
+  const contacts = (clients ?? []).find((c) => c._id === quote.clientId)?.contacts ?? [];
 
   function save(patch: Record<string, unknown>) {
     void update({ id: quoteId, ...patch }).catch((err: unknown) =>
@@ -723,16 +778,73 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
           </Select>
         </div>
         <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Client</Label>
+          <Select
+            value={quote.clientId ?? NOBODY}
+            onValueChange={(value) => {
+              if (!value) return;
+              if (value === NEW_CLIENT) {
+                setAddingClient(true);
+                return;
+              }
+              save({ clientId: value === NOBODY ? null : (value as Id<"clients">) });
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue>{quote.clientName ?? "Nobody yet"}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NOBODY}>Nobody yet</SelectItem>
+              {(clients ?? []).map((client) => (
+                <SelectItem key={client._id} value={client._id}>
+                  {client.name}
+                </SelectItem>
+              ))}
+              <SelectItem value={NEW_CLIENT}>+ Add a new client…</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
           <Label htmlFor="quote-contact" className="text-xs text-muted-foreground">
             Client contact
           </Label>
-          <Input
-            id="quote-contact"
-            defaultValue={quote.clientContact ?? ""}
-            placeholder="Who it is going to"
-            onBlur={(e) => save({ clientContact: e.target.value })}
-          />
+          {contacts.length > 0 ? (
+            <Select
+              value={quote.clientContact ?? NOBODY}
+              onValueChange={(value) =>
+                value && save({ clientContact: value === NOBODY ? null : value })
+              }
+            >
+              <SelectTrigger id="quote-contact" className="w-full">
+                <SelectValue>{quote.clientContact ?? "Nobody named"}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NOBODY}>Nobody named</SelectItem>
+                {contacts.map((contact, i) => (
+                  <SelectItem key={i} value={contact.name}>
+                    {contact.role ? `${contact.name} — ${contact.role}` : contact.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              id="quote-contact"
+              defaultValue={quote.clientContact ?? ""}
+              placeholder={
+                quote.clientId ? "No contacts on that client yet" : "Who it is going to"
+              }
+              onBlur={(e) => save({ clientContact: e.target.value })}
+            />
+          )}
         </div>
+
+        {addingClient && (
+          <NewClientDialog
+            onClose={() => setAddingClient(false)}
+            onCreated={(clientId) => save({ clientId })}
+          />
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="quote-deliverables" className="text-xs text-muted-foreground">
             Deliverables
