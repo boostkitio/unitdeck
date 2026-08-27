@@ -4,6 +4,27 @@ import { callSheetDataValidator, invoicingValidator } from "./lib/callSheetData"
 import { proposalValidator } from "./lib/agentProposals";
 import { documentDataValidator, releaseWordingValidator } from "./lib/documentData";
 
+/** The six headings a quote is totalled under, as the client sheet shows them. */
+export const quoteCategoryValidator = v.union(
+  v.literal("pre"),
+  v.literal("production"),
+  v.literal("art"),
+  v.literal("equipment"),
+  v.literal("travel"),
+  v.literal("post")
+);
+
+/** What a rate is per. "generic" is a flat figure with nothing to multiply. */
+export const quoteUnitValidator = v.union(
+  v.literal("day"),
+  v.literal("generic"),
+  v.literal("track"),
+  v.literal("mile"),
+  v.literal("room"),
+  v.literal("week"),
+  v.literal("hour")
+);
+
 export const weatherSnapshotValidator = v.object({
   fetchedAt: v.number(),
   summary: v.string(), // e.g. "Light rain"
@@ -52,6 +73,136 @@ export default defineSchema({
   })
     .index("by_org", ["orgId"])
     .index("by_org_user", ["orgId", "userId"]),
+
+  /**
+   * The rate card: what a thing costs us, per unit.
+   *
+   * Only the cost lives here. What a client is charged is worked out from it
+   * and the margins on the quote — see convex/lib/quoteMath.ts — which is what
+   * the spreadsheet did, and is why changing the profit margin re-prices the
+   * whole card rather than needing 200 edits.
+   */
+  rateCardItems: defineTable({
+    orgId: v.id("organisations"),
+    category: quoteCategoryValidator,
+    /** The finer grouping inside a category, as the rate card is laid out. */
+    section: v.string(),
+    name: v.string(),
+    notes: v.optional(v.string()),
+    unit: quoteUnitValidator,
+    costPence: v.number(),
+    sortOrder: v.optional(v.number()),
+    archived: v.optional(v.boolean()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_org_category", ["orgId", "category"]),
+
+  /**
+   * A quote for a production.
+   *
+   * The margins live on the quote rather than on the account, because they are
+   * negotiated per job: the same rate card goes out at x1.203 to one client
+   * and x1.103 to another.
+   */
+  quotes: defineTable({
+    orgId: v.id("organisations"),
+    projectId: v.id("projects"),
+    /** The house reference, e.g. "26_Ala_QV1". */
+    number: v.string(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("sent"),
+      v.literal("accepted"),
+      v.literal("declined")
+    ),
+    /** "Ballpark" or "Firm" — how much the figures should be relied on. */
+    quoteType: v.optional(v.string()),
+    // Who it is for. The names are captured as well as the link, because a
+    // quote is a document: it should still read correctly when the client
+    // record is renamed a year later.
+    clientId: v.optional(v.id("clients")),
+    clientName: v.optional(v.string()),
+    clientContact: v.optional(v.string()),
+    producerName: v.optional(v.string()),
+    producerEmail: v.optional(v.string()),
+    producerPhone: v.optional(v.string()),
+    deliverables: v.optional(v.string()),
+    /** The caveats chosen for this quote, in the order they are printed. */
+    caveats: v.optional(v.array(v.string())),
+    // Margins in basis points, so 10% is 1000. Integers, for the same reason
+    // money is in pence.
+    contingencyBp: v.number(),
+    profitBp: v.number(),
+    insuranceBp: v.number(),
+    vatBp: v.number(),
+    /** What a derived rate is rounded up to. £5 in the sheet. */
+    roundToPence: v.number(),
+    discountPence: v.optional(v.number()),
+    issuedAt: v.optional(v.number()),
+    acceptedAt: v.optional(v.number()),
+    declinedAt: v.optional(v.number()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_project", ["projectId"]),
+
+  /**
+   * A line on a quote.
+   *
+   * Both the cost and the rate are written down. The rate is a snapshot, not a
+   * calculation: a quote that re-derived its rates would change under the
+   * client every time somebody edited the rate card, which is the one thing a
+   * sent quote must never do.
+   */
+  quoteLines: defineTable({
+    orgId: v.id("organisations"),
+    quoteId: v.id("quotes"),
+    category: quoteCategoryValidator,
+    section: v.optional(v.string()),
+    name: v.string(),
+    /** Internal note, never printed. */
+    notes: v.optional(v.string()),
+    /** Printed against the line on the client's copy. */
+    clientNotes: v.optional(v.string()),
+    unit: quoteUnitValidator,
+    /** How many of them — people, cameras, rooms. */
+    pax: v.number(),
+    /** How many units each — days, miles, tracks. */
+    unitAmount: v.number(),
+    costPence: v.number(),
+    ratePence: v.number(),
+    /** Whether the rate was typed rather than derived, e.g. a pass-through. */
+    rateOverridden: v.optional(v.boolean()),
+    sortOrder: v.optional(v.number()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_quote", ["quoteId"]),
+
+  /**
+   * A category total the producer has set by hand, to land the quote on a
+   * round number. The difference from cost-plus-margins is absorbed by the
+   * contingency, which is what the spreadsheet does.
+   */
+  quoteCategoryOverrides: defineTable({
+    orgId: v.id("organisations"),
+    quoteId: v.id("quotes"),
+    category: quoteCategoryValidator,
+    totalPence: v.number(),
+  })
+    .index("by_quote", ["quoteId"])
+    .index("by_quote_category", ["quoteId", "category"]),
+
+  /**
+   * The house caveats, kept once and picked per quote. The spreadsheet held
+   * these on their own tab with a tick box each, which is exactly the shape.
+   */
+  caveats: defineTable({
+    orgId: v.id("organisations"),
+    text: v.string(),
+    /** Ticked by default on a new quote — "always include" in the sheet. */
+    alwaysInclude: v.optional(v.boolean()),
+    sortOrder: v.optional(v.number()),
+    archived: v.optional(v.boolean()),
+  }).index("by_org", ["orgId"]),
 
   clients: defineTable({
     orgId: v.id("organisations"),

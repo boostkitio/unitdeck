@@ -1,0 +1,167 @@
+import { mutation, query } from "./_generated/server";
+import { v } from "convex/values";
+import { requireOrg } from "./lib/auth";
+import { quoteCategoryValidator, quoteUnitValidator } from "./schema";
+import { RATE_CARD_SEED } from "./lib/rateCardSeed";
+import { rateFromCost, type Margins } from "./lib/quoteMath";
+
+/**
+ * The rate card.
+ *
+ * One cost per thing, and the client rate worked out from it. Everything that
+ * can be quoted lives here, so building a quote is picking rather than typing.
+ */
+
+export const list = query({
+  args: { includeArchived: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const rows = await ctx.db
+      .query("rateCardItems")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    const shown = args.includeArchived ? rows : rows.filter((r) => !r.archived);
+    // Card order, then alphabetical, so a section reads the way it was written
+    // rather than the order rows happened to be inserted.
+    return shown.sort(
+      (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name)
+    );
+  },
+});
+
+/** What a line would be charged at, for previewing the card at given margins. */
+export const previewRate = query({
+  args: {
+    costPence: v.number(),
+    contingencyBp: v.number(),
+    profitBp: v.number(),
+    insuranceBp: v.number(),
+    roundToPence: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireOrg(ctx);
+    const margins: Margins = {
+      contingencyBp: args.contingencyBp,
+      profitBp: args.profitBp,
+      insuranceBp: args.insuranceBp,
+    };
+    return rateFromCost(args.costPence, margins, args.roundToPence ?? 500);
+  },
+});
+
+export const add = mutation({
+  args: {
+    category: quoteCategoryValidator,
+    section: v.string(),
+    name: v.string(),
+    notes: v.optional(v.string()),
+    unit: quoteUnitValidator,
+    costPence: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    if (args.name.trim().length === 0) throw new Error("Name the line");
+    if (!Number.isFinite(args.costPence) || args.costPence < 0) {
+      throw new Error("Cost must be zero or more");
+    }
+    // Onto the end of the card, so a new line lands where it was added.
+    const existing = await ctx.db
+      .query("rateCardItems")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    const sortOrder = existing.reduce((max, r) => Math.max(max, r.sortOrder ?? 0), 0) + 1;
+
+    return await ctx.db.insert("rateCardItems", {
+      orgId: org._id,
+      category: args.category,
+      section: args.section.trim(),
+      name: args.name.trim(),
+      notes: args.notes?.trim() || undefined,
+      unit: args.unit,
+      costPence: Math.round(args.costPence),
+      sortOrder,
+    });
+  },
+});
+
+export const update = mutation({
+  args: {
+    id: v.id("rateCardItems"),
+    category: v.optional(quoteCategoryValidator),
+    section: v.optional(v.string()),
+    name: v.optional(v.string()),
+    notes: v.optional(v.union(v.string(), v.null())),
+    unit: v.optional(quoteUnitValidator),
+    costPence: v.optional(v.number()),
+    archived: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const row = await ctx.db.get(args.id);
+    if (!row || row.orgId !== org._id) throw new Error("Rate card line not found");
+    if (args.costPence !== undefined && (!Number.isFinite(args.costPence) || args.costPence < 0)) {
+      throw new Error("Cost must be zero or more");
+    }
+    if (args.name !== undefined && args.name.trim().length === 0) {
+      throw new Error("Name the line");
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (args.category !== undefined) patch.category = args.category;
+    if (args.section !== undefined) patch.section = args.section.trim();
+    if (args.name !== undefined) patch.name = args.name.trim();
+    if (args.notes !== undefined) patch.notes = args.notes?.trim() || undefined;
+    if (args.unit !== undefined) patch.unit = args.unit;
+    if (args.costPence !== undefined) patch.costPence = Math.round(args.costPence);
+    if (args.archived !== undefined) patch.archived = args.archived || undefined;
+    await ctx.db.patch(args.id, patch);
+    return null;
+  },
+});
+
+export const remove = mutation({
+  args: { id: v.id("rateCardItems") },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const row = await ctx.db.get(args.id);
+    if (!row || row.orgId !== org._id) throw new Error("Rate card line not found");
+    // Quote lines carry their own cost and rate, so deleting a card line never
+    // reaches a quote that used it.
+    await ctx.db.delete(args.id);
+    return null;
+  },
+});
+
+/**
+ * Fills an empty rate card from the one the spreadsheet carried.
+ *
+ * Refuses on a card that already has lines rather than doubling it up: this is
+ * a starting point, not an import you run twice.
+ */
+export const seed = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const existing = await ctx.db
+      .query("rateCardItems")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .first();
+    if (existing) throw new Error("The rate card already has lines in it");
+
+    let sortOrder = 0;
+    for (const item of RATE_CARD_SEED) {
+      sortOrder += 1;
+      await ctx.db.insert("rateCardItems", {
+        orgId: org._id,
+        category: item.category,
+        section: item.section,
+        name: item.name,
+        notes: item.notes,
+        unit: item.unit,
+        costPence: item.costPence,
+        sortOrder,
+      });
+    }
+    return { added: RATE_CARD_SEED.length };
+  },
+});

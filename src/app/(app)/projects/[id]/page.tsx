@@ -41,6 +41,7 @@ import { ProjectForecast } from "@/components/projects/project-forecast";
 import { ShootDatesEditor } from "@/components/projects/shoot-dates-editor";
 import { LocationSection } from "@/components/projects/location-section";
 import { AccommodationSection } from "@/components/projects/accommodation-section";
+import { QuotesSection } from "@/components/quotes/quotes-section";
 import { CrewSection } from "@/components/projects/crew-section";
 import { ProjectClientSection } from "@/components/projects/client-section";
 import { ScheduleSection } from "@/components/projects/schedule-section";
@@ -287,6 +288,7 @@ function ProjectEditor({
       />
       <ScheduleSection projectId={project._id} />
       <EquipmentSection projectId={project._id} />
+      <QuotesSection projectId={project._id} />
       <DocumentsSection projectId={project._id} />
       <CallSheetSection
         projectId={project._id}

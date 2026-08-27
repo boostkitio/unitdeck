@@ -6,6 +6,7 @@ import {
   DramaIcon,
   MapPinIcon,
   PackageIcon,
+  ReceiptPoundSterlingIcon,
   MessageSquareIcon,
   SettingsIcon,
   type LucideIcon,
@@ -28,6 +29,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/clients", label: "Clients", icon: Building2Icon },
   { href: "/locations", label: "Locations", icon: MapPinIcon },
   { href: "/equipment", label: "Equipment", icon: PackageIcon },
+  { href: "/quotes", label: "Quotes", icon: ReceiptPoundSterlingIcon },
   { href: "/feedback", label: "Feedback", icon: MessageSquareIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
