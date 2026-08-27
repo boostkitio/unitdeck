@@ -6,12 +6,10 @@ import { devBanner } from "@/lib/deployment";
 import { CommandPaletteProvider } from "@/components/command/command-palette";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  // Read at build time: both are NEXT_PUBLIC_, so these are literals by the
-  // time this renders, and the bar cannot disagree with the bundle it shipped in.
-  const banner = devBanner(
-    process.env.NEXT_PUBLIC_CONVEX_URL,
-    process.env.NEXT_PUBLIC_APP_ENV
-  );
+  // Read at build time: NEXT_PUBLIC_CONVEX_URL is a literal by the time this
+  // renders, and `convex deploy` sets it to the deployment it just pushed to,
+  // so the bar cannot disagree with the backend the bundle talks to.
+  const banner = devBanner(process.env.NEXT_PUBLIC_CONVEX_URL);
 
   return (
     <CommandPaletteProvider>
