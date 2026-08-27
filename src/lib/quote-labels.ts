@@ -22,6 +22,9 @@ export const QUOTE_UNITS = [
   { value: "room", label: "Room" },
   { value: "mile", label: "Mile" },
   { value: "track", label: "Track" },
+  { value: "trip", label: "Trip" },
+  { value: "minute", label: "Minute" },
+  { value: "item", label: "Item" },
   { value: "generic", label: "Flat fee" },
 ] as const;
 

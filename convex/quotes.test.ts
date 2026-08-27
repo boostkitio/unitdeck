@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
+import { RATE_CARD_SEED } from "./lib/rateCardSeed";
 
 const modules = import.meta.glob("./**/*.ts");
 const p = (pounds: number) => Math.round(pounds * 100);
@@ -850,4 +851,109 @@ test("signed out, quotes are neither readable nor writable", async () => {
   await expect(t.mutation(api.quotes.create, { projectId: ids.project })).rejects.toThrow(
     /authenticated/i
   );
+});
+
+test("the standard card carries every line of the sheet, under its own headings", async () => {
+  // The card is what a producer prices from, so a chargeable line missing
+  // from it is money left on the table. These are the sheet's own counts.
+  const sections = new Map<string, number>();
+  for (const item of RATE_CARD_SEED) {
+    sections.set(item.section, (sections.get(item.section) ?? 0) + 1);
+  }
+
+  expect(RATE_CARD_SEED).toHaveLength(279);
+  expect([...sections.keys()]).toEqual([
+    "PRE - PRODUCTION",
+    "PRE - PRODUCTION - CASTING",
+    "PRODUCTION CREW",
+    "ART DEPARTMENT / LOCATION",
+    "PRODUCTION - CASTING",
+    "EQUIPMENT",
+    "CAMERAS",
+    "LENSES",
+    "ACCESSORIES",
+    "GRIP",
+    "MONITORING",
+    "LIVESTREAM",
+    "LIGHTING",
+    "SOUND",
+    "CONSUMABLES",
+    "OTHER",
+    "TRAVEL & HOTELS",
+    "POST - PRODUCTION",
+  ]);
+  expect(sections.get("SOUND")).toBe(16);
+  expect(sections.get("POST - PRODUCTION")).toBe(32);
+  expect(sections.get("ART DEPARTMENT / LOCATION")).toBe(31);
+
+  // Spot checks against the sheet, one per category, costs in pence.
+  const find = (section: string, name: string) =>
+    RATE_CARD_SEED.find((i) => i.section === section && i.name === name);
+  expect(find("PRE - PRODUCTION", "Producer")?.costPence).toBe(48628);
+  expect(find("SOUND", "Sennheiser MKH416")?.costPence).toBe(2909);
+  expect(find("POST - PRODUCTION", "Colourist")?.costPence).toBe(62344);
+  expect(find("TRAVEL & HOTELS", "Carnet")?.unit).toBe("trip");
+  expect(find("POST - PRODUCTION", "Transcription")?.unit).toBe("minute");
+  expect(find("POST - PRODUCTION", "Hard Drives")?.unit).toBe("item");
+});
+
+test("a new quote gets every line, with the sheet's sections on it", async () => {
+  const { asA, ids } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const data = (await asA.query(api.quotes.get, { id }))!;
+
+  expect(data.lines).toHaveLength(279);
+  // The dividers are on the lines themselves, which is what the builder and
+  // the client copy group by.
+  expect(data.lines.some((l) => l.section === "SOUND")).toBe(true);
+  expect(data.lines.some((l) => l.section === "CONSUMABLES")).toBe(true);
+  expect(new Set(data.lines.map((l) => l.section)).size).toBe(18);
+});
+
+test("topping up a card adds what is missing and changes nothing else", async () => {
+  const { asA } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const before = await asA.query(api.rateCard.list, {});
+
+  // Somebody has edited a cost and deleted a line they never charge for.
+  const producer = before.find((i) => i.section === "PRE - PRODUCTION" && i.name === "Producer")!;
+  await asA.mutation(api.rateCard.update, { id: producer._id, costPence: 99900 });
+  const sound = before.find((i) => i.section === "SOUND")!;
+  await asA.mutation(api.rateCard.remove, { id: sound._id });
+
+  const result = await asA.mutation(api.rateCard.topUp, {});
+  expect(result.added).toBe(1); // only the deleted one comes back
+
+  const after = await asA.query(api.rateCard.list, {});
+  expect(after).toHaveLength(279);
+  // The edited cost is left exactly as edited.
+  expect(after.find((i) => i._id === producer._id)?.costPence).toBe(99900);
+});
+
+test("an older quote can be brought up to the card without losing its prices", async () => {
+  const { asA, ids } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const before = (await asA.query(api.quotes.get, { id }))!;
+
+  // A quote as it would be after lines were added to the card later: two of
+  // its lines are gone, and one of the ones it keeps has been priced.
+  const priced = before.lines.find((l) => l.section === "PRE - PRODUCTION")!;
+  await asA.mutation(api.quotes.updateLine, { id: priced._id, pax: 2, unitAmount: 3 });
+  await asA.mutation(api.quotes.removeLine, { id: before.lines[40]._id });
+  await asA.mutation(api.quotes.removeLine, { id: before.lines[41]._id });
+
+  const result = await asA.mutation(api.quotes.syncFromRateCard, { id });
+  expect(result.added).toBe(2);
+
+  const after = (await asA.query(api.quotes.get, { id }))!;
+  expect(after.lines).toHaveLength(279);
+  // Untouched: what was priced is still priced, at the same figures.
+  const stillPriced = after.lines.find((l) => l._id === priced._id)!;
+  expect(stillPriced.pax).toBe(2);
+  expect(stillPriced.unitAmount).toBe(3);
+
+  // And running it again adds nothing.
+  expect((await asA.mutation(api.quotes.syncFromRateCard, { id })).added).toBe(0);
 });

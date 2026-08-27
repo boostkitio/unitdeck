@@ -990,6 +990,66 @@ function unfilledLineFor(
 }
 
 /**
+ * Brings a quote up to date with the rate card, adding only what is missing.
+ *
+ * A quote seeds its lines when it is created, so one written before the card
+ * gained a section has no lines for it — and a chargeable line nobody can see
+ * is a line nobody charges for. Matching is by name within a section, so
+ * anything already priced is left exactly as it is, and nothing is ever
+ * removed: a line taken off this quote on purpose stays off.
+ */
+export const syncFromRateCard = mutation({
+  args: { id: v.id("quotes") },
+  handler: async (ctx, args) => {
+    const { org, quote } = await loadQuote(ctx, args.id);
+    const [card, lines] = await Promise.all([
+      ctx.db
+        .query("rateCardItems")
+        .withIndex("by_org", (q) => q.eq("orgId", org._id))
+        .collect(),
+      ctx.db
+        .query("quoteLines")
+        .withIndex("by_quote", (q) => q.eq("quoteId", args.id))
+        .collect(),
+    ]);
+
+    const lineKey = (section: string | undefined, name: string) =>
+      `${(section ?? "").trim().toLowerCase()}::${name.replace(/\s+/g, " ").trim().toLowerCase()}`;
+    const held = new Set(lines.map((line) => lineKey(line.section, line.name)));
+    const margins = {
+      contingencyBp: quote.contingencyBp,
+      profitBp: quote.profitBp,
+      insuranceBp: quote.insuranceBp,
+    };
+
+    let sortOrder = lines.reduce((max, line) => Math.max(max, line.sortOrder ?? 0), 0);
+    let added = 0;
+    for (const item of card
+      .filter((i) => !i.archived)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))) {
+      if (held.has(lineKey(item.section, item.name))) continue;
+      sortOrder += 1;
+      added += 1;
+      await ctx.db.insert("quoteLines", {
+        orgId: org._id,
+        quoteId: args.id,
+        category: item.category,
+        section: item.section,
+        name: item.name,
+        notes: item.notes,
+        unit: item.unit,
+        pax: 0,
+        unitAmount: 0,
+        costPence: item.costPence,
+        ratePence: rateFromCost(item.costPence, margins, quote.roundToPence),
+        sortOrder,
+      });
+    }
+    return { added };
+  },
+});
+
+/**
  * Pulls the crew already booked on the production onto the quote.
  *
  * The rate card is matched by role, so a booked DoP arrives as the DoP line

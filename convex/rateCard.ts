@@ -165,3 +165,49 @@ export const seed = mutation({
     return { added: RATE_CARD_SEED.length };
   },
 });
+
+/**
+ * Adds the standard lines a card is missing, and touches nothing else.
+ *
+ * Seeding refuses on a card that already has lines, which is right for a
+ * first run and useless when the standard card gains a section — as it did
+ * when the whole of Sound, Consumables and half of Post came across from the
+ * spreadsheet. This fills the gaps by name within a section, so a cost
+ * somebody has edited stays edited and a line they deleted on purpose does
+ * come back — which is the trade for never missing a chargeable line.
+ */
+export const topUp = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const existing = await ctx.db
+      .query("rateCardItems")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    const held = new Set(existing.map((row) => key(row.section, row.name)));
+    let sortOrder = existing.reduce((max, row) => Math.max(max, row.sortOrder ?? 0), 0);
+
+    let added = 0;
+    for (const item of RATE_CARD_SEED) {
+      if (held.has(key(item.section, item.name))) continue;
+      sortOrder += 1;
+      added += 1;
+      await ctx.db.insert("rateCardItems", {
+        orgId: org._id,
+        category: item.category,
+        section: item.section,
+        name: item.name,
+        notes: item.notes,
+        unit: item.unit,
+        costPence: item.costPence,
+        sortOrder,
+      });
+    }
+    return { added };
+  },
+});
+
+/** Case- and space-insensitive, because a card is typed by people. */
+function key(section: string, name: string): string {
+  return `${section.trim().toLowerCase()}::${name.replace(/\s+/g, " ").trim().toLowerCase()}`;
+}

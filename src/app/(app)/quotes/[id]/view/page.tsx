@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { Fragment, use } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
@@ -243,8 +243,24 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((line) => (
-                      <tr key={line._id} className="border-b border-neutral-200 align-top">
+                    {lines.map((line, i) => (
+                      <Fragment key={line._id}>
+                      {/* The sheet's own headings, kept on the client's copy:
+                          a long Equipment list reads as kit lists, not as one
+                          run of forty lines. Only where the section changes,
+                          and never above the first line of a category that
+                          has just one. */}
+                      {line.section && line.section !== lines[i - 1]?.section && (
+                        <tr className="border-b border-neutral-300">
+                          <td
+                            colSpan={7}
+                            className="pt-2 pb-1 text-[8.5pt] font-semibold uppercase tracking-wide text-neutral-700"
+                          >
+                            {line.section}
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-b border-neutral-200 align-top">
                         <td className="py-1.5 font-medium">{line.name}</td>
                         <td className="py-1.5 text-neutral-600">{line.clientNotes ?? ""}</td>
                         <td className="py-1.5 text-right tabular-nums">{line.pax}</td>
@@ -259,6 +275,7 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
                           {formatPence(Math.round(line.ratePence * line.pax * line.unitAmount))}
                         </td>
                       </tr>
+                      </Fragment>
                     ))}
                     <tr>
                       <td colSpan={5} />

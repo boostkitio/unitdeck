@@ -45,6 +45,7 @@ export default function RateCardPage() {
   const update = useMutation(api.rateCard.update);
   const remove = useMutation(api.rateCard.remove);
   const seed = useMutation(api.rateCard.seed);
+  const topUp = useMutation(api.rateCard.topUp);
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
@@ -105,6 +106,28 @@ export default function RateCardPage() {
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" render={<Link href="/quotes" />}>
             Back to quotes
+          </Button>
+          {/* The standard card gains lines as the house one does. This puts
+              the missing ones in without touching a cost anybody has edited. */}
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            title="Adds any standard lines this card has not got. Nothing already here is changed."
+            onClick={() =>
+              void run(
+                topUp({}).then((r) =>
+                  toast.success(
+                    r.added === 0
+                      ? "Nothing missing — the card has every standard line."
+                      : `${r.added} missing line${r.added === 1 ? "" : "s"} added.`
+                  )
+                ),
+                "Could not add them."
+              )
+            }
+          >
+            Add missing lines
           </Button>
           <Button
             size="sm"

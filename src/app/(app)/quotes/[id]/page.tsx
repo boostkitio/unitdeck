@@ -64,6 +64,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   const addCrew = useMutation(api.quotes.addCrewFromProject);
   const addKit = useMutation(api.quotes.addKitFromProject);
   const newVersion = useMutation(api.quotes.newVersion);
+  const syncFromRateCard = useMutation(api.quotes.syncFromRateCard);
   const setArchived = useMutation(api.quotes.setArchived);
   const saveName = useCallback(
     async (value: string) => {
@@ -169,6 +170,29 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
               ))}
             </SelectContent>
           </Select>
+          {/* A quote written before the rate card grew has none of the newer
+              lines on it, and a line nobody can see is a line nobody charges
+              for. Adds only what is missing; nothing priced is touched. */}
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            title="Adds any rate card lines this quote has not got. Nothing already priced is changed."
+            onClick={() =>
+              void run(
+                syncFromRateCard({ id: quoteId }).then((r) =>
+                  toast.success(
+                    r.added === 0
+                      ? "Nothing missing — every rate card line is on this quote."
+                      : `${r.added} missing line${r.added === 1 ? "" : "s"} added.`
+                  )
+                ),
+                "Could not add them."
+              )
+            }
+          >
+            Add missing lines
+          </Button>
           <Button variant="secondary" size="sm" render={<Link href={`/quotes/${quoteId}/view`} />}>
             Client copy
           </Button>
@@ -519,7 +543,27 @@ function CategoryCard({
               </tr>
             </thead>
             <tbody>
-              {shown.map((line) => {
+              {withSectionRows(shown).map((row) => {
+                // The sheet's own dividers, kept: a producer scanning
+                // Equipment wants Cameras, Lenses, Grip, Sound as separate
+                // blocks rather than a hundred lines running together.
+                if (row.kind === "section") {
+                  return (
+                    <tr key={`section-${row.name}`} className="border-b border-border bg-muted/40">
+                      <td colSpan={9} className="px-3 py-1.5">
+                        <span className="text-xs font-semibold tracking-wide text-foreground">
+                          {row.name}
+                        </span>
+                        {row.subtotal > 0 && (
+                          <span className="ml-2 text-xs tabular-nums text-muted-foreground">
+                            {formatPence(row.subtotal)}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }
+                const line = row.line;
                 // Nothing against it means it is not on the quote — the same
                 // as an empty row on the sheet this replaces. It stays visible
                 // so it can be priced, but it reads as what it is.
@@ -971,4 +1015,42 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
       </CardContent>
     </Card>
   );
+}
+
+
+/**
+ * The lines of a category, with the rate card's own section headings put back
+ * between them.
+ *
+ * The sheet groups Equipment into Cameras, Lenses, Grip, Sound and the rest,
+ * and a flat list of a hundred lines is unreadable without that. Lines with no
+ * section — anything typed by hand — keep their place at the end rather than
+ * being forced under a heading they were never given.
+ */
+type SectionRow =
+  | { kind: "section"; name: string; subtotal: number }
+  | { kind: "line"; line: QuoteData["lines"][number] };
+
+function withSectionRows(lines: QuoteData["lines"]): SectionRow[] {
+  const rows: SectionRow[] = [];
+  let current: string | null = null;
+  for (const line of lines) {
+    const section = line.section ?? null;
+    if (section !== current) {
+      current = section;
+      if (section) {
+        const inSection = lines.filter((l) => l.section === section);
+        rows.push({
+          kind: "section",
+          name: section,
+          subtotal: inSection.reduce(
+            (sum, l) => sum + (l.pax > 0 && l.unitAmount > 0 ? l.pax * l.unitAmount * l.ratePence : 0),
+            0
+          ),
+        });
+      }
+    }
+    rows.push({ kind: "line", line });
+  }
+  return rows;
 }

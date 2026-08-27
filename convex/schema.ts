@@ -22,7 +22,12 @@ export const quoteUnitValidator = v.union(
   v.literal("mile"),
   v.literal("room"),
   v.literal("week"),
-  v.literal("hour")
+  v.literal("hour"),
+  // The rate card prices a few things by none of the above: a carnet per
+  // trip, transcription per minute, a drive per item.
+  v.literal("trip"),
+  v.literal("minute"),
+  v.literal("item")
 );
 
 export const weatherSnapshotValidator = v.object({
