@@ -1142,3 +1142,69 @@ test("rebuilding a quote's lines keeps what is priced and drops what is stale", 
   expect(after.lines).toHaveLength(280);
   expect(after.lines.filter((l) => l.section === "EQUIPMENT - KIT FOR JOBS")).toHaveLength(1);
 });
+
+test("the card says what it holds that the standard one does not", async () => {
+  const { asA } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+
+  // A card that has been seeded under one set of headings and topped up under
+  // another: rows that match nothing, and a standard line gone missing.
+  await asA.mutation(api.rateCard.add, {
+    category: "equipment",
+    section: "EQUIPMENT - KIT FOR JOBS",
+    name: "Sony FX9 Camera Kit",
+    unit: "day",
+    costPence: 22444,
+  });
+  await asA.mutation(api.rateCard.add, {
+    category: "production",
+    section: "PRODUCTION CREW",
+    name: "Hair & Make-Up",
+    unit: "day",
+    costPence: 48000,
+  });
+  const sound = (await asA.query(api.rateCard.list, {})).find((i) => i.section === "SOUND")!;
+  await asA.mutation(api.rateCard.remove, { id: sound._id });
+
+  const audit = await asA.query(api.rateCard.audit, {});
+  expect(audit.total).toBe(280);
+  expect(audit.standardTotal).toBe(279);
+  expect(audit.extra.map((r) => r.name).sort()).toEqual([
+    "Hair & Make-Up",
+    "Sony FX9 Camera Kit",
+  ]);
+  expect(audit.missing).toHaveLength(1);
+
+  // Removing the strays leaves the standard lines exactly as they are.
+  expect((await asA.mutation(api.rateCard.removeNonStandard, {})).removed).toBe(2);
+  const after = await asA.query(api.rateCard.audit, {});
+  expect(after.extra).toEqual([]);
+  expect(after.total).toBe(278);
+
+  // And seeding puts the one that was deleted back, for 279 exactly.
+  await asA.mutation(api.rateCard.seed, {});
+  const settled = await asA.query(api.rateCard.audit, {});
+  expect(settled).toMatchObject({ total: 279, extra: [], missing: [], duplicated: [] });
+});
+
+test("a second copy of a standard line counts as a stray", async () => {
+  const { asA } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  // Same section, same name, added twice: unreadable in the list and a coin
+  // toss on a quote, whichever one a producer meant.
+  await asA.mutation(api.rateCard.add, {
+    category: "pre",
+    section: "PRE - PRODUCTION",
+    name: "Producer",
+    unit: "day",
+    costPence: 1,
+  });
+  expect((await asA.query(api.rateCard.audit, {})).duplicated).toEqual([
+    { section: "PRE - PRODUCTION", name: "Producer" },
+  ]);
+
+  expect((await asA.mutation(api.rateCard.removeNonStandard, {})).removed).toBe(1);
+  const after = await asA.query(api.rateCard.audit, {});
+  expect(after.total).toBe(279);
+  expect(after.duplicated).toEqual([]);
+});

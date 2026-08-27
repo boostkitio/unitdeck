@@ -53,6 +53,8 @@ export default function RateCardPage() {
   const remove = useMutation(api.rateCard.remove);
   const seed = useMutation(api.rateCard.seed);
   const rebuild = useMutation(api.rateCard.rebuild);
+  const audit = useQuery(api.rateCard.audit, organization ? {} : "skip");
+  const removeNonStandard = useMutation(api.rateCard.removeNonStandard);
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
@@ -142,6 +144,63 @@ export default function RateCardPage() {
           </Button>
         </div>
       </div>
+
+      {audit && (audit.extra.length > 0 || audit.missing.length > 0) && (
+        <div className="mt-6 rounded-lg border border-amber-400/40 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">
+            This card has {audit.total} lines. The standard one has {audit.standardTotal}.
+          </p>
+          {audit.extra.length > 0 && (
+            <p className="mt-1 text-xs">
+              {audit.extra.length} are not on it —{" "}
+              {audit.extra
+                .slice(0, 4)
+                .map((row) => `${row.name} (${row.section})`)
+                .join(", ")}
+              {audit.extra.length > 4 ? ", and others" : ""}. These are rows left over from an
+              older version of the card, under headings it no longer uses.
+            </p>
+          )}
+          {audit.missing.length > 0 && (
+            <p className="mt-1 text-xs">{audit.missing.length} standard lines are missing.</p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {audit.extra.length > 0 && (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    removeNonStandard({}).then((r) =>
+                      toast.success(`${r.removed} line${r.removed === 1 ? "" : "s"} removed.`)
+                    ),
+                    "Could not remove them."
+                  )
+                }
+              >
+                Remove the {audit.extra.length} that do not belong
+              </Button>
+            )}
+            {audit.missing.length > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    seed({}).then((r) =>
+                      toast.success(`${r.added} line${r.added === 1 ? "" : "s"} added.`)
+                    ),
+                    "Could not add them."
+                  )
+                }
+              >
+                Add the {audit.missing.length} missing
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* The margins are a preview: they live on a quote, not on the card. */}
       <div className="mt-6 flex flex-wrap items-end gap-4 rounded-lg border border-border bg-muted/40 p-3">

@@ -172,6 +172,82 @@ export const seed = mutation({
 });
 
 /**
+ * What the card holds that the standard one does not, and the other way round.
+ *
+ * Written because "there are 303 lines and you told me 279" deserves an answer
+ * on the page rather than an assurance in a chat window. It names the strays,
+ * so a producer can see that the twenty-four extra rows are the kit lists
+ * under a heading that no longer exists, and decide for themselves.
+ */
+export const audit = query({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const rows = await ctx.db
+      .query("rateCardItems")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    const live = rows.filter((row) => !row.archived);
+    const standard = new Set(RATE_CARD_SEED.map((item) => key(item.section, item.name)));
+    const held = new Set(live.map((row) => key(row.section, row.name)));
+
+    const seen = new Set<string>();
+    const duplicated: { section: string; name: string }[] = [];
+    for (const row of live) {
+      const id = key(row.section, row.name);
+      if (seen.has(id)) duplicated.push({ section: row.section, name: row.name });
+      seen.add(id);
+    }
+
+    return {
+      total: live.length,
+      standardTotal: RATE_CARD_SEED.length,
+      extra: live
+        .filter((row) => !standard.has(key(row.section, row.name)))
+        .map((row) => ({ section: row.section, name: row.name })),
+      missing: RATE_CARD_SEED.filter((item) => !held.has(key(item.section, item.name))).map(
+        (item) => ({ section: item.section, name: item.name })
+      ),
+      duplicated,
+    };
+  },
+});
+
+/**
+ * Removes the rows the standard card has never heard of.
+ *
+ * The gentle half of a rebuild: a cost edited on a standard line is left
+ * alone, and only the strays go — which for a card that has been seeded under
+ * one set of headings and topped up under another is the whole problem.
+ */
+export const removeNonStandard = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { org } = await requireOrg(ctx);
+    const rows = await ctx.db
+      .query("rateCardItems")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    const standard = new Set(RATE_CARD_SEED.map((item) => key(item.section, item.name)));
+
+    // A duplicate of a standard line is a stray too: the second copy of a
+    // name is unreadable in the list and a coin toss on a quote.
+    const kept = new Set<string>();
+    let removed = 0;
+    for (const row of rows) {
+      const id = key(row.section, row.name);
+      if (standard.has(id) && !kept.has(id)) {
+        kept.add(id);
+        continue;
+      }
+      await ctx.db.delete(row._id);
+      removed += 1;
+    }
+    return { removed };
+  },
+});
+
+/**
  * Throws the card away and writes the standard one out again.
  *
  * The blunt instrument, and sometimes the right one: a card that has been
