@@ -115,15 +115,30 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
           />
           {/* Who wrote it and how to reach them — the first thing a client
               looks for when they want to say yes or ask a question. */}
-          <Fields
-            heading="Prepared by"
-            rows={[
-              ["Name", quote.producerName],
-              ["Email", quote.producerEmail],
-              ["Phone", quote.producerPhone],
-              ["Company", company.name],
-            ]}
-          />
+          <div>
+            <h2 className="text-[8.5pt] font-bold uppercase tracking-widest text-neutral-600">
+              Prepared by
+            </h2>
+            <p className="mt-1 text-[11pt] font-semibold">
+              {quote.producerName ?? company.name}
+            </p>
+            <dl className="mt-0.5 space-y-0.5 text-[9.5pt]">
+              {(
+                [
+                  ["Company", quote.producerName ? company.name : null],
+                  ["Email", quote.producerEmail],
+                  ["Phone", quote.producerPhone],
+                ] as [string, string | null | undefined][]
+              )
+                .filter(([, value]) => value)
+                .map(([label, value]) => (
+                  <div key={label} className="flex gap-2">
+                    <dt className="w-24 shrink-0 text-neutral-600">{label}</dt>
+                    <dd className="min-w-0 break-words">{value}</dd>
+                  </div>
+                ))}
+            </dl>
+          </div>
         </div>
 
         {quote.deliverables && (

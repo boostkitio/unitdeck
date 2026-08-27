@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -64,6 +64,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   const addCrew = useMutation(api.quotes.addCrewFromProject);
   const addKit = useMutation(api.quotes.addKitFromProject);
   const newVersion = useMutation(api.quotes.newVersion);
+  const setArchived = useMutation(api.quotes.setArchived);
   const saveName = useCallback(
     async (value: string) => {
       await update({ id: quoteId, title: value });
@@ -101,6 +102,11 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
 
   return (
     <div>
+      {quote.archived && (
+        <div className="mb-4 rounded-lg border border-amber-400/40 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200">
+          Archived quote — kept for reference. Restore it from the button above.
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
@@ -180,6 +186,20 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             }
           >
             New version
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void run(
+                setArchived({ id: quoteId, archived: !quote.archived }),
+                "Could not archive it.",
+                quote.archived ? "Back among your quotes." : "Archived — still on the Quotes tab under View archived."
+              )
+            }
+          >
+            {quote.archived ? "Restore" : "Archive"}
           </Button>
           <Button
             variant="ghost"
@@ -482,16 +502,18 @@ function CategoryCard({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+      <CardHeader>
         <CardTitle className="flex items-baseline gap-2 text-base">
           {label}
           <span className="text-xs font-normal text-muted-foreground">
             {priced.length} of {lines.length} priced
           </span>
         </CardTitle>
-        <Button size="sm" onClick={onAdd}>
-          Add
-        </Button>
+        <CardAction>
+          <Button size="sm" onClick={onAdd}>
+            Add
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent className="px-0">
         <div className="overflow-x-auto">

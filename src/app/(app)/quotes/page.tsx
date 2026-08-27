@@ -45,7 +45,12 @@ export function QuoteStatusChip({ status }: { status: string }) {
 export default function QuotesPage() {
   const router = useRouter();
   const { organization } = useOrganization();
-  const quotes = useQuery(api.quotes.list, organization ? {} : "skip");
+  const [showArchived, setShowArchived] = useState(false);
+  const quotes = useQuery(
+    api.quotes.list,
+    organization ? (showArchived ? { archivedOnly: true } : {}) : "skip"
+  );
+  const archived = useQuery(api.quotes.list, organization ? { archivedOnly: true } : "skip");
   const [search, setSearch] = useState("");
   const [starting, setStarting] = useState(false);
 
@@ -63,9 +68,13 @@ export default function QuotesPage() {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">Quotes</h1>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
+            {showArchived ? "Archived quotes" : "Quotes"}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            What each job was priced at, and what it was priced on.
+            {showArchived
+              ? "Kept for reference — every line and figure is still there."
+              : "What each job was priced at, and what it was priced on."}
           </p>
         </div>
         <div className="flex gap-2">
@@ -169,6 +178,15 @@ export default function QuotesPage() {
             </div>
           </>
         )}
+
+
+        <div className="mt-6 flex justify-end">
+          <Button variant="ghost" size="sm" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived
+              ? "← Back to active quotes"
+              : `View archived${archived !== undefined && archived.length > 0 ? ` (${archived.length})` : ""}`}
+          </Button>
+        </div>
       </div>
 
       {starting && <NewQuoteDialog onClose={() => setStarting(false)} />}

@@ -697,6 +697,88 @@ test("versions keep going up rather than colliding", async () => {
   expect(new Set(numbers).size).toBe(3);
 });
 
+// ---------------------------------------------------------------------------
+// Archiving, and whose name goes on the client copy
+// ---------------------------------------------------------------------------
+
+test("an archived quote leaves the list, the production and the picker", async () => {
+  const { ids, asA } = await setup();
+  const onJob = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const loose = await asA.mutation(api.quotes.create, { title: "An enquiry" });
+
+  await asA.mutation(api.quotes.setArchived, { id: onJob, archived: true });
+  await asA.mutation(api.quotes.setArchived, { id: loose, archived: true });
+
+  expect(await asA.query(api.quotes.list, {})).toEqual([]);
+  expect(await asA.query(api.quotes.listForProject, { projectId: ids.project })).toEqual([]);
+  expect(await asA.query(api.quotes.listUnattached, {})).toEqual([]);
+
+  const put = await asA.query(api.quotes.list, { archivedOnly: true });
+  expect(put.map((q) => q._id).sort()).toEqual([onJob, loose].sort());
+  expect(put.every((q) => q.archived)).toBe(true);
+});
+
+// Put away, not deleted: a quote that lost the job is still the record of
+// what was offered.
+test("an archived quote still opens, with everything on it", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await asA.mutation(api.quotes.addLine, {
+    quoteId: id,
+    category: "production",
+    name: "Camera Op",
+    unit: "day",
+    pax: 1,
+    unitAmount: 3,
+    costPence: p(399),
+  });
+  await asA.mutation(api.quotes.setArchived, { id, archived: true });
+
+  const loaded = await asA.query(api.quotes.get, { id });
+  expect(loaded!.quote.archived).toBe(true);
+  expect(loaded!.totals.netTotal).toBe(p(1440));
+});
+
+test("restoring puts it back where it was", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await asA.mutation(api.quotes.setArchived, { id, archived: true });
+  await asA.mutation(api.quotes.setArchived, { id, archived: false });
+
+  expect((await asA.query(api.quotes.list, {})).map((q) => q._id)).toEqual([id]);
+  expect(await asA.query(api.quotes.list, { archivedOnly: true })).toEqual([]);
+  expect(
+    (await asA.query(api.quotes.listForProject, { projectId: ids.project })).map((q) => q._id)
+  ).toEqual([id]);
+});
+
+test("archiving does not reach another account's quote", async () => {
+  const { ids, asA, asB } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await expect(
+    asB.mutation(api.quotes.setArchived, { id, archived: true })
+  ).rejects.toThrow(/not found/i);
+});
+
+test("the client copy is prepared by the name they set, not their email", async () => {
+  const { asA } = await setup();
+  await asA.mutation(api.memberProfiles.setName, { firstName: "Matt", lastName: "West" });
+  const id = await asA.mutation(api.quotes.create, { title: "Docuseries" });
+
+  expect((await asA.query(api.quotes.get, { id }))!.quote.producerName).toBe("Matt West");
+});
+
+// The name is the person, not a stamp on the row: a quote written before
+// somebody named themselves should read as them once they have.
+test("a quote written before its author had a name reads as them now", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "Docuseries" });
+  expect((await asA.query(api.quotes.get, { id }))!.quote.producerName).toBeUndefined();
+
+  await asA.mutation(api.memberProfiles.setName, { firstName: "Matt", lastName: "West" });
+  expect((await asA.query(api.quotes.get, { id }))!.quote.producerName).toBe("Matt West");
+});
+
 test("a quote does not cross to another account", async () => {
   const { ids, asA, asB } = await setup();
   const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });

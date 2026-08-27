@@ -1,6 +1,7 @@
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
+import { joinName } from "./lib/personName";
 import { quoteCategoryValidator, quoteUnitValidator } from "./schema";
 import {
   categoryTotals,
@@ -83,10 +84,12 @@ export const listForProject = query({
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== org._id) return [];
-    const quotes = await ctx.db
-      .query("quotes")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
+    const quotes = (
+      await ctx.db
+        .query("quotes")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .collect()
+    ).filter((q) => q.archived !== true);
 
     const out = [];
     for (const quote of quotes) {
@@ -115,13 +118,16 @@ export const listForProject = query({
 
 /** Every quote on the account, for the Quotes tab. */
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { archivedOnly: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
-    const quotes = await ctx.db
+    const all = await ctx.db
       .query("quotes")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .collect();
+    const quotes = all.filter((q) =>
+      args.archivedOnly ? q.archived === true : q.archived !== true
+    );
 
     const out = [];
     for (const quote of quotes) {
@@ -144,6 +150,7 @@ export const list = query({
         quoteType: quote.quoteType ?? null,
         clientName: quote.clientName ?? null,
         title: quote.title ?? null,
+        archived: quote.archived === true,
         projectId: quote.projectId ?? null,
         projectName: project?.name ?? null,
         totals: totalsFor(quote, lines, overrides),
@@ -178,8 +185,21 @@ export const get = query({
       (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a._creationTime - b._creationTime
     );
 
+    // A quote written before its author had a name should read as them now
+    // that they do — the name is the person, not a stamp on the row.
+    let producerName = quote.producerName;
+    if (!producerName && quote.createdBy) {
+      const profile = await ctx.db
+        .query("memberProfiles")
+        .withIndex("by_org_user", (q) =>
+          q.eq("orgId", quote.orgId).eq("userId", quote.createdBy!)
+        )
+        .unique();
+      producerName = joinName(profile) || undefined;
+    }
+
     return {
-      quote,
+      quote: { ...quote, producerName },
       project: project ? { _id: project._id, name: project.name, jobNumber: project.jobNumber ?? null } : null,
       lines: ordered,
       overrides: overrides.map((o) => ({ category: o.category, totalPence: o.totalPence })),
@@ -275,16 +295,30 @@ export const create = mutation({
       args.number?.trim() ||
       (await nextNumber(ctx, org._id, client?.name ?? project?.name ?? title ?? null));
 
+    // The name they set in UnitDeck first: Clerk's is blank unless the
+    // instance has Name enabled, which is why memberProfiles exists.
+    const profile = await ctx.db
+      .query("memberProfiles")
+      .withIndex("by_org_user", (q) =>
+        q.eq("orgId", org._id).eq("userId", identity.subject)
+      )
+      .unique();
+    const ownName =
+      joinName(profile) ||
+      (typeof identity.name === "string" ? identity.name.trim() : "") ||
+      undefined;
+
     const quoteId = await ctx.db.insert("quotes", {
       orgId: org._id,
       projectId: args.projectId,
       title,
       number,
       status: "draft",
+      createdBy: identity.subject,
       quoteType: args.quoteType ?? "Ballpark",
       clientId,
       clientName: client?.name,
-      producerName: typeof identity.name === "string" ? identity.name : undefined,
+      producerName: ownName,
       producerEmail: typeof identity.email === "string" ? identity.email : undefined,
       // The house list where there is one, otherwise the standing terms —
       // never an empty box, since the terms are the same on almost every job
@@ -393,7 +427,9 @@ export const listUnattached = query({
       .collect();
 
     const out = [];
-    for (const quote of quotes.filter((q) => q.projectId === undefined)) {
+    for (const quote of quotes.filter(
+      (q) => q.projectId === undefined && q.archived !== true
+    )) {
       const [lines, overrides] = await Promise.all([
         ctx.db
           .query("quoteLines")
@@ -519,6 +555,23 @@ export const update = mutation({
     }
 
     await ctx.db.patch(args.id, patch);
+    return null;
+  },
+});
+
+/**
+ * Puts a quote away, or brings it back.
+ *
+ * Not deleted: a quote that lost the job is still the record of what was
+ * offered, and the same thing quoted again next year starts from it.
+ */
+export const setArchived = mutation({
+  args: { id: v.id("quotes"), archived: v.boolean() },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const quote = await ctx.db.get(args.id);
+    if (!quote || quote.orgId !== org._id) throw new Error("Quote not found");
+    await ctx.db.patch(args.id, { archived: args.archived || undefined });
     return null;
   },
 });
