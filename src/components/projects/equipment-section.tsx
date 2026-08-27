@@ -108,7 +108,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
               Kit list
             </Button>
             <Button size="sm" variant="secondary" onClick={() => setApplying(true)}>
-              Add from package
+              Add from package or project
             </Button>
             <Button size="sm" onClick={() => setAdding("equipment")}>
               Add equipment
@@ -131,7 +131,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
       />
 
       {applying && (
-        <ApplyPackageDialog projectId={projectId} onClose={() => setApplying(false)} />
+        <AddFromDialog projectId={projectId} onClose={() => setApplying(false)} />
       )}
       {adding && (
         <EquipmentDialog
@@ -799,12 +799,73 @@ function EquipmentDialog({
   );
 }
 
-function ApplyPackageDialog({
+/**
+ * Where a kit list comes from: a package you maintain, or a job you have
+ * already done.
+ *
+ * Two sources rather than one, because "the same as we took on the Tesco
+ * shoot" is how the question usually arrives, and a package only answers the
+ * standing-kit half of it. The source is picked first, then the thing.
+ */
+function AddFromDialog({
   projectId,
   onClose,
 }: {
   projectId: Id<"projects">;
   onClose: () => void;
+}) {
+  const [source, setSource] = useState<"package" | "project">("package");
+
+  return (
+    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
+      <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-y-auto sm:p-5">
+        <DialogHeader>
+          <DialogTitle>Add from a package or a project</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex gap-1 rounded-md bg-muted p-1">
+          {(["package", "project"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setSource(option)}
+              aria-pressed={source === option}
+              className={cn(
+                "flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                source === option
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {option === "package" ? "Package" : "Project"}
+            </button>
+          ))}
+        </div>
+
+        <div className="py-2">
+          {source === "package" ? (
+            <FromPackage projectId={projectId} onDone={onClose} />
+          ) : (
+            <FromProject projectId={projectId} onDone={onClose} />
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FromPackage({
+  projectId,
+  onDone,
+}: {
+  projectId: Id<"projects">;
+  onDone: () => void;
 }) {
   const packages = useQuery(api.equipmentPackages.list, {});
   const applyToProject = useMutation(api.equipmentPackages.applyToProject);
@@ -823,7 +884,7 @@ function ApplyPackageDialog({
       toast.success(
         `Added ${result.added} item${result.added === 1 ? "" : "s"} from ${result.packageName}.`,
       );
-      onClose();
+      onDone();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add the package.");
     } finally {
@@ -831,70 +892,255 @@ function ApplyPackageDialog({
     }
   }
 
+  if (packages === undefined) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+      </div>
+    );
+  }
+  if (packages.length === 0) {
+    return (
+      <p className="py-6 text-center text-sm text-muted-foreground">
+        No packages yet. Build one on the{" "}
+        <Link href="/equipment" className="underline underline-offset-2 text-foreground">
+          Equipment
+        </Link>{" "}
+        tab and it will show up here.
+      </p>
+    );
+  }
+
   return (
-    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
-      <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-y-auto sm:p-5">
-        <DialogHeader>
-          <DialogTitle>Add a package</DialogTitle>
-        </DialogHeader>
-        <div className="py-2">
-          {packages === undefined ? (
-            <div className="space-y-2">
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-            </div>
-          ) : packages.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No packages yet. Build one on the{" "}
-              <Link href="/equipment" className="underline underline-offset-2 text-foreground">
-                Equipment
-              </Link>{" "}
-              tab and it will show up here.
-            </p>
-          ) : (
-            <>
-              {packages.length > 3 && (
-                <SearchInput
-                  value={search}
-                  onChange={setSearch}
-                  placeholder="Search packages or the kit inside…"
-                  className="mb-3"
-                />
-              )}
-              {shown.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  No package matches “{search}”.
-                </p>
-              ) : (
-            <ul className="divide-y divide-border rounded-md border border-border">
-              {shown.map((pkg) => (
-                <li key={pkg._id}>
-                  <button
-                    type="button"
-                    disabled={busy || pkg.items.length === 0}
-                    onClick={() => void apply(pkg._id)}
-                    className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
-                  >
-                    <span className="truncate text-sm font-medium">{pkg.name}</span>
-                    <span className="block w-full truncate text-xs text-muted-foreground">
-                      {pkg.items.length === 0
-                        ? "Empty — nothing to add"
-                        : pkg.items.map((i) => i.item).join(", ")}
+    <>
+      {packages.length > 3 && (
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search packages or the kit inside…"
+          className="mb-3"
+        />
+      )}
+      {shown.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No package matches “{search}”.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {shown.map((pkg) => (
+            <li key={pkg._id}>
+              <button
+                type="button"
+                disabled={busy || pkg.items.length === 0}
+                onClick={() => void apply(pkg._id)}
+                className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
+              >
+                <span className="truncate text-sm font-medium">{pkg.name}</span>
+                <span className="block w-full truncate text-xs text-muted-foreground">
+                  {pkg.items.length === 0
+                    ? "Empty — nothing to add"
+                    : pkg.items.map((i) => i.item).join(", ")}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+/**
+ * Copying a kit list off another job.
+ *
+ * Pick the job, then take the lot with Add all or pull across the lines you
+ * want. Taking the lot is the common case and is the button that reads as the
+ * action; the per-line buttons are there because a job is rarely repeated
+ * exactly.
+ */
+function FromProject({
+  projectId,
+  onDone,
+}: {
+  projectId: Id<"projects">;
+  onDone: () => void;
+}) {
+  const projects = useQuery(api.projectEquipment.projectsWithKit, { exclude: projectId });
+  const [chosen, setChosen] = useState<Id<"projects"> | null>(null);
+  const [search, setSearch] = useState("");
+
+  if (projects === undefined) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+      </div>
+    );
+  }
+  if (projects.length === 0) {
+    return (
+      <p className="py-6 text-center text-sm text-muted-foreground">
+        No other project has kit listed on it yet.
+      </p>
+    );
+  }
+
+  const chosenProject = projects.find((p) => p._id === chosen) ?? null;
+  if (chosenProject) {
+    return (
+      <ProjectKit
+        projectId={projectId}
+        from={chosenProject}
+        onBack={() => setChosen(null)}
+        onDone={onDone}
+      />
+    );
+  }
+
+  const shown = projects.filter((p) =>
+    matchesSearch(search, [p.name, p.jobNumber, ...p.preview]),
+  );
+
+  return (
+    <>
+      {projects.length > 3 && (
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search projects or the kit on them…"
+          className="mb-3"
+        />
+      )}
+      {shown.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No project matches “{search}”.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {shown.map((project) => (
+            <li key={project._id}>
+              <button
+                type="button"
+                onClick={() => setChosen(project._id)}
+                className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
+              >
+                <span className="flex items-baseline gap-2 truncate text-sm font-medium">
+                  {project.name}
+                  {project.jobNumber && (
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {project.jobNumber}
                     </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-              )}
-            </>
-          )}
+                  )}
+                  {project.archived && (
+                    <span className="text-xs font-normal text-muted-foreground">Archived</span>
+                  )}
+                </span>
+                <span className="block w-full truncate text-xs text-muted-foreground">
+                  {project.itemCount} item{project.itemCount === 1 ? "" : "s"} —{" "}
+                  {project.preview.join(", ")}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function ProjectKit({
+  projectId,
+  from,
+  onBack,
+  onDone,
+}: {
+  projectId: Id<"projects">;
+  from: { _id: Id<"projects">; name: string; itemCount: number };
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  const lines = useQuery(api.projectEquipment.listForProject, { projectId: from._id });
+  const copy = useMutation(api.projectEquipment.copyFromProject);
+  const [busy, setBusy] = useState(false);
+  // Lines already pulled across, so a second click cannot double one up.
+  const [taken, setTaken] = useState<Set<Id<"projectEquipment">>>(new Set());
+
+  async function addAll() {
+    setBusy(true);
+    try {
+      const result = await copy({ projectId, fromProjectId: from._id });
+      toast.success(
+        `Added ${result.added} item${result.added === 1 ? "" : "s"} from ${result.fromName}.`,
+      );
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not copy the kit.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addOne(id: Id<"projectEquipment">, item: string) {
+    setBusy(true);
+    try {
+      await copy({ projectId, fromProjectId: from._id, lineIds: [id] });
+      setTaken((current) => new Set(current).add(id));
+      toast.success(`${item} added.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add it.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        >
+          ← All projects
+        </button>
+        <Button size="sm" onClick={() => void addAll()} disabled={busy || lines === undefined}>
+          Add all{lines ? ` (${lines.length})` : ""}
+        </Button>
+      </div>
+
+      <p className="text-sm font-medium">{from.name}</p>
+
+      {lines === undefined ? (
+        <div className="space-y-2">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {lines.map((line) => (
+            <li key={line._id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm">
+                  {line.item}
+                  {line.quantity && line.quantity > 1 && (
+                    <span className="text-muted-foreground"> ×{line.quantity}</span>
+                  )}
+                </p>
+                {line.dept && <p className="truncate text-xs text-muted-foreground">{line.dept}</p>}
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy || taken.has(line._id)}
+                onClick={() => void addOne(line._id, line.item)}
+              >
+                {taken.has(line._id) ? "Added" : "Add"}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

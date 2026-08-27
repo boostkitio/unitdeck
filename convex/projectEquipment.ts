@@ -441,3 +441,119 @@ export const removeMany = mutation({
   },
 });
 
+
+/**
+ * Other productions that have kit listed, for copying a list off one of them.
+ *
+ * A package is a standing kit list you maintain; a production is what actually
+ * went out on a job. "The same as we took on the Tesco shoot" is how the
+ * question usually arrives, and until now there was no way to answer it
+ * without retyping the list.
+ *
+ * Archived productions are included and flagged rather than hidden: a finished
+ * job is the most likely thing to be copying from.
+ */
+export const projectsWithKit = query({
+  args: { exclude: v.optional(v.id("projects")) },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .order("desc")
+      .take(200);
+
+    const out: {
+      _id: Id<"projects">;
+      name: string;
+      jobNumber: string | null;
+      archived: boolean;
+      itemCount: number;
+      preview: string[];
+    }[] = [];
+
+    for (const project of projects) {
+      if (args.exclude !== undefined && project._id === args.exclude) continue;
+      const rows = await ctx.db
+        .query("projectEquipment")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .take(200);
+      if (rows.length === 0) continue;
+      out.push({
+        _id: project._id,
+        name: project.name,
+        jobNumber: project.jobNumber ?? null,
+        archived: project.archived === true,
+        itemCount: rows.length,
+        // Enough to recognise the job by what was on it, without sending the
+        // whole list for every production in the picker.
+        preview: rows.slice(0, 8).map((row) => row.item),
+      });
+    }
+
+    return out;
+  },
+});
+
+/**
+ * Copies kit from one production onto another.
+ *
+ * `lineIds` picks specific lines; without it the whole list comes across,
+ * which is the "add all" case and the common one.
+ *
+ * Section and status are preserved, because they say something true about the
+ * line that is worth carrying: kit still to be sourced on the job you are
+ * copying from is still to be sourced on this one. This differs deliberately
+ * from applying a package, which lands confirmed — a package is kit you own
+ * and have just committed, a copied production is a record of what a job
+ * needed.
+ *
+ * The link back to a package item is deliberately not copied. A line that
+ * tracks a package changes when the package changes, and somebody copying a
+ * production asked for what that job had, not for a subscription to a package
+ * they did not choose. What comes across is a snapshot.
+ */
+export const copyFromProject = mutation({
+  args: {
+    projectId: v.id("projects"),
+    fromProjectId: v.id("projects"),
+    lineIds: v.optional(v.array(v.id("projectEquipment"))),
+  },
+  handler: async (ctx, args): Promise<{ added: number; fromName: string }> => {
+    const { org } = await requireOrg(ctx);
+    if (args.projectId === args.fromProjectId) {
+      throw new Error("That is the same production");
+    }
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) throw new Error("Project not found");
+    const from = await ctx.db.get(args.fromProjectId);
+    if (!from || from.orgId !== org._id) throw new Error("Project not found");
+
+    const all = await ctx.db
+      .query("projectEquipment")
+      .withIndex("by_project", (q) => q.eq("projectId", args.fromProjectId))
+      .take(200);
+
+    const wanted =
+      args.lineIds === undefined
+        ? all
+        : all.filter((row) => args.lineIds!.includes(row._id));
+
+    for (const row of wanted) {
+      await ctx.db.insert("projectEquipment", {
+        orgId: org._id,
+        projectId: args.projectId,
+        item: row.item,
+        dept: row.dept,
+        equipmentId: row.equipmentId,
+        quantity: row.quantity,
+        cost: row.cost,
+        notes: row.notes,
+        status: row.status,
+        section: sectionOf(row),
+      });
+    }
+
+    return { added: wanted.length, fromName: from.name };
+  },
+});
