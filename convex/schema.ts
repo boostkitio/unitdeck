@@ -168,6 +168,12 @@ export default defineSchema({
     clientId: v.id("clients"),
     /** The contact's stable id within that client. */
     contactId: v.string(),
+    /**
+     * What this person is on this job — "signs off the edit", "on set Tuesday
+     * only". It belongs to the booking rather than to the client's book,
+     * because it is true of this production and not of the next one.
+     */
+    notes: v.optional(v.string()),
   })
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"]),

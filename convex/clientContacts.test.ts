@@ -361,3 +361,73 @@ describe("a client written from the project", () => {
     expect(project?.bookedByContactId).toBeUndefined();
   });
 });
+
+describe("a note about somebody on one production", () => {
+  async function withClient() {
+    const { t, asA } = await setup();
+    const projectId = await asA.mutation(api.projects.create, { name: "Brand film" });
+    const clientId = await asA.mutation(api.clients.create, {
+      name: "Acme",
+      contacts: [
+        { name: "Ada Vaughn", role: "Producer" },
+        { name: "Ben Okoro", role: "Accounts" },
+      ],
+    });
+    await asA.mutation(api.projects.update, { id: projectId, clientId });
+    return { t, asA, projectId, clientId };
+  }
+
+  test("is kept against the job, not against the client's book", async () => {
+    const { asA, projectId, clientId } = await withClient();
+
+    await asA.mutation(api.projectClients.setNotes, {
+      projectId,
+      index: 0,
+      notes: "Signs off the edit",
+    });
+
+    const onJob = await asA.query(api.projectClients.listForProject, { projectId });
+    expect(onJob.find((c) => c.name === "Ada Vaughn")?.notes).toBe("Signs off the edit");
+    expect(onJob.find((c) => c.name === "Ben Okoro")?.notes).toBeNull();
+
+    // The company record is untouched: what she is doing on this job is not a
+    // fact about her at Acme.
+    const clients = await asA.query(api.clients.list, {});
+    const acme = clients.find((c) => c._id === clientId)!;
+    expect(acme.contacts.every((c) => !("notes" in c))).toBe(true);
+  });
+
+  test("writing one before anybody has pruned the list takes nobody off", async () => {
+    const { asA, projectId } = await withClient();
+
+    // Nobody has chosen who is on it, so both are. Writing a note settles
+    // that list rather than reducing it to the one person named.
+    await asA.mutation(api.projectClients.setNotes, { projectId, index: 1, notes: "Invoices" });
+
+    const onJob = await asA.query(api.projectClients.listForProject, { projectId });
+    expect(onJob.map((c) => c.name)).toEqual(["Ada Vaughn", "Ben Okoro"]);
+    expect(onJob.find((c) => c.name === "Ben Okoro")?.notes).toBe("Invoices");
+  });
+
+  test("a noted contact is not booked twice when the list is then pruned", async () => {
+    const { asA, projectId } = await withClient();
+    await asA.mutation(api.projectClients.setNotes, { projectId, index: 0, notes: "Signs off" });
+
+    // The first removal writes the list out in full minus one. Ada already
+    // had a row from the note, and must not gain a second.
+    await asA.mutation(api.projectClients.remove, { projectId, index: 1 });
+
+    const onJob = await asA.query(api.projectClients.listForProject, { projectId });
+    expect(onJob.map((c) => c.name)).toEqual(["Ada Vaughn"]);
+    expect(onJob[0].notes).toBe("Signs off");
+  });
+
+  test("emptying a note clears it", async () => {
+    const { asA, projectId } = await withClient();
+    await asA.mutation(api.projectClients.setNotes, { projectId, index: 0, notes: "Signs off" });
+    await asA.mutation(api.projectClients.setNotes, { projectId, index: 0, notes: "   " });
+
+    const onJob = await asA.query(api.projectClients.listForProject, { projectId });
+    expect(onJob.find((c) => c.name === "Ada Vaughn")?.notes).toBeNull();
+  });
+});

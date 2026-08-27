@@ -30,12 +30,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
+import { NoteCell } from "@/components/projects/note-cell";
 
 /** A contact on this production, carrying its booking and its place in the
  *  client's book — the booking is what a removal deletes. */
 type IndexedContact = ProjectClientContact;
 
-type ContactSortKey = "name" | "role" | "email" | "phone";
+type ContactSortKey = "name" | "role" | "email" | "phone" | "notes";
 
 function contactSortValue(contact: IndexedContact, key: ContactSortKey): string | number | null {
   switch (key) {
@@ -47,6 +48,8 @@ function contactSortValue(contact: IndexedContact, key: ContactSortKey): string 
       return contact.email ?? null;
     case "phone":
       return contact.phone ?? null;
+    case "notes":
+      return contact.notes;
   }
 }
 
@@ -73,6 +76,7 @@ export function ProjectClientSection({
   const onShoot = useQuery(api.projectClients.listForProject, { projectId });
   const addToShoot = useMutation(api.projectClients.add);
   const removeFromShoot = useMutation(api.projectClients.remove);
+  const setContactNotes = useMutation(api.projectClients.setNotes);
   const { sort, toggle } = useTableSort<ContactSortKey>({ key: "name", dir: "asc" });
 
   const [editing, setEditing] = useState<IndexedContact | null>(null);
@@ -88,7 +92,7 @@ export function ProjectClientSection({
   const available = useMemo(() => {
     const on = new Set((onShoot ?? []).map((c) => c.index));
     return (client?.contacts ?? [])
-      .map((c, index) => ({ ...c, index, bookingId: null }))
+      .map((c, index) => ({ ...c, index, bookingId: null, notes: null }))
       .filter((c) => !on.has(c.index));
   }, [client, onShoot]);
 
@@ -170,6 +174,7 @@ export function ProjectClientSection({
                   <TableHead className="w-32" />
                   <SortableHead label="Email" sortKey="email" sort={sort} onSort={toggle} />
                   <SortableHead label="Phone" sortKey="phone" sort={sort} onSort={toggle} />
+                  <SortableHead label="Notes" sortKey="notes" sort={sort} onSort={toggle} />
                   <TableHead className="w-px" />
                 </TableRow>
               </TableHeader>
@@ -186,6 +191,14 @@ export function ProjectClientSection({
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       <PhoneLink phone={contact.phone} />
+                    </TableCell>
+                    <TableCell className="min-w-40">
+                      <NoteCell
+                        value={contact.notes}
+                        onSave={async (notes) => {
+                          await setContactNotes({ projectId, index: contact.index, notes });
+                        }}
+                      />
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">

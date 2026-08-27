@@ -35,12 +35,13 @@ import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
 import { ReleaseComposer } from "@/components/documents/release-composer";
 import { dropIndex, moveToSlot } from "@/lib/reorder";
+import { NoteCell } from "@/components/projects/note-cell";
 
 // "order" is the arranged order — director first, camera together — which the
 // query already returns. It is the default view; a column sort is a temporary
 // override, and the reorder controls hide while one is active because dragging
 // a row inside a sorted table cannot mean anything.
-type CrewSortKey = "order" | "name" | "role" | "status" | "email" | "phone";
+type CrewSortKey = "order" | "name" | "role" | "status" | "email" | "phone" | "notes";
 
 function crewSortValue(member: ProjectCrewMember, key: CrewSortKey): string | number | null {
   switch (key) {
@@ -58,6 +59,8 @@ function crewSortValue(member: ProjectCrewMember, key: CrewSortKey): string | nu
       return member.email;
     case "phone":
       return member.phone;
+    case "notes":
+      return member.notes;
   }
 }
 
@@ -239,6 +242,7 @@ export function CrewSection({
                 />
                 <SortableHead label="Email" sortKey="email" sort={sort} onSort={toggle} />
                 <SortableHead label="Phone" sortKey="phone" sort={sort} onSort={toggle} />
+                <SortableHead label="Notes" sortKey="notes" sort={sort} onSort={toggle} />
                 <TableHead className="w-px" />
               </TableRow>
             </TableHeader>
@@ -312,6 +316,14 @@ export function CrewSection({
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <PhoneLink phone={member.phone} />
+                  </TableCell>
+                  <TableCell className="min-w-40">
+                    <NoteCell
+                      value={member.notes}
+                      onSave={async (notes) => {
+                        await updateCrew({ id: member._id, notes: notes || null });
+                      }}
+                    />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">

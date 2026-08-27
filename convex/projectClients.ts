@@ -1,7 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 import { type ClientContact, contactsOf, ensureContactIds } from "./clients";
 
@@ -10,6 +10,8 @@ export type ProjectClientContact = ClientContact & {
   bookingId: Id<"projectClients"> | null;
   /** Where they sit in the client's book, for addressing them from the UI. */
   index: number;
+  /** Notes about them on this production only. */
+  notes: string | null;
 };
 
 async function ownedProject(ctx: QueryCtx | MutationCtx, id: Id<"projects">) {
@@ -17,6 +19,37 @@ async function ownedProject(ctx: QueryCtx | MutationCtx, id: Id<"projects">) {
   const project = await ctx.db.get(id);
   if (!project || project.orgId !== org._id) throw new Error("Project not found");
   return { org, project };
+}
+
+/**
+ * Records who is on the production today, once somebody first prunes the list.
+ *
+ * Until that happens the list is "everybody at the client", held as the
+ * absence of rows. The first change has to write that out in full or it would
+ * read as "only the one you just touched". A contact who already has a row —
+ * because a note was written against them — keeps it rather than gaining a
+ * second.
+ */
+async function writeOutBook(
+  ctx: MutationCtx,
+  orgId: Id<"organisations">,
+  projectId: Id<"projects">,
+  clientId: Id<"clients">,
+  book: ClientContact[],
+  existing: Doc<"projectClients">[],
+  except?: string,
+) {
+  const already = new Set(existing.map((row) => row.contactId));
+  for (const person of book) {
+    if (!person.id || person.id === except || already.has(person.id)) continue;
+    await ctx.db.insert("projectClients", { orgId, projectId, clientId, contactId: person.id });
+  }
+  if (except !== undefined) {
+    for (const row of existing) {
+      if (row.contactId === except) await ctx.db.delete(row._id);
+    }
+  }
+  await ctx.db.patch(projectId, { clientContactsChosen: true });
 }
 
 /**
@@ -46,15 +79,28 @@ export const listForProject = query({
     // Nobody has chosen yet, so all of them are on it. Once somebody has,
     // an empty list means nobody — which is a different thing, and why the
     // count alone cannot be the test.
+    // A note can exist before anybody has pruned the list, so it is looked up
+    // by contact in both branches rather than only where bookings are read.
+    const noted = new Map(mine.map((r) => [r.contactId, r.notes ?? null]));
+
     if (!project.clientContactsChosen) {
-      return book.map((contact, index) => ({ ...contact, bookingId: null, index }));
+      return book.map((contact, index) => ({
+        ...contact,
+        bookingId: null,
+        index,
+        notes: contact.id ? (noted.get(contact.id) ?? null) : null,
+      }));
     }
 
     const booked = new Map(mine.map((r) => [r.contactId, r._id]));
     return book
       .map((contact, index) => ({ ...contact, index }))
       .filter((contact) => contact.id !== undefined && booked.has(contact.id))
-      .map((contact) => ({ ...contact, bookingId: booked.get(contact.id!)! }));
+      .map((contact) => ({
+        ...contact,
+        bookingId: booked.get(contact.id!)!,
+        notes: noted.get(contact.id!) ?? null,
+      }));
   },
 });
 
@@ -83,16 +129,7 @@ export const add = mutation({
     // First change writes out who is on it today, so adding one does not
     // silently take everybody else off.
     if (!project.clientContactsChosen) {
-      for (const person of book) {
-        if (!person.id) continue;
-        await ctx.db.insert("projectClients", {
-          orgId: org._id,
-          projectId: args.projectId,
-          clientId: project.clientId,
-          contactId: person.id,
-        });
-      }
-      await ctx.db.patch(args.projectId, { clientContactsChosen: true });
+      await writeOutBook(ctx, org._id, args.projectId, project.clientId, book, mine);
       return null;
     }
 
@@ -132,16 +169,7 @@ export const remove = mutation({
     if (!project.clientContactsChosen) {
       // Nobody had chosen, so everybody was on it. Write that out minus this
       // one rather than leaving the list looking untouched.
-      for (const person of book) {
-        if (!person.id || person.id === contact.id) continue;
-        await ctx.db.insert("projectClients", {
-          orgId: org._id,
-          projectId: args.projectId,
-          clientId: project.clientId,
-          contactId: person.id,
-        });
-      }
-      await ctx.db.patch(args.projectId, { clientContactsChosen: true });
+      await writeOutBook(ctx, org._id, args.projectId, project.clientId, book, mine, contact.id);
       return null;
     }
 
@@ -162,3 +190,43 @@ export async function clearForProject(ctx: MutationCtx, projectId: Id<"projects"
   // Back to nobody having chosen, so the new client's people all show.
   await ctx.db.patch(projectId, { clientContactsChosen: undefined });
 }
+
+/**
+ * A note about somebody on this production.
+ *
+ * Written against the booking, never against the client's book: what they are
+ * doing on this job is not a fact about them at the company. Writing one
+ * before anybody has pruned the list settles who is on it first — the same
+ * thing adding or removing does, and it takes nobody off.
+ */
+export const setNotes = mutation({
+  args: { projectId: v.id("projects"), index: v.number(), notes: v.string() },
+  handler: async (ctx, args) => {
+    const { org, project } = await ownedProject(ctx, args.projectId);
+    if (!project.clientId) throw new Error("This production has no client");
+    const book = await ensureContactIds(ctx, project.clientId);
+    const contact = book[args.index];
+    if (!contact?.id) throw new Error("Contact not found");
+
+    const rows = await ctx.db
+      .query("projectClients")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(200);
+    const mine = rows.filter((r) => r.clientId === project.clientId);
+
+    if (!project.clientContactsChosen) {
+      await writeOutBook(ctx, org._id, args.projectId, project.clientId, book, mine);
+    }
+
+    const fresh = await ctx.db
+      .query("projectClients")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(200);
+    const row = fresh.find(
+      (r) => r.clientId === project.clientId && r.contactId === contact.id,
+    );
+    if (!row) throw new Error("They are not on this production");
+    await ctx.db.patch(row._id, { notes: args.notes.trim() || undefined });
+    return null;
+  },
+});
