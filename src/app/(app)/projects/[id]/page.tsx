@@ -8,6 +8,7 @@ import { useOrganization } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
+import { displayName } from "../../../../../convex/lib/personName";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -748,14 +749,20 @@ function ProjectOwner({
 }) {
   const { memberships } = useOrganization({ memberships: { infinite: true } });
   const members = memberships?.data ?? [];
+  // Names people set inside UnitDeck, which take precedence over Clerk's —
+  // Clerk's are blank unless the instance has Name enabled.
+  const profiles = useQuery(api.memberProfiles.listForOrg, {});
   const NONE = "none";
 
   const nameOf = (userId: string) => {
     const member = members.find((m) => m.publicUserData?.userId === userId);
     if (!member) return "Someone who has since left";
     const data = member.publicUserData;
-    const full = [data?.firstName, data?.lastName].filter(Boolean).join(" ").trim();
-    return full || data?.identifier || "A member";
+    return displayName({
+      chosen: profiles?.find((p) => p.userId === userId),
+      fromAuth: data,
+      email: data?.identifier,
+    });
   };
 
   return (

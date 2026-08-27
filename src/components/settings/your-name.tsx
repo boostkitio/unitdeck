@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { useUser } from "@clerk/nextjs";
+import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
+import { api } from "../../../convex/_generated/api";
+import { joinName } from "../../../convex/lib/personName";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,40 +15,54 @@ import { Skeleton } from "@/components/ui/skeleton";
  * Your own name, as everyone else on the account sees it.
  *
  * Without one, a person is an email address wherever they are named — the
- * owner of a production reads as "matt@…" rather than as a person. Clerk
- * holds the name, so this writes to Clerk rather than to our own tables:
- * two copies of somebody's name is one copy too many.
+ * owner of a production reads as "matt@…" rather than as a person.
+ *
+ * This writes to UnitDeck's own database rather than to Clerk. Clerk holds a
+ * first and last name, but it only accepts a write to them when Name is
+ * enabled for the instance, and that is a switch on the Clerk dashboard which
+ * this app has no way to reach or set. With it off — which is the default —
+ * every attempt was refused, so the name simply could not be changed from
+ * inside the product. It can now, and Clerk's name is read as a fallback for
+ * anyone who does have one from signing up with Google.
+ *
+ * @param onSaved - called after a successful save, so a dialog can close.
  */
-export function YourName() {
+export function YourName({ onSaved }: { onSaved?: () => void } = {}) {
   const { isLoaded, user } = useUser();
+  const profile = useQuery(api.memberProfiles.mine, {});
+  const setName = useMutation(api.memberProfiles.setName);
   const [first, setFirst] = useState<string | null>(null);
   const [last, setLast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  if (!isLoaded) return <Skeleton className="h-10 w-full" />;
+  if (!isLoaded || profile === undefined) return <Skeleton className="h-10 w-full" />;
   if (!user) return null;
 
+  // What is stored: our own name if there is one, otherwise whatever Clerk
+  // has, so somebody who signed up with Google starts from their real name
+  // rather than from two empty boxes.
+  const storedFirst = profile?.firstName ?? user.firstName ?? "";
+  const storedLast = profile?.lastName ?? user.lastName ?? "";
+
   // Null until edited, so the fields follow the account until you touch them.
-  const firstName = first ?? user.firstName ?? "";
-  const lastName = last ?? user.lastName ?? "";
-  const changed = firstName !== (user.firstName ?? "") || lastName !== (user.lastName ?? "");
+  const firstName = first ?? storedFirst;
+  const lastName = last ?? storedLast;
+  const changed = firstName !== storedFirst || lastName !== storedLast;
 
   async function save() {
-    if (!user) return;
     setSaving(true);
     try {
-      await user.update({ firstName: firstName.trim(), lastName: lastName.trim() });
+      await setName({ firstName: firstName.trim(), lastName: lastName.trim() });
       setFirst(null);
       setLast(null);
-      toast.success("Name saved.");
-    } catch (err) {
-      // Clerk refuses this outright when the instance has names turned off,
-      // which is a setting on the account rather than anything here.
-      toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : "Could not save your name. Names may be turned off for this account.",
+      toast.success(
+        joinName({ firstName, lastName })
+          ? `Saved. You are ${joinName({ firstName, lastName })} from now on.`
+          : "Name cleared."
       );
+      onSaved?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save your name.");
     } finally {
       setSaving(false);
     }

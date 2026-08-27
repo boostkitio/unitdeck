@@ -30,6 +30,29 @@ export default defineSchema({
     ),
   }).index("by_clerk_org", ["clerkOrgId"]),
 
+  /**
+   * How somebody on this account is named inside UnitDeck.
+   *
+   * Clerk holds a first and last name, but only renders and accepts them when
+   * Name is enabled for the instance — a switch on the Clerk dashboard, not
+   * something the app can set or reach. With it off, `user.update` is refused
+   * outright, so a person could not be given a name from inside the product at
+   * all. This table means the app owns the answer: the name is written here,
+   * and Clerk's own name is a fallback for anyone who has one.
+   *
+   * Scoped to the organisation like everything else, so a name is never read
+   * across a tenancy boundary. One row per person per account.
+   */
+  memberProfiles: defineTable({
+    orgId: v.id("organisations"),
+    // Clerk user id (identity.subject), which is what projects.ownerId holds.
+    userId: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_org_user", ["orgId", "userId"]),
+
   clients: defineTable({
     orgId: v.id("organisations"),
     // The company. Existing rows were created when this was the only field.
