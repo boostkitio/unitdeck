@@ -696,11 +696,11 @@ export const refreshForecast = action({
 /**
  * How long after the last shoot day a production is left alone.
  *
- * Zero means the morning after wrap. A job usually outlives its shoot — post,
- * invoicing, deliverables — so if archiving starts catching work still in
- * progress, this is the one number to raise.
+ * A job outlives its shoot — post, invoicing, deliverables — so a fortnight
+ * is the gap between wrapping and the point where a production is fairly
+ * called finished. Raise it if archiving starts catching work still going on.
  */
-const DAYS_AFTER_WRAP = 0;
+const DAYS_AFTER_WRAP = 14;
 
 /**
  * Archives productions whose shoot is over.

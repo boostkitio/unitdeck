@@ -36,9 +36,9 @@ async function project(t: Awaited<ReturnType<typeof setup>>["t"], org: string, n
   });
 }
 
-test("a production whose shoot has passed archives itself", async () => {
+test("a production archives itself once the grace period is up", async () => {
   const { t, org, asA } = await setup();
-  await project(t, org, "Wrapped", [-5, -3]);
+  await project(t, org, "Wrapped", [-30, -20]);
 
   const result = await t.mutation(internal.projects.archiveFinished, {});
   expect(result.archived).toBe(1);
@@ -84,8 +84,39 @@ test("a production with no dates has nothing that can have passed", async () => 
 
 test("running twice does not re-archive what is already away", async () => {
   const { t, org } = await setup();
-  await project(t, org, "Wrapped", [-5]);
+  await project(t, org, "Wrapped", [-30]);
 
   expect((await t.mutation(internal.projects.archiveFinished, {})).archived).toBe(1);
   expect((await t.mutation(internal.projects.archiveFinished, {})).archived).toBe(0);
+});
+
+test("a fortnight after wrap the job is still its own", async () => {
+  const { t, org, asA } = await setup();
+  // Wrapped last week: still being cut, still being invoiced. Archiving a
+  // production the morning after the shoot is what the grace period exists
+  // to stop, so this one stays where it is.
+  await project(t, org, "In post", [-7]);
+
+  const result = await t.mutation(internal.projects.archiveFinished, {});
+  expect(result.archived).toBe(0);
+
+  const active = await asA.query(api.projects.list, {});
+  expect(active.map((p) => p.name)).toEqual(["In post"]);
+});
+
+test("the day the grace period runs out is the day it goes", async () => {
+  const { t, org } = await setup();
+  // Fourteen days is the boundary: still inside it, so still active.
+  await project(t, org, "Just inside", [-14]);
+  await project(t, org, "Just outside", [-15]);
+
+  const result = await t.mutation(internal.projects.archiveFinished, {});
+  expect(result.archived).toBe(1);
+
+  const stillActive = await t.run(async (ctx) =>
+    (await ctx.db.query("projects").collect())
+      .filter((p) => p.archived !== true)
+      .map((p) => p.name),
+  );
+  expect(stillActive).toEqual(["Just inside"]);
 });
