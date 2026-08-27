@@ -631,7 +631,10 @@ export default defineSchema({
     .index("by_shoot_day_and_version", ["shootDayId", "version"]),
 
   renderTokens: defineTable({
-    callSheetId: v.id("callSheets"),
+    // One of the two: what this short-lived link renders. Optional rather
+    // than a union so the rows written before quotes existed still validate.
+    callSheetId: v.optional(v.id("callSheets")),
+    quoteId: v.optional(v.id("quotes")),
     token: v.string(),
     expiresAt: v.number(),
   })

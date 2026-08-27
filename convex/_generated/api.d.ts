@@ -37,6 +37,7 @@ import type * as lib_llm from "../lib/llm.js";
 import type * as lib_personName from "../lib/personName.js";
 import type * as lib_plusCode from "../lib/plusCode.js";
 import type * as lib_quoteMath from "../lib/quoteMath.js";
+import type * as lib_rateCardOrder from "../lib/rateCardOrder.js";
 import type * as lib_rateCardSeed from "../lib/rateCardSeed.js";
 import type * as lib_projectStatus from "../lib/projectStatus.js";
 import type * as lib_sun from "../lib/sun.js";
@@ -95,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   "lib/personName": typeof lib_personName;
   "lib/plusCode": typeof lib_plusCode;
   "lib/quoteMath": typeof lib_quoteMath;
+  "lib/rateCardOrder": typeof lib_rateCardOrder;
   "lib/rateCardSeed": typeof lib_rateCardSeed;
   "lib/projectStatus": typeof lib_projectStatus;
   "lib/sun": typeof lib_sun;

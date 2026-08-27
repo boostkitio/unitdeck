@@ -1,8 +1,18 @@
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import {
+  internalAction,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { joinName } from "./lib/personName";
+import { quoteEmail, sendEmail } from "./lib/email";
 import { quoteCategoryValidator, quoteUnitValidator } from "./schema";
+import { inCardOrder, SECTION_CATEGORY } from "./lib/rateCardOrder";
 import {
   categoryTotals,
   costFromRate,
@@ -163,69 +173,86 @@ export const list = query({
 /** Everything needed to render or edit one quote. */
 export const get = query({
   args: { id: v.id("quotes") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<QuoteView | null> => {
     const { org } = await requireOrg(ctx);
     const quote = await ctx.db.get(args.id);
     if (!quote || quote.orgId !== org._id) return null;
-
-    const [project, lines, overrides, company] = await Promise.all([
-      quote.projectId ? ctx.db.get(quote.projectId) : null,
-      ctx.db
-        .query("quoteLines")
-        .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
-        .collect(),
-      ctx.db
-        .query("quoteCategoryOverrides")
-        .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
-        .collect(),
-      ctx.db.get(quote.orgId),
-    ]);
-
-    const ordered = lines.sort(
-      (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a._creationTime - b._creationTime
-    );
-
-    // The name on the client copy follows whoever owns the quote, and a quote
-    // written before its owner had a name should read as them now that they
-    // do — the name is the person, not a stamp on the row. A name typed into
-    // the quote by hand still wins, since somebody meant it.
-    // Falls back to whoever wrote it, which is what an owner was before there
-    // was one to set, and keeps a quote from going out unsigned. The owner
-    // itself is reported as it is stored: a quote set to nobody says nobody.
-    const namedBy = quote.ownerId ?? quote.createdBy;
-    let producerName = quote.producerName;
-    if (namedBy) {
-      const profile = await ctx.db
-        .query("memberProfiles")
-        .withIndex("by_org_user", (q) =>
-          q.eq("orgId", quote.orgId).eq("userId", namedBy)
-        )
-        .unique();
-      const owned = joinName(profile);
-      if (owned) producerName = owned;
-    }
-
-    return {
-      quote: { ...quote, producerName },
-      project: project ? { _id: project._id, name: project.name, jobNumber: project.jobNumber ?? null } : null,
-      lines: ordered,
-      overrides: overrides.map((o) => ({ category: o.category, totalPence: o.totalPence })),
-      totals: totalsFor(quote, lines, overrides),
-      byCategory: CATEGORIES.map((category) => ({
-        category,
-        label: CATEGORY_LABELS[category],
-        totals: categoryTotalsFor(quote, lines, overrides, category),
-      })),
-      company: {
-        name: company?.name ?? "",
-        invoicing: company?.settings?.invoicing ?? null,
-        logoUrl: company?.settings?.logoStorageId
-          ? ((await ctx.storage.getUrl(company.settings.logoStorageId)) ?? null)
-          : null,
-      },
-    };
+    return await readQuote(ctx, args.id);
   },
 });
+
+export type QuoteView = NonNullable<Awaited<ReturnType<typeof readQuote>>>;
+
+/**
+ * Everything a quote is, for whoever is allowed to see it.
+ *
+ * The permission check belongs to the caller: `get` asks for the caller's
+ * organisation, the render-token query asks for an unexpired token. What is
+ * read is the same either way, so the client's copy on screen and the copy a
+ * headless browser turns into a PDF cannot drift apart.
+ */
+async function readQuote(ctx: QueryCtx, id: Id<"quotes">) {
+  const quote = await ctx.db.get(id);
+  if (!quote) return null;
+
+  const [project, lines, overrides, company] = await Promise.all([
+    quote.projectId ? ctx.db.get(quote.projectId) : null,
+    ctx.db
+      .query("quoteLines")
+      .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
+      .collect(),
+    ctx.db
+      .query("quoteCategoryOverrides")
+      .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
+      .collect(),
+    ctx.db.get(quote.orgId),
+  ]);
+
+  // The sheet's own order, worked out from the standard card rather than
+  // from when a row was created — otherwise a line added to the card later
+  // lands at the bottom of the quote instead of in its section.
+  const ordered = inCardOrder<Doc<"quoteLines">>(lines);
+
+  // The name on the client copy follows whoever owns the quote, and a quote
+  // written before its owner had a name should read as them now that they
+  // do — the name is the person, not a stamp on the row. A name typed into
+  // the quote by hand still wins, since somebody meant it.
+  // Falls back to whoever wrote it, which is what an owner was before there
+  // was one to set, and keeps a quote from going out unsigned. The owner
+  // itself is reported as it is stored: a quote set to nobody says nobody.
+  const namedBy = quote.ownerId ?? quote.createdBy;
+  let producerName = quote.producerName;
+  if (namedBy) {
+    const profile = await ctx.db
+      .query("memberProfiles")
+      .withIndex("by_org_user", (q) => q.eq("orgId", quote.orgId).eq("userId", namedBy))
+      .unique();
+    const owned = joinName(profile);
+    if (owned) producerName = owned;
+  }
+
+  return {
+    quote: { ...quote, producerName },
+    project: project
+      ? { _id: project._id, name: project.name, jobNumber: project.jobNumber ?? null }
+      : null,
+    lines: ordered,
+    overrides: overrides.map((o) => ({ category: o.category, totalPence: o.totalPence })),
+    totals: totalsFor(quote, lines, overrides),
+    byCategory: CATEGORIES.map((category) => ({
+      category,
+      label: CATEGORY_LABELS[category],
+      totals: categoryTotalsFor(quote, lines, overrides, category),
+    })),
+    company: {
+      name: company?.name ?? "",
+      invoicing: company?.settings?.invoicing ?? null,
+      logoUrl: company?.settings?.logoStorageId
+        ? ((await ctx.storage.getUrl(company.settings.logoStorageId)) ?? null)
+        : null,
+    },
+  };
+}
 
 function categoryTotalsFor(
   quote: Doc<"quotes">,
@@ -743,7 +770,16 @@ export const updateLine = mutation({
     if (!quote) throw new Error("Quote not found");
 
     const patch: Record<string, unknown> = {};
-    if (args.category !== undefined) patch.category = args.category;
+    if (args.category !== undefined) {
+      patch.category = args.category;
+      // Moving a line to another category moves it out of its section too: a
+      // camera under Post Production would otherwise print under a Cameras
+      // heading in the wrong half of the quote. It lands at the end of the
+      // category it was moved to, which is where somebody who just moved it
+      // looks for it. Naming a section in the same breath wins.
+      const belongs = SECTION_CATEGORY.get((line.section ?? "").trim().toLowerCase());
+      if (args.section === undefined && belongs !== args.category) patch.section = undefined;
+    }
     if (args.section !== undefined) patch.section = args.section?.trim() || undefined;
     if (args.name !== undefined) {
       if (args.name.trim().length === 0) throw new Error("Name the line");
@@ -989,65 +1025,158 @@ function unfilledLineFor(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Getting it to the client
+// ---------------------------------------------------------------------------
+
 /**
- * Brings a quote up to date with the rate card, adding only what is missing.
+ * A short-lived link a headless browser can read the quote through.
  *
- * A quote seeds its lines when it is created, so one written before the card
- * gained a section has no lines for it — and a chargeable line nobody can see
- * is a line nobody charges for. Matching is by name within a section, so
- * anything already priced is left exactly as it is, and nothing is ever
- * removed: a line taken off this quote on purpose stays off.
+ * The client's copy is behind a login, and the renderer has no login. The
+ * token is unguessable, single-purpose and expires in minutes, which is the
+ * same bargain the call sheets make.
  */
-export const syncFromRateCard = mutation({
+export const createRenderToken = mutation({
   args: { id: v.id("quotes") },
   handler: async (ctx, args) => {
-    const { org, quote } = await loadQuote(ctx, args.id);
-    const [card, lines] = await Promise.all([
-      ctx.db
-        .query("rateCardItems")
-        .withIndex("by_org", (q) => q.eq("orgId", org._id))
-        .collect(),
-      ctx.db
-        .query("quoteLines")
-        .withIndex("by_quote", (q) => q.eq("quoteId", args.id))
-        .collect(),
-    ]);
-
-    const lineKey = (section: string | undefined, name: string) =>
-      `${(section ?? "").trim().toLowerCase()}::${name.replace(/\s+/g, " ").trim().toLowerCase()}`;
-    const held = new Set(lines.map((line) => lineKey(line.section, line.name)));
-    const margins = {
-      contingencyBp: quote.contingencyBp,
-      profitBp: quote.profitBp,
-      insuranceBp: quote.insuranceBp,
-    };
-
-    let sortOrder = lines.reduce((max, line) => Math.max(max, line.sortOrder ?? 0), 0);
-    let added = 0;
-    for (const item of card
-      .filter((i) => !i.archived)
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))) {
-      if (held.has(lineKey(item.section, item.name))) continue;
-      sortOrder += 1;
-      added += 1;
-      await ctx.db.insert("quoteLines", {
-        orgId: org._id,
-        quoteId: args.id,
-        category: item.category,
-        section: item.section,
-        name: item.name,
-        notes: item.notes,
-        unit: item.unit,
-        pax: 0,
-        unitAmount: 0,
-        costPence: item.costPence,
-        ratePence: rateFromCost(item.costPence, margins, quote.roundToPence),
-        sortOrder,
-      });
-    }
-    return { added };
+    const { org } = await requireOrg(ctx);
+    const quote = await ctx.db.get(args.id);
+    if (!quote || quote.orgId !== org._id) throw new Error("Quote not found");
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    const token = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    await ctx.db.insert("renderTokens", {
+      quoteId: args.id,
+      token,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+    return { token };
   },
 });
+
+/** The quote behind a render token, for the page that is printed to PDF. */
+export const getByRenderToken = query({
+  args: { token: v.string() },
+  handler: async (ctx, args): Promise<QuoteView | null> => {
+    const row = await ctx.db
+      .query("renderTokens")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (!row || row.expiresAt < Date.now() || !row.quoteId) return null;
+    return await readQuote(ctx, row.quoteId);
+  },
+});
+
+/** Somewhere to put the rendered PDF before it is attached to an email. */
+export const generateAttachmentUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireOrg(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Emails the quote to the client with the PDF attached.
+ *
+ * The PDF is made in the browser and uploaded first, so there is one renderer
+ * and what the client opens is what was on screen. Sending marks the quote as
+ * sent, because that is what has happened.
+ */
+export const sendToClient = mutation({
+  args: {
+    id: v.id("quotes"),
+    to: v.string(),
+    message: v.optional(v.string()),
+    fileId: v.id("_storage"),
+    fileName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { org, identity } = await requireOrg(ctx);
+    const quote = await ctx.db.get(args.id);
+    if (!quote || quote.orgId !== org._id) throw new Error("Quote not found");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.to.trim())) {
+      throw new Error("That does not look like an email address");
+    }
+
+    await ctx.scheduler.runAfter(0, internal.quotes.deliverToClient, {
+      quoteId: args.id,
+      orgName: org.name,
+      to: args.to.trim(),
+      message: args.message,
+      fileId: args.fileId,
+      fileName: args.fileName,
+      fromName:
+        quote.producerName ??
+        (typeof identity.name === "string" ? identity.name.trim() : "") ??
+        undefined,
+    });
+
+    await ctx.db.patch(args.id, {
+      status: "sent",
+      issuedAt: quote.issuedAt ?? Date.now(),
+    });
+    return null;
+  },
+});
+
+export const deliverToClient = internalAction({
+  args: {
+    quoteId: v.id("quotes"),
+    orgName: v.string(),
+    to: v.string(),
+    message: v.optional(v.string()),
+    fileId: v.id("_storage"),
+    fileName: v.string(),
+    fromName: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) throw new Error("RESEND_API_KEY is not set on this deployment");
+
+    const file = await ctx.storage.get(args.fileId);
+    if (!file) throw new Error("The PDF was not there to send");
+    const attachment = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+
+    const quote = await ctx.runQuery(internal.quotes.numberFor, { id: args.quoteId });
+    const result = await sendEmail({
+      apiKey,
+      to: [args.to],
+      subject: `Quote ${quote?.number ?? ""} from ${args.orgName}`.trim(),
+      html: quoteEmail({
+        orgName: args.orgName,
+        fromName: args.fromName,
+        message: args.message,
+        number: quote?.number,
+        title: quote?.title,
+      }),
+      attachments: [{ filename: args.fileName, content: attachment }],
+    });
+    if (!result.ok) throw new Error(result.error);
+
+    // The upload was a courier, not a record: the quote is the record, and it
+    // can be rendered again whenever anybody wants it.
+    await ctx.storage.delete(args.fileId);
+    return null;
+  },
+});
+
+export const numberFor = internalQuery({
+  args: { id: v.id("quotes") },
+  handler: async (ctx, args) => {
+    const quote = await ctx.db.get(args.id);
+    if (!quote) return null;
+    return { number: quote.number, title: quote.title };
+  },
+});
+
+/** Resend takes base64; a quote is a few pages, so one pass is fine. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
 
 /**
  * Pulls the crew already booked on the production onto the quote.

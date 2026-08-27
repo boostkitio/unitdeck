@@ -402,6 +402,8 @@ export const getByRenderToken = query({
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
     if (!row || row.expiresAt < Date.now()) return null;
+    // A token minted for a quote is not this one's to render.
+    if (!row.callSheetId) return null;
     const sheet = await ctx.db.get(row.callSheetId);
     if (!sheet) return null;
     return { data: sheet.data, version: sheet.version };

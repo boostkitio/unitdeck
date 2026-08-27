@@ -325,7 +325,7 @@ test("the kit list arrives priced, hire-ins at what they cost", async () => {
   expect(byName["40ft Techno Crane"].costPence).toBe(p(1450));
 });
 
-test("the rate card seeds once and refuses to seed twice", async () => {
+test("the rate card seeds in full, and seeding again doubles nothing up", async () => {
   const { asA } = await setup();
   const result = await asA.mutation(api.rateCard.seed, {});
   expect(result.added).toBeGreaterThan(200);
@@ -335,7 +335,11 @@ test("the rate card seeds once and refuses to seed twice", async () => {
   expect(card.some((i) => i.name === "Director of Photography")).toBe(true);
   expect(card.some((i) => i.name === "Sony FX9 Camera Kit")).toBe(true);
 
-  await expect(asA.mutation(api.rateCard.seed, {})).rejects.toThrow(/already has lines/i);
+  // Run twice, nothing is added and nothing is duplicated: seeding fills
+  // gaps rather than refusing, so a card that predates a new section can
+  // gain it without anybody rebuilding the card by hand.
+  expect((await asA.mutation(api.rateCard.seed, {})).added).toBe(0);
+  expect((await asA.query(api.rateCard.list, {})).length).toBe(result.added);
 });
 
 test("deleting a quote takes its lines and overrides with it", async () => {
@@ -911,7 +915,7 @@ test("a new quote gets every line, with the sheet's sections on it", async () =>
   expect(new Set(data.lines.map((l) => l.section)).size).toBe(18);
 });
 
-test("topping up a card adds what is missing and changes nothing else", async () => {
+test("seeding a part-filled card adds only what is missing", async () => {
   const { asA } = await setup();
   await asA.mutation(api.rateCard.seed, {});
   const before = await asA.query(api.rateCard.list, {});
@@ -922,38 +926,124 @@ test("topping up a card adds what is missing and changes nothing else", async ()
   const sound = before.find((i) => i.section === "SOUND")!;
   await asA.mutation(api.rateCard.remove, { id: sound._id });
 
-  const result = await asA.mutation(api.rateCard.topUp, {});
-  expect(result.added).toBe(1); // only the deleted one comes back
+  // Seeding again fills the gap rather than doubling the card up.
+  expect((await asA.mutation(api.rateCard.seed, {})).added).toBe(1);
 
   const after = await asA.query(api.rateCard.list, {});
   expect(after).toHaveLength(279);
-  // The edited cost is left exactly as edited.
   expect(after.find((i) => i._id === producer._id)?.costPence).toBe(99900);
+  // And again adds nothing at all.
+  expect((await asA.mutation(api.rateCard.seed, {})).added).toBe(0);
 });
 
-test("an older quote can be brought up to the card without losing its prices", async () => {
+test("a line added to the card late still reads in its section, not at the end", async () => {
+  const { asA, ids } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+
+  // Added long after the rest, exactly as a line restored to the card would
+  // be: its sortOrder puts it last, its section says where it belongs.
+  const line = await asA.mutation(api.quotes.addLine, {
+    quoteId: id,
+    category: "equipment",
+    section: "CAMERAS",
+    name: "Sony FX9 Camera",
+    unit: "day",
+    costPence: 10000,
+  });
+
+  const data = (await asA.query(api.quotes.get, { id }))!;
+  const sections = data.lines.map((l) => l.section);
+  const at = data.lines.findIndex((l) => l._id === line);
+  // Inside the CAMERAS block — not after LENSES, and nowhere near the bottom.
+  expect(sections[at]).toBe("CAMERAS");
+  expect(sections.lastIndexOf("CAMERAS")).toBeLessThan(sections.indexOf("LENSES"));
+  expect(at).toBeLessThan(data.lines.length - 1);
+});
+
+test("moving a line to another category takes it out of its old section", async () => {
   const { asA, ids } = await setup();
   await asA.mutation(api.rateCard.seed, {});
   const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
   const before = (await asA.query(api.quotes.get, { id }))!;
+  const camera = before.lines.find((l) => l.section === "CAMERAS")!;
 
-  // A quote as it would be after lines were added to the card later: two of
-  // its lines are gone, and one of the ones it keeps has been priced.
-  const priced = before.lines.find((l) => l.section === "PRE - PRODUCTION")!;
-  await asA.mutation(api.quotes.updateLine, { id: priced._id, pax: 2, unitAmount: 3 });
-  await asA.mutation(api.quotes.removeLine, { id: before.lines[40]._id });
-  await asA.mutation(api.quotes.removeLine, { id: before.lines[41]._id });
-
-  const result = await asA.mutation(api.quotes.syncFromRateCard, { id });
-  expect(result.added).toBe(2);
+  await asA.mutation(api.quotes.updateLine, { id: camera._id, category: "post" });
 
   const after = (await asA.query(api.quotes.get, { id }))!;
-  expect(after.lines).toHaveLength(279);
-  // Untouched: what was priced is still priced, at the same figures.
-  const stillPriced = after.lines.find((l) => l._id === priced._id)!;
-  expect(stillPriced.pax).toBe(2);
-  expect(stillPriced.unitAmount).toBe(3);
+  const moved = after.lines.find((l) => l._id === camera._id)!;
+  expect(moved.category).toBe("post");
+  // A camera printed under a CAMERAS heading inside Post Production is
+  // nonsense, so the heading goes with the move.
+  expect(moved.section).toBeUndefined();
+});
 
-  // And running it again adds nothing.
-  expect((await asA.mutation(api.quotes.syncFromRateCard, { id })).added).toBe(0);
+test("a render token reads the quote, and only until it expires", async () => {
+  const { asA, ids, t } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const { token } = await asA.mutation(api.quotes.createRenderToken, { id });
+
+  // No login at all: the token is what the headless browser has.
+  const seen = await t.query(api.quotes.getByRenderToken, { token });
+  expect(seen?.quote._id).toBe(id);
+  expect(seen?.lines.length).toBe(279);
+
+  await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("renderTokens")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    await ctx.db.patch(row!._id, { expiresAt: Date.now() - 1 });
+  });
+  expect(await t.query(api.quotes.getByRenderToken, { token })).toBeNull();
+});
+
+test("a call sheet's render token cannot be used to read a quote", async () => {
+  const { asA, ids } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const { token } = await asA.mutation(api.quotes.createRenderToken, { id });
+  // The other way round: a quote token is not a call sheet's to render.
+  expect(await asA.query(api.callSheets.getByRenderToken, { token })).toBeNull();
+});
+
+test("sending the quote to the client marks it sent, once", async () => {
+  const { asA, ids, t } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const fileId = await t.run(async (ctx) => await ctx.storage.store(new Blob(["pdf"])));
+
+  await asA.mutation(api.quotes.sendToClient, {
+    id,
+    to: "client@example.test",
+    fileId,
+    fileName: "quote.pdf",
+  });
+
+  const after = (await asA.query(api.quotes.get, { id }))!;
+  expect(after.quote.status).toBe("sent");
+  const issued = after.quote.issuedAt;
+  expect(issued).toBeDefined();
+
+  // Sent again — the date it first went out is the date it went out.
+  await asA.mutation(api.quotes.sendToClient, {
+    id,
+    to: "client@example.test",
+    fileId,
+    fileName: "quote.pdf",
+  });
+  expect((await asA.query(api.quotes.get, { id }))!.quote.issuedAt).toBe(issued);
+});
+
+test("a quote is not sent to something that is not an address", async () => {
+  const { asA, ids, t } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const fileId = await t.run(async (ctx) => await ctx.storage.store(new Blob(["pdf"])));
+  await expect(
+    asA.mutation(api.quotes.sendToClient, {
+      id,
+      to: "the client",
+      fileId,
+      fileName: "quote.pdf",
+    })
+  ).rejects.toThrow(/email address/i);
 });

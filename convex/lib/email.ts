@@ -6,6 +6,9 @@ export type SendEmailResult =
   | { ok: true; id: string }
   | { ok: false; error: string };
 
+/** A file to go out with the email. `content` is base64, as Resend wants it. */
+export type EmailAttachment = { filename: string; content: string };
+
 /** One Resend call. Never throws: callers decide what a failure means. */
 export async function sendEmail(args: {
   apiKey: string;
@@ -13,6 +16,7 @@ export async function sendEmail(args: {
   subject: string;
   html: string;
   from?: string;
+  attachments?: EmailAttachment[];
 }): Promise<SendEmailResult> {
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -23,6 +27,7 @@ export async function sendEmail(args: {
         to: args.to,
         subject: args.subject,
         html: args.html,
+        ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       }),
     });
     if (!res.ok) {
@@ -158,4 +163,37 @@ export function signedCopyEmail(args: {
 </td></tr></table>
 </body></html>`;
   return { subject, html };
+}
+
+/**
+ * The note a quote goes out with.
+ *
+ * Deliberately short: the quote is the attachment, and a client who asked
+ * what something costs wants the figure, not three paragraphs of preamble.
+ * Whatever the producer typed goes above the line; nothing is put in their
+ * mouth beyond it.
+ */
+export function quoteEmail(args: {
+  orgName: string;
+  fromName?: string;
+  message?: string;
+  number?: string;
+  title?: string;
+}): string {
+  const heading = [args.number, args.title].filter(Boolean).join(" — ");
+  const body = args.message?.trim();
+  return `
+    <div style="font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.5; color: #111;">
+      <p style="margin: 0 0 12px;">Hello,</p>
+      ${
+        body
+          ? `<p style="margin: 0 0 12px; white-space: pre-wrap;">${escapeHtml(body)}</p>`
+          : `<p style="margin: 0 0 12px;">Our quote is attached${heading ? ` (${escapeHtml(heading)})` : ""}.</p>`
+      }
+      <p style="margin: 0 0 12px;">The PDF is attached to this email. Any questions, just reply.</p>
+      <p style="margin: 0;">${escapeHtml(args.fromName ?? args.orgName)}<br />
+        <span style="color: #555;">${escapeHtml(args.orgName)}</span>
+      </p>
+    </div>
+  `;
 }

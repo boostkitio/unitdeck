@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { quoteCategoryValidator, quoteUnitValidator } from "./schema";
 import { RATE_CARD_SEED } from "./lib/rateCardSeed";
+import { inCardOrder } from "./lib/rateCardOrder";
 import { rateFromCost, type Margins } from "./lib/quoteMath";
 
 /**
@@ -21,11 +22,10 @@ export const list = query({
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .collect();
     const shown = args.includeArchived ? rows : rows.filter((r) => !r.archived);
-    // Card order, then alphabetical, so a section reads the way it was written
-    // rather than the order rows happened to be inserted.
-    return shown.sort(
-      (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name)
-    );
+    // The sheet's own order: section by section, and within a section the
+    // order the card is written in. Not insertion order — a line added to the
+    // card years after the rest still belongs where the sheet puts it.
+    return inCardOrder(shown);
   },
 });
 
@@ -133,50 +133,14 @@ export const remove = mutation({
 });
 
 /**
- * Fills an empty rate card from the one the spreadsheet carried.
+ * Fills a rate card from the one the spreadsheet carried.
  *
- * Refuses on a card that already has lines rather than doubling it up: this is
- * a starting point, not an import you run twice.
+ * Safe to run on a card that already has lines: it adds what is missing and
+ * touches nothing else, matched by name within its section. So a cost
+ * somebody has edited stays edited, and a card that predates a new section
+ * gains that section rather than a second copy of everything.
  */
 export const seed = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const { org } = await requireOrg(ctx);
-    const existing = await ctx.db
-      .query("rateCardItems")
-      .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .first();
-    if (existing) throw new Error("The rate card already has lines in it");
-
-    let sortOrder = 0;
-    for (const item of RATE_CARD_SEED) {
-      sortOrder += 1;
-      await ctx.db.insert("rateCardItems", {
-        orgId: org._id,
-        category: item.category,
-        section: item.section,
-        name: item.name,
-        notes: item.notes,
-        unit: item.unit,
-        costPence: item.costPence,
-        sortOrder,
-      });
-    }
-    return { added: RATE_CARD_SEED.length };
-  },
-});
-
-/**
- * Adds the standard lines a card is missing, and touches nothing else.
- *
- * Seeding refuses on a card that already has lines, which is right for a
- * first run and useless when the standard card gains a section — as it did
- * when the whole of Sound, Consumables and half of Post came across from the
- * spreadsheet. This fills the gaps by name within a section, so a cost
- * somebody has edited stays edited and a line they deleted on purpose does
- * come back — which is the trade for never missing a chargeable line.
- */
-export const topUp = mutation({
   args: {},
   handler: async (ctx) => {
     const { org } = await requireOrg(ctx);

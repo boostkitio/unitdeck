@@ -1,55 +1,42 @@
 "use client";
 
-import { Fragment, use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
+import { toast } from "sonner";
 import { api } from "../../../../../../convex/_generated/api";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatPence, bpInput } from "@/lib/money";
-import { unitLabel } from "@/lib/quote-labels";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { QuoteDocument } from "@/components/quotes/quote-document";
 
 /**
- * The quote as the client gets it.
+ * The client's copy, on screen.
  *
- * Costs, margins and what the job makes are all on the other page. Nothing on
- * this one is internal: an overview by heading, the breakdown, what was
- * assumed, and somewhere to sign — which is the document the spreadsheet was
- * printing, laid out as a document rather than as a tab.
+ * The document itself is a component shared with the page a headless browser
+ * prints, so what downloads is what is on this screen. The browser's own print
+ * dialog is deliberately not offered any more: it re-flows the page against
+ * whatever the printer thinks a margin is, and a quote leaving here should
+ * look the same every time.
  */
-function Fields({
-  heading,
-  rows,
-}: {
-  heading: string;
-  rows: [string, string | null | undefined][];
-}) {
-  const filled = rows.filter(([, value]) => value);
-  if (filled.length === 0) return null;
-  return (
-    <div>
-      <h2 className="text-[8.5pt] font-bold uppercase tracking-widest text-neutral-600">
-        {heading}
-      </h2>
-      <dl className="mt-1 space-y-0.5 text-[9.5pt]">
-        {filled.map(([label, value], i) => (
-          <div key={`${label}-${i}`} className="flex gap-2">
-            <dt className="w-24 shrink-0 text-neutral-600">{label}</dt>
-            <dd className="min-w-0 break-words">{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
 export default function QuoteViewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const data = useQuery(api.quotes.get, { id: id as Id<"quotes"> });
+  const quoteId = id as Id<"quotes">;
+  const data = useQuery(api.quotes.get, { id: quoteId });
   const { memberships } = useOrganization({ memberships: { infinite: true } });
   const members = memberships?.data ?? [];
+  const [downloading, setDownloading] = useState(false);
 
   if (data === undefined) {
     return (
@@ -63,7 +50,7 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
     return <p className="p-6 text-sm text-muted-foreground">That quote could not be found.</p>;
   }
 
-  const { quote, totals, company } = data;
+  const { quote } = data;
 
   // The owner's own details. The name is resolved on the backend from what
   // they set in UnitDeck; the address comes off their login, which only the
@@ -73,252 +60,174 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
     quote.producerName ??
     ([owner?.firstName, owner?.lastName].filter(Boolean).join(" ").trim() || null);
   const ownerEmail = quote.producerEmail ?? owner?.identifier ?? null;
-  const issued = new Date(quote.issuedAt ?? quote._creationTime).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 
-  const filled = data.byCategory.filter((c) => c.totals.total !== 0);
+  const fileName = `${quote.number}${quote.title ? ` ${quote.title}` : ""}.pdf`.replace(
+    /[\\/:*?"<>|]/g,
+    "-"
+  );
+
+  /** The PDF, rendered on the server from this same layout. */
+  async function fetchPdf(): Promise<Blob> {
+    const res = await fetch("/api/quotes/pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quoteId }),
+    });
+    if (!res.ok) {
+      const problem = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(problem?.error ?? "Could not make the PDF.");
+    }
+    return await res.blob();
+  }
+
+  async function download() {
+    setDownloading(true);
+    try {
+      const blob = await fetchPdf();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not download it.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div>
-      {/* Screen only: the page below is what prints. */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 print:hidden">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <Button variant="ghost" size="sm" render={<Link href={`/quotes/${id}`} />}>
           ← Back to the quote
         </Button>
-        <Button size="sm" onClick={() => window.print()}>
-          Print or save as PDF
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={downloading}
+            onClick={() => void download()}
+          >
+            {downloading ? "Making the PDF…" : "Download"}
+          </Button>
+          <SendDialog
+            quoteId={quoteId}
+            clientEmail={quote.clientContact ?? null}
+            fileName={fileName}
+            fetchPdf={fetchPdf}
+          />
+        </div>
       </div>
 
-      <article className="mx-auto max-w-4xl bg-white p-8 text-[10pt] text-neutral-900 print:p-0">
-        <header className="flex items-start justify-between gap-6 border-b-2 border-neutral-900 pb-3">
-          <div>
-            <h1 className="font-heading text-2xl font-semibold tracking-tight">Quote</h1>
-            <p className="mt-0.5 text-neutral-700">
-              {quote.number}
-              {quote.quoteType && ` · ${quote.quoteType}`}
-            </p>
-          </div>
-          {company.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={company.logoUrl}
-              alt={company.name}
-              className="max-h-16 w-auto object-contain"
-            />
-          ) : (
-            <p className="text-right font-heading text-lg font-semibold">{company.name}</p>
-          )}
-        </header>
-
-        <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
-          <Fields
-            heading="Quote"
-            rows={[
-              ["Client", quote.clientName],
-              ["Contact", quote.clientContact],
-              ["Project", data.project?.name ?? quote.title],
-              ["Quote number", quote.number],
-              ["Date", issued],
-            ]}
-          />
-          {/* Who wrote it and how to reach them — the first thing a client
-              looks for when they want to say yes or ask a question. */}
-          <div>
-            <h2 className="text-[8.5pt] font-bold uppercase tracking-widest text-neutral-600">
-              Prepared by
-            </h2>
-            <p className="mt-1 text-[11pt] font-semibold">{ownerName ?? company.name}</p>
-            <dl className="mt-0.5 space-y-0.5 text-[9.5pt]">
-              {(
-                [
-                  ["Company", ownerName ? company.name : null],
-                  ["Email", ownerEmail],
-                  ["Phone", quote.producerPhone],
-                ] as [string, string | null | undefined][]
-              )
-                .filter(([, value]) => value)
-                .map(([label, value]) => (
-                  <div key={label} className="flex gap-2">
-                    <dt className="w-24 shrink-0 text-neutral-600">{label}</dt>
-                    <dd className="min-w-0 break-words">{value}</dd>
-                  </div>
-                ))}
-            </dl>
-          </div>
-        </div>
-
-        {quote.deliverables && (
-          <section className="mt-4 rounded border border-neutral-300 bg-neutral-50 p-3 text-[9.5pt]">
-            <h2 className="text-[8.5pt] font-bold uppercase tracking-widest text-neutral-600">
-              Deliverables
-            </h2>
-            <p className="mt-1 whitespace-pre-wrap">{quote.deliverables}</p>
-          </section>
-        )}
-
-        {/* Overview */}
-        <section className="mt-6">
-          <h2 className="text-[9pt] font-bold uppercase tracking-widest text-neutral-700">
-            Overview
-          </h2>
-          <table className="mt-2 w-full border-collapse">
-            <tbody>
-              {filled.map((c) => (
-                <tr key={c.category} className="border-b border-neutral-200">
-                  <td className="py-1.5">{c.label}</td>
-                  <td className="py-1.5 text-right tabular-nums">
-                    {formatPence(c.totals.total)}
-                  </td>
-                </tr>
-              ))}
-              {(quote.discountPence ?? 0) > 0 && (
-                <tr className="border-b border-neutral-200">
-                  <td className="py-1.5">Discount</td>
-                  <td className="py-1.5 text-right tabular-nums">
-                    -{formatPence(quote.discountPence ?? 0)}
-                  </td>
-                </tr>
-              )}
-              <tr className="border-b border-neutral-300">
-                <td className="py-1.5 font-semibold">Total (exc VAT)</td>
-                <td className="py-1.5 text-right font-semibold tabular-nums">
-                  {formatPence(totals.netTotal)}
-                </td>
-              </tr>
-              <tr>
-                <td className="py-1.5 font-semibold">
-                  Total (inc VAT at {bpInput(quote.vatBp)}%)
-                </td>
-                <td className="py-1.5 text-right font-semibold tabular-nums">
-                  {formatPence(totals.grossTotal)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        {/* Assumptions */}
-        {(quote.caveats ?? []).length > 0 && (
-          <section className="mt-6 break-inside-avoid">
-            <h2 className="text-[9pt] font-bold uppercase tracking-widest text-neutral-700">
-              Assumptions and caveats
-            </h2>
-            <ul className="mt-2 space-y-0.5 text-[9.5pt]">
-              {(quote.caveats ?? []).map((caveat, i) => (
-                <li key={i}>{caveat}</li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {/* The breakdown, by heading */}
-        <section className="mt-6">
-          <h2 className="text-[9pt] font-bold uppercase tracking-widest text-neutral-700">
-            Quote breakdown
-          </h2>
-          {filled.map((c) => {
-            const lines = data.lines.filter(
-              (l) => l.category === c.category && l.pax > 0 && l.unitAmount > 0
-            );
-            if (lines.length === 0) return null;
-            return (
-              <div key={c.category} className="mt-4 break-inside-avoid">
-                <h3 className="text-[9pt] font-bold uppercase tracking-wide text-neutral-800">
-                  {c.label}
-                </h3>
-                <table className="mt-1 w-full table-fixed border-collapse">
-                  <thead>
-                    <tr className="border-b border-neutral-400 text-left text-[8.5pt] uppercase tracking-wide text-neutral-600">
-                      <th className="w-[32%] py-1 font-semibold">Job</th>
-                      <th className="w-[24%] py-1 font-semibold">Notes</th>
-                      <th className="w-[8%] py-1 text-right font-semibold">Pax</th>
-                      <th className="w-[10%] py-1 text-right font-semibold">Amount</th>
-                      <th className="w-[8%] py-1 font-semibold">Unit</th>
-                      <th className="w-[9%] py-1 text-right font-semibold">Rate</th>
-                      <th className="w-[9%] py-1 text-right font-semibold">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((line, i) => (
-                      <Fragment key={line._id}>
-                      {/* The sheet's own headings, kept on the client's copy:
-                          a long Equipment list reads as kit lists, not as one
-                          run of forty lines. Only where the section changes,
-                          and never above the first line of a category that
-                          has just one. */}
-                      {line.section && line.section !== lines[i - 1]?.section && (
-                        <tr className="border-b border-neutral-300">
-                          <td
-                            colSpan={7}
-                            className="pt-2 pb-1 text-[8.5pt] font-semibold uppercase tracking-wide text-neutral-700"
-                          >
-                            {line.section}
-                          </td>
-                        </tr>
-                      )}
-                      <tr className="border-b border-neutral-200 align-top">
-                        <td className="py-1.5 font-medium">{line.name}</td>
-                        <td className="py-1.5 text-neutral-600">{line.clientNotes ?? ""}</td>
-                        <td className="py-1.5 text-right tabular-nums">{line.pax}</td>
-                        <td className="py-1.5 text-right tabular-nums">
-                          {line.unitAmount.toFixed(line.unit === "mile" ? 0 : 1)}
-                        </td>
-                        <td className="py-1.5 text-neutral-600">{unitLabel(line.unit)}</td>
-                        <td className="py-1.5 text-right tabular-nums">
-                          {formatPence(line.ratePence)}
-                        </td>
-                        <td className="py-1.5 text-right tabular-nums">
-                          {formatPence(Math.round(line.ratePence * line.pax * line.unitAmount))}
-                        </td>
-                      </tr>
-                      </Fragment>
-                    ))}
-                    <tr>
-                      <td colSpan={5} />
-                      <td className="py-1.5 text-right text-[8.5pt] font-semibold uppercase tracking-wide text-neutral-600">
-                        Subtotal
-                      </td>
-                      <td className="py-1.5 text-right font-semibold tabular-nums">
-                        {formatPence(c.totals.total)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            );
-          })}
-        </section>
-
-        {/* Signature */}
-        <footer className="mt-10 break-inside-avoid border-t border-neutral-300 pt-6 text-[9pt]">
-          <p className="text-neutral-700">
-            If you would like to proceed with the above quote, please sign and date this and
-            return it to your point of contact. In doing so you agree to our terms, the
-            assumptions above, and the price quoted.
-          </p>
-          <div className="mt-8 grid grid-cols-3 gap-8">
-            {["Print name", "Signature", "Date"].map((label) => (
-              <div key={label}>
-                <div className="border-b border-neutral-400" />
-                <p className="mt-1 text-[8pt] uppercase tracking-wide text-neutral-600">
-                  {label}
-                </p>
-              </div>
-            ))}
-          </div>
-          {company.invoicing?.legalName && (
-            <p className="mt-8 text-[8pt] text-neutral-500">
-              {company.invoicing.legalName}
-              {company.invoicing.companyNumber && ` · Company no. ${company.invoicing.companyNumber}`}
-              {company.invoicing.vatNumber && ` · VAT no. ${company.invoicing.vatNumber}`}
-            </p>
-          )}
-        </footer>
-      </article>
+      <QuoteDocument data={data} ownerName={ownerName} ownerEmail={ownerEmail} />
     </div>
+  );
+}
+
+/**
+ * Sending the quote to the client, with the PDF attached.
+ *
+ * The PDF is made by the same request the download button makes and handed to
+ * the server to attach, so there is one renderer and the client's copy is the
+ * copy that was on screen.
+ */
+function SendDialog({
+  quoteId,
+  clientEmail,
+  fileName,
+  fetchPdf,
+}: {
+  quoteId: Id<"quotes">;
+  clientEmail: string | null;
+  fileName: string;
+  fetchPdf: () => Promise<Blob>;
+}) {
+  const uploadUrl = useMutation(api.quotes.generateAttachmentUploadUrl);
+  const send = useMutation(api.quotes.sendToClient);
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState(clientEmail?.includes("@") ? clientEmail : "");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function handleSend() {
+    setSending(true);
+    try {
+      const blob = await fetchPdf();
+      const url = await uploadUrl({});
+      const upload = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/pdf" },
+        body: blob,
+      });
+      if (!upload.ok) throw new Error("Could not upload the PDF.");
+      const { storageId } = (await upload.json()) as { storageId: Id<"_storage"> };
+
+      await send({
+        id: quoteId,
+        to: to.trim(),
+        message: message.trim() || undefined,
+        fileId: storageId,
+        fileName,
+      });
+      toast.success(`Sent to ${to.trim()}.`);
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not send it.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>
+        Send by email
+      </Button>
+      {open && (
+        <Dialog open onOpenChange={(next) => (!next ? setOpen(false) : undefined)}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Send this quote</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="send-to">To</Label>
+                <Input
+                  id="send-to"
+                  type="email"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  placeholder="name@client.com"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="send-message">Message</Label>
+                <Textarea
+                  id="send-message"
+                  rows={4}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Anything you want to say alongside it. The quote goes attached as a PDF."
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Sending marks the quote as sent, the same as emailing it yourself would.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button disabled={sending || !to.includes("@")} onClick={() => void handleSend()}>
+                {sending ? "Sending…" : "Send"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }

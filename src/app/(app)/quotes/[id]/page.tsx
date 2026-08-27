@@ -64,7 +64,6 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   const addCrew = useMutation(api.quotes.addCrewFromProject);
   const addKit = useMutation(api.quotes.addKitFromProject);
   const newVersion = useMutation(api.quotes.newVersion);
-  const syncFromRateCard = useMutation(api.quotes.syncFromRateCard);
   const setArchived = useMutation(api.quotes.setArchived);
   const saveName = useCallback(
     async (value: string) => {
@@ -80,7 +79,6 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
     state: nameState,
   } = useSyncedField(data.quote.title ?? "", saveName);
   const [adding, setAdding] = useState<QuoteCategory | null>(null);
-  const [hideEmpty, setHideEmpty] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const { quote, totals } = data;
@@ -170,29 +168,6 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
               ))}
             </SelectContent>
           </Select>
-          {/* A quote written before the rate card grew has none of the newer
-              lines on it, and a line nobody can see is a line nobody charges
-              for. Adds only what is missing; nothing priced is touched. */}
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={busy}
-            title="Adds any rate card lines this quote has not got. Nothing already priced is changed."
-            onClick={() =>
-              void run(
-                syncFromRateCard({ id: quoteId }).then((r) =>
-                  toast.success(
-                    r.added === 0
-                      ? "Nothing missing — every rate card line is on this quote."
-                      : `${r.added} missing line${r.added === 1 ? "" : "s"} added.`
-                  )
-                ),
-                "Could not add them."
-              )
-            }
-          >
-            Add missing lines
-          </Button>
           <Button variant="secondary" size="sm" render={<Link href={`/quotes/${quoteId}/view`} />}>
             Client copy
           </Button>
@@ -288,16 +263,6 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
                 to pull its crew and kit in.
               </p>
             )}
-            {/* Everything chargeable is listed so nothing is forgotten. Once
-                it is priced, the empty lines are just in the way. */}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto"
-              onClick={() => setHideEmpty((on) => !on)}
-            >
-              {hideEmpty ? "Show every line" : "Hide unpriced lines"}
-            </Button>
           </div>
 
           {QUOTE_CATEGORIES.map((category) => {
@@ -322,7 +287,6 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
                 lines={lines}
                 subtotal={cat.totals.total}
                 overrideTotal={override?.totalPence ?? null}
-                hideEmpty={hideEmpty}
                 onAdd={() => setAdding(category.value)}
               />
             );
@@ -483,7 +447,6 @@ function CategoryCard({
   lines,
   subtotal,
   overrideTotal,
-  hideEmpty,
   onAdd,
 }: {
   quoteId: Id<"quotes">;
@@ -492,7 +455,6 @@ function CategoryCard({
   lines: QuoteData["lines"];
   subtotal: number;
   overrideTotal: number | null;
-  hideEmpty: boolean;
   onAdd: () => void;
 }) {
   const updateLine = useMutation(api.quotes.updateLine);
@@ -501,7 +463,16 @@ function CategoryCard({
   const [confirming, setConfirming] = useState<Id<"quoteLines"> | null>(null);
 
   const priced = lines.filter((l) => l.pax > 0 && l.unitAmount > 0);
-  const shown = hideEmpty ? priced : lines;
+  const visible = lines;
+
+  // The individual kit lists stay folded away until they are wanted — open
+  // already if anything in them is on the quote, because a priced line must
+  // never be hidden.
+  const dryHire = visible.filter((l) => isDryHire(l.section));
+  const [showDryHire, setShowDryHire] = useState(
+    dryHire.some((l) => l.pax > 0 && l.unitAmount > 0)
+  );
+  const shown = showDryHire ? visible : visible.filter((l) => !isDryHire(l.section));
 
   async function save(work: Promise<unknown>, failure: string) {
     try {
@@ -742,6 +713,21 @@ function CategoryCard({
               })}
             </tbody>
           </table>
+          {dryHire.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowDryHire((open) => !open)}
+              className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              <span className="text-[10px]">{showDryHire ? "▾" : "▸"}</span>
+              Dry hire equipment
+              <span className="font-normal">
+                {showDryHire
+                  ? "— hide the individual kit lists"
+                  : `— ${dryHire.length} lines across cameras, lenses, grip, lighting and the rest`}
+              </span>
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border px-3 pt-2 text-sm">
@@ -1027,6 +1013,28 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
  * section — anything typed by hand — keep their place at the end rather than
  * being forced under a heading they were never given.
  */
+/**
+ * The kit lists a producer only opens when they are hiring kit out.
+ *
+ * Seven sections of individual cameras, lenses and lamps sit under Equipment,
+ * and on a job taking a standard package none of them is looked at — they
+ * just push the lines that are being used off the screen. They fold behind
+ * one heading, closed unless something in them is priced.
+ */
+const DRY_HIRE_SECTIONS = [
+  "CAMERAS",
+  "LENSES",
+  "ACCESSORIES",
+  "GRIP",
+  "MONITORING",
+  "LIVESTREAM",
+  "LIGHTING",
+];
+
+function isDryHire(section: string | undefined): boolean {
+  return section !== undefined && DRY_HIRE_SECTIONS.includes(section.trim().toUpperCase());
+}
+
 type SectionRow =
   | { kind: "section"; name: string; subtotal: number }
   | { kind: "line"; line: QuoteData["lines"][number] };
