@@ -2,6 +2,7 @@ import { query, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { normaliseStatus } from "./lib/projectStatus";
+import { itemKey } from "./lib/itemKey";
 import { Doc, Id } from "./_generated/dataModel";
 
 export type AttentionItem = {
@@ -37,10 +38,6 @@ export type AttentionItem = {
  */
 const IMMINENT_DAYS = 14;
 
-/** Case and spacing are not what makes two lines the same piece of kit. */
-function itemKey(item: string): string {
-  return item.trim().toLowerCase().replace(/\s+/g, " ");
-}
 
 /** "A, B and C" — a list a person would read out. */
 function readableList(parts: string[]): string {

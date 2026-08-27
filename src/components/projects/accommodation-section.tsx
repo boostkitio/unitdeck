@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Doc, Id } from "../../../convex/_generated/dataModel";
@@ -52,8 +52,10 @@ export function AccommodationSection({ projectId }: { projectId: Id<"projects"> 
 
   const nights = (stays ?? []).reduce((sum, stay) => sum + (stay.nights ?? 0), 0);
 
+  // mt-12, as every other section on this page carries: they are separate
+  // cards rather than a stack, and should be spaced like the rest.
   return (
-    <Card>
+    <Card className="mt-12">
       <CardHeader>
         <CardTitle>Accommodation</CardTitle>
         <CardAction>
@@ -147,6 +149,27 @@ function StayDialog({
 }) {
   const add = useMutation(api.accommodation.add);
   const update = useMutation(api.accommodation.update);
+  // The same place lookup the location dialog uses, so finding a hotel works
+  // the way finding a location already does.
+  const suggestAddress = useAction(api.locations.suggestAddress);
+  const [lookup, setLookup] = useState("");
+  const [suggestions, setSuggestions] = useState<
+    { name: string; address: string }[] | null
+  >(null);
+  const [searching, setSearching] = useState(false);
+
+  async function runLookup() {
+    if (lookup.trim().length < 3) return;
+    setSearching(true);
+    try {
+      const result = await suggestAddress({ query: lookup });
+      setSuggestions(result.suggestions.map((s) => ({ name: s.name, address: s.address })));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not look that up.");
+    } finally {
+      setSearching(false);
+    }
+  }
   const [name, setName] = useState(stay?.name ?? "");
   const [address, setAddress] = useState(stay?.address ?? "");
   const [phone, setPhone] = useState(stay?.phone ?? "");
@@ -189,13 +212,67 @@ function StayDialog({
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-2">
+            <Label htmlFor="stay-lookup">Search for a hotel</Label>
+            <div className="flex gap-2">
+              <Input
+                id="stay-lookup"
+                placeholder="Hotel or place name…"
+                value={lookup}
+                onChange={(e) => setLookup(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter searches rather than submitting the dialog, which
+                  // would save a half-filled hotel.
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void runLookup();
+                  }
+                }}
+                disabled={searching}
+                autoFocus
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={searching || lookup.trim().length < 3}
+                onClick={() => void runLookup()}
+              >
+                {searching ? "Finding…" : "Find"}
+              </Button>
+            </div>
+            {suggestions !== null && suggestions.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No matches. Fill the fields in below instead.
+              </p>
+            )}
+            {suggestions !== null && suggestions.length > 0 && (
+              <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
+                {suggestions.map((suggestion, i) => (
+                  <li key={i}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setName(suggestion.name);
+                        setAddress(suggestion.address);
+                        setSuggestions(null);
+                      }}
+                      className="flex w-full flex-col gap-0.5 px-3 py-2 text-left transition-colors hover:bg-muted/60"
+                    >
+                      <span className="text-sm font-medium">{suggestion.name}</span>
+                      <span className="text-xs text-muted-foreground">{suggestion.address}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="stay-name">Hotel</Label>
             <Input
               id="stay-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Where the unit is sleeping"
-              autoFocus
             />
           </div>
           <div className="space-y-2">

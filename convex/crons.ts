@@ -13,4 +13,8 @@ crons.cron(
   {}
 );
 
+// A production whose last shoot day has passed moves itself into archived
+// work. Early, before anyone is looking at their list for the day.
+crons.cron("archive finished productions", "30 3 * * *", internal.projects.archiveFinished, {});
+
 export default crons;

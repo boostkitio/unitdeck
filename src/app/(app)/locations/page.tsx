@@ -564,9 +564,12 @@ function LocationDialog({
         </div>
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           {location ? (
+            // The same control as archiving a project: same variant, same
+            // size, named after what it archives. Archiving should not look
+            // like a different kind of action depending which tab you are on.
             <Button
-              variant="ghost"
-              className="text-red-600"
+              variant="destructive"
+              size="sm"
               disabled={busy}
               onClick={async () => {
                 await archiveLocation({ id: location._id });
@@ -574,7 +577,7 @@ function LocationDialog({
                 onClose();
               }}
             >
-              Archive
+              Archive location
             </Button>
           ) : (
             <span />

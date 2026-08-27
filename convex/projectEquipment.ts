@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
+import { itemKey } from "./lib/itemKey";
 import { Doc, Id } from "./_generated/dataModel";
 import { normaliseStatus } from "./lib/projectStatus";
 
@@ -41,9 +42,10 @@ export const listForProject = query({
  * The kit list as it goes out of the door: every line with the serial number
  * of the thing it names, and the production and company it belongs to.
  *
- * A serial only exists for kit picked from the inventory — anything hired in
- * or typed by hand has none, and says so rather than showing a blank that
- * reads as a missing serial.
+ * A line is matched to the inventory by its link where it has one and by its
+ * name where it has not, because a row written before that link existed still
+ * names kit we own and a serial we hold. Where the name matches more than one
+ * unit there is no way to say which body went out, so no serial is claimed.
  */
 export const kitList = query({
   args: { projectId: v.id("projects") },
@@ -57,18 +59,43 @@ export const kitList = query({
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .take(500);
 
+    // The inventory, by name, so a line that is not linked to a record can
+    // still be recognised. Most rows carry an equipmentId; ones written
+    // before that link existed, or typed by hand rather than picked, do not —
+    // and the kit is ours and has a serial either way.
+    const inventory = await ctx.db
+      .query("equipment")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(5000);
+    const byName = new Map<string, Doc<"equipment">[]>();
+    for (const kit of inventory) {
+      if (kit.archived) continue;
+      const key = itemKey(kit.item);
+      const found = byName.get(key);
+      if (found) found.push(kit);
+      else byName.set(key, [kit]);
+    }
+
     const items = [];
     for (const row of rows) {
-      const owned = row.equipmentId ? await ctx.db.get(row.equipmentId) : null;
+      const linked = row.equipmentId ? await ctx.db.get(row.equipmentId) : null;
+      const ours = linked?.orgId === org._id ? linked : null;
+      const sameName = byName.get(itemKey(row.item)) ?? [];
+
+      // A named match settles the serial only when it can name one unit.
+      // Owning three FX9s and printing the first one's serial would put a
+      // number on the sheet that may not be the body that left the building.
+      const unit = ours ?? (sameName.length === 1 ? sameName[0] : null);
+
       items.push({
         id: String(row._id),
         section: sectionOf(row),
-        dept: row.dept ?? owned?.dept ?? null,
+        dept: row.dept ?? unit?.dept ?? null,
         item: row.item,
-        serialNumber: owned?.orgId === org._id ? (owned.serialNumber ?? null) : null,
+        serialNumber: unit?.serialNumber ?? null,
         // Whether this is ours at all, which is what a rental house is
         // reading the list to work out.
-        owned: owned !== null && owned.orgId === org._id,
+        owned: ours !== null || sameName.length > 0,
         quantity: row.quantity ?? 1,
         cost: row.cost ?? null,
         status: row.status,
@@ -225,11 +252,6 @@ export type EquipmentClash = {
     dates: string[];
   }[];
 };
-
-/** Case and spacing are not what makes two lines the same piece of kit. */
-function itemKey(item: string): string {
-  return item.trim().toLowerCase().replace(/\s+/g, " ");
-}
 
 /**
  * Kit this production wants that it cannot have, because the productions

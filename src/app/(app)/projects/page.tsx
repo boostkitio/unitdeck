@@ -216,9 +216,11 @@ export default function ProjectsPage() {
                   className="w-24"
                 />
                 <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
+                {/* Dates before the client: what you scan a project list for
+                    is when it is, not who it is for. */}
+                <SortableHead label="Shoot date" sortKey="date" sort={sort} onSort={toggle} />
                 <SortableHead label="Client" sortKey="client" sort={sort} onSort={toggle} />
                 <SortableHead label="Location" sortKey="location" sort={sort} onSort={toggle} />
-                <SortableHead label="Shoot date" sortKey="date" sort={sort} onSort={toggle} />
                 <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggle} />
               </TableRow>
             </TableHeader>
@@ -245,10 +247,6 @@ export default function ProjectsPage() {
                         {p.name}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{p.clientName ?? "\u00b7"}</TableCell>
-                    <TableCell className="max-w-48 truncate text-muted-foreground">
-                      {p.locationName ?? "\u00b7"}
-                    </TableCell>
                     <TableCell
                       className={cn("tabular-nums", (isPast || date === null) && "text-muted-foreground")}
                     >
@@ -264,6 +262,10 @@ export default function ProjectsPage() {
                           )}
                         </>
                       )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{p.clientName ?? "\u00b7"}</TableCell>
+                    <TableCell className="max-w-48 truncate text-muted-foreground">
+                      {p.locationName ?? "\u00b7"}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className={statusBadgeClass(p.status)}>

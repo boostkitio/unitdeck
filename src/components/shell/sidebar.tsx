@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
+import { OrganizationSwitcher } from "@clerk/nextjs";
+import { AccountButton } from "@/components/shell/account-button";
 import { SearchIcon } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { FeedbackButton } from "@/components/feedback-button";
@@ -74,7 +75,7 @@ export function Sidebar() {
         </button>
         <FeedbackButton />
         <div className="flex items-center justify-between px-2">
-          <UserButton />
+          <AccountButton />
           <ThemeToggle />
         </div>
       </div>

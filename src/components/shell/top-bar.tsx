@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
+import { AccountButton } from "@/components/shell/account-button";
 import { SearchIcon } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ export function TopBar() {
           <SearchIcon />
         </Button>
         <ThemeToggle />
-        <UserButton />
+        <AccountButton />
       </div>
     </header>
   );

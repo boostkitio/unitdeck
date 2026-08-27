@@ -691,3 +691,53 @@ export const refreshForecast = action({
     return { ok: true, reason };
   },
 });
+
+
+/**
+ * How long after the last shoot day a production is left alone.
+ *
+ * Zero means the morning after wrap. A job usually outlives its shoot — post,
+ * invoicing, deliverables — so if archiving starts catching work still in
+ * progress, this is the one number to raise.
+ */
+const DAYS_AFTER_WRAP = 0;
+
+/**
+ * Archives productions whose shoot is over.
+ *
+ * Runs for every organisation, so it takes no org from a caller and derives
+ * nothing from one. A production with no dates in the diary has nothing that
+ * can have passed and is left where it is; so is one already archived.
+ *
+ * Archiving is reversible and archived work has its own view, which is what
+ * makes doing this automatically reasonable at all.
+ */
+export const archiveFinished = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = new Date(Date.now() - DAYS_AFTER_WRAP * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
+    // One pass over the shoot days rather than a query per production.
+    const days = await ctx.db.query("shootDays").take(20_000);
+    const lastDay = new Map<string, string>();
+    for (const day of days) {
+      const key = String(day.projectId);
+      const seen = lastDay.get(key);
+      if (!seen || day.date > seen) lastDay.set(key, day.date);
+    }
+
+    const projects = await ctx.db.query("projects").take(5_000);
+    let archived = 0;
+    for (const project of projects) {
+      if (project.archived === true || project.status === "archived") continue;
+      const last = lastDay.get(String(project._id));
+      // No dates means nothing has passed.
+      if (last === undefined || last >= cutoff) continue;
+      await ctx.db.patch(project._id, { archived: true });
+      archived++;
+    }
+    return { archived };
+  },
+});

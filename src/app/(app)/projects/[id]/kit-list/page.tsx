@@ -104,11 +104,13 @@ export default function KitListPage({ params }: { params: Promise<{ id: string }
                       <tr key={row.id} className="border-b border-neutral-200 align-top">
                         <td className="py-1.5 text-neutral-600">{row.dept ?? "—"}</td>
                         <td className="py-1.5 font-medium">{row.item}</td>
+                        {/* Only ever the serial or the plain fact that there
+                            is not one. Saying anything else here — what the
+                            line is, where it came from — reads as a state the
+                            serial is in. */}
                         <td className="py-1.5 font-mono text-[9pt] text-neutral-700">
                           {row.serialNumber ?? (
-                            <span className="font-sans text-neutral-400">
-                              {row.owned ? "not recorded" : "hired in"}
-                            </span>
+                            <span className="font-sans text-neutral-400">No serial number</span>
                           )}
                         </td>
                         <td className="py-1.5 pr-4 text-right tabular-nums">{row.quantity}</td>

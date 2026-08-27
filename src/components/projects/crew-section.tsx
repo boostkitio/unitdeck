@@ -95,47 +95,88 @@ export function CrewSection({
 
   // Dragging, by pointer events rather than HTML5 drag-and-drop, because the
   // latter does nothing at all on a touch screen and this list is read on set.
+  //
+  // The whole drag is held in one ref rather than in state: which pointer owns
+  // it, where it started, and the list exactly as it stood when it began. That
+  // last part matters because this table is live — somebody else booking crew
+  // mid-drag would otherwise shift the rows under the finger and reorder the
+  // wrong person.
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const dragRef = useRef<{ pointerId: number; from: number; ids: string[] } | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragSlot, setDragSlot] = useState<number | null>(null);
 
-  function slotUnder(clientY: number): number {
-    const midpoints = rowRefs.current.slice(0, sortedCrew.length).flatMap((row) => {
-      if (!row) return [];
+  /**
+   * The gap under the pointer, or null when the rows cannot be measured.
+   *
+   * Every row has to report a real box. A missing ref, or one left behind by a
+   * row that has gone, would shorten the list and quietly shift every gap
+   * after it — so a partial measurement is refused rather than guessed at.
+   */
+  function slotUnder(clientY: number, count: number): number | null {
+    const midpoints: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const row = rowRefs.current[i];
+      if (!row) return null;
       const rect = row.getBoundingClientRect();
-      return [rect.top + rect.height / 2];
-    });
+      if (rect.height === 0) return null;
+      midpoints.push(rect.top + rect.height / 2);
+    }
     return dropIndex(midpoints, clientY);
   }
 
   function startDrag(index: number, event: React.PointerEvent<HTMLButtonElement>) {
-    // The handle keeps the pointer for the whole drag, so leaving the row —
-    // or the table — does not drop it half way.
+    // Left button or a touch only: a right-click has its own meaning, and a
+    // second finger mid-drag must not start a competing one.
+    if (event.button !== 0 || dragRef.current !== null) return;
+    // Without this the browser starts selecting the row text and takes the
+    // pointer with it, which is what made a drag give up halfway.
+    event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      from: index,
+      ids: sortedCrew.map((m) => String(m._id)),
+    };
     setDragFrom(index);
     setDragSlot(index);
   }
 
   function onDragMove(event: React.PointerEvent<HTMLButtonElement>) {
-    if (dragFrom === null) return;
-    setDragSlot(slotUnder(event.clientY));
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const slot = slotUnder(event.clientY, drag.ids.length);
+    if (slot !== null) setDragSlot(slot);
   }
 
-  async function endDrag() {
-    const from = dragFrom;
+  async function endDrag(event?: React.PointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    if (event && drag.pointerId !== event.pointerId) return;
+    if (event?.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
     const slot = dragSlot;
+    dragRef.current = null;
     setDragFrom(null);
     setDragSlot(null);
-    if (from === null || slot === null) return;
-    const next = moveToSlot(sortedCrew, from, slot);
-    // Dropped back where it started: nothing to write.
-    if (next === sortedCrew) return;
+    if (slot === null) return;
+
+    // The list moved under the drag, so what was dropped where is no longer
+    // known. Writing the order anyway would move somebody nobody touched.
+    const now = sortedCrew.map((m) => String(m._id));
+    if (now.length !== drag.ids.length || now.some((id, i) => id !== drag.ids[i])) return;
+
+    const next = moveToSlot(sortedCrew, drag.from, slot);
+    if (next === sortedCrew) return; // Dropped back where it started.
     try {
       await reorderCrew({ projectId, orderedIds: next.map((m) => m._id) });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not reorder the crew.");
     }
   }
+
   const removeCrew = useMutation(api.projectCrew.remove);
   const updateCrew = useMutation(api.projectCrew.update);
   const ensureRelease = useMutation(api.documents.ensureForPerson);
@@ -276,8 +317,12 @@ export function CrewSection({
                         className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
                         onPointerDown={(e) => startDrag(index, e)}
                         onPointerMove={onDragMove}
-                        onPointerUp={() => void endDrag()}
-                        onPointerCancel={() => void endDrag()}
+                        onPointerUp={(e) => void endDrag(e)}
+                        // Capture can be taken away — a system gesture, the
+                        // row re-rendering out from under it — and without
+                        // this the drag would stay stuck on.
+                        onPointerCancel={(e) => void endDrag(e)}
+                        onLostPointerCapture={() => void endDrag()}
                       >
                         <GripVerticalIcon className="size-4" />
                       </button>
