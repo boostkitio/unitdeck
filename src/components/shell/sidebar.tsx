@@ -21,7 +21,7 @@ export function Sidebar() {
   // its own overflow means a long nav scrolls inside the sidebar, not with the
   // page.
   return (
-    <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar px-3 py-4 md:sticky md:top-[var(--dev-banner-h,0px)] md:flex md:h-[calc(100vh-var(--dev-banner-h,0px))] md:overflow-y-auto">
+    <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar px-3 py-4 md:sticky md:top-0 md:flex md:h-screen md:overflow-y-auto">
       <Link
         href="/"
         className="px-2"
