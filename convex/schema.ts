@@ -553,7 +553,29 @@ export default defineSchema({
       )
     ),
     status: v.optional(v.union(v.literal("open"), v.literal("addressed"))),
+    // When the author last rewrote it. Absent means it stands as first written;
+    // present is shown, because a thread where a comment changed underneath a
+    // reply reads wrongly otherwise.
+    editedAt: v.optional(v.number()),
   }).index("by_org", ["orgId"]),
+
+  /**
+   * Replies on a piece of feedback, so it can be a conversation rather than a
+   * suggestions box. Its own table rather than an array on the feedback row:
+   * two people replying at once would otherwise overwrite each other, and a
+   * reply needs its own author and its own edit history.
+   */
+  feedbackReplies: defineTable({
+    orgId: v.id("organisations"),
+    feedbackId: v.id("feedback"),
+    userId: v.string(), // Clerk subject
+    userName: v.optional(v.string()),
+    userEmail: v.optional(v.string()),
+    message: v.string(),
+    editedAt: v.optional(v.number()),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_feedback", ["feedbackId"]),
 
   documents: defineTable({
     orgId: v.id("organisations"),

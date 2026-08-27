@@ -2,6 +2,7 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
+import { displayName } from "./lib/personName";
 import { escapeHtml, sendEmail } from "./lib/email";
 import { Doc, Id } from "./_generated/dataModel";
 
@@ -20,6 +21,16 @@ const feedbackTypeValidator = v.union(
 /** What the `list` query returns per row. Exported so the frontend can type
  *  its useQuery result without importing Doc<"feedback"> (which won't have the
  *  new optional fields until Convex codegen has run with the updated schema). */
+export type FeedbackReply = {
+  _id: Id<"feedbackReplies">;
+  _creationTime: number;
+  message: string;
+  who: string;
+  /** Whether the signed-in reader wrote it, which is who may edit it. */
+  mine: boolean;
+  edited: boolean;
+};
+
 export type FeedbackItem = {
   _id: Id<"feedback">;
   _creationTime: number;
@@ -28,6 +39,9 @@ export type FeedbackItem = {
   status: "open" | "addressed";
   message: string;
   who: string;
+  mine: boolean;
+  edited: boolean;
+  replies: FeedbackReply[];
 };
 
 // ---------------------------------------------------------------------------
@@ -65,16 +79,66 @@ export const submit = mutation({
   },
 });
 
-/** Return all feedback for this org, newest first. */
+/**
+ * All feedback for this org, newest first, each with its replies oldest first
+ * — a thread reads down the page.
+ *
+ * Authors are resolved through the names people have set in UnitDeck rather
+ * than through whatever was stamped on the row when it was written: somebody
+ * who has since given themselves a name should not still read as an email
+ * address on everything they have ever said.
+ */
 export const list = query({
   args: {},
   handler: async (ctx): Promise<FeedbackItem[]> => {
-    const { org } = await requireOrg(ctx);
+    const { identity, org } = await requireOrg(ctx);
     const rows = await ctx.db
       .query("feedback")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .order("desc")
       .collect();
+
+    // Both read once for the whole page rather than per row.
+    const profiles = await ctx.db
+      .query("memberProfiles")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+    const replies = await ctx.db
+      .query("feedbackReplies")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .collect();
+
+    const nameFor = (row: {
+      userId: string;
+      userName?: string;
+      userEmail?: string;
+    }) =>
+      displayName({
+        chosen: profiles.find((p) => p.userId === row.userId),
+        // userName is one string (Clerk's `name`), not a first/last pair, so
+        // it goes in whole — joinName returns it unchanged.
+        fromAuth: row.userName ? { firstName: row.userName } : null,
+        email: row.userEmail,
+        fallback: "Someone",
+      });
+
+    const byFeedback = new Map<Id<"feedback">, FeedbackReply[]>();
+    for (const reply of replies) {
+      const bucket = byFeedback.get(reply.feedbackId) ?? [];
+      bucket.push({
+        _id: reply._id,
+        _creationTime: reply._creationTime,
+        message: reply.message,
+        who: nameFor(reply),
+        mine: reply.userId === identity.subject,
+        edited: reply.editedAt !== undefined,
+      });
+      byFeedback.set(reply.feedbackId, bucket);
+    }
+    for (const bucket of byFeedback.values()) {
+      bucket.sort((a, b) => a._creationTime - b._creationTime);
+    }
+
     return rows.map((row) => ({
       _id: row._id,
       _creationTime: row._creationTime,
@@ -82,8 +146,73 @@ export const list = query({
       type: row.type,
       status: row.status ?? "open",
       message: row.message,
-      who: row.userName ?? row.userEmail ?? "Someone",
+      who: nameFor(row),
+      mine: row.userId === identity.subject,
+      edited: row.editedAt !== undefined,
+      replies: byFeedback.get(row._id) ?? [],
     }));
+  },
+});
+
+/**
+ * Rewrites your own feedback.
+ *
+ * Your own only: anyone on the account can mark a piece of feedback addressed,
+ * because that is a statement about the product, but rewriting what somebody
+ * said is putting words in their mouth. The edit is stamped so a thread where
+ * a comment changed under a reply is readable.
+ */
+export const edit = mutation({
+  args: { id: v.id("feedback"), message: v.string() },
+  handler: async (ctx, args) => {
+    const { identity, org } = await requireOrg(ctx);
+    const row = await ctx.db.get(args.id);
+    if (!row || row.orgId !== org._id) throw new Error("Feedback not found");
+    if (row.userId !== identity.subject) throw new Error("That is not yours to edit");
+    const message = args.message.trim();
+    if (message.length < 5) {
+      throw new Error("Write a sentence or two so the feedback is actionable");
+    }
+    await ctx.db.patch(args.id, { message, editedAt: Date.now() });
+    return null;
+  },
+});
+
+/** Replies to a piece of feedback. */
+export const reply = mutation({
+  args: { feedbackId: v.id("feedback"), message: v.string() },
+  handler: async (ctx, args) => {
+    const { identity, org } = await requireOrg(ctx);
+    const parent = await ctx.db.get(args.feedbackId);
+    if (!parent || parent.orgId !== org._id) throw new Error("Feedback not found");
+    const message = args.message.trim();
+    if (message.length === 0) throw new Error("Write something to reply with");
+    return await ctx.db.insert("feedbackReplies", {
+      orgId: org._id,
+      feedbackId: args.feedbackId,
+      userId: identity.subject,
+      userName:
+        typeof identity.name === "string" && identity.name.trim() !== ""
+          ? identity.name
+          : undefined,
+      userEmail: typeof identity.email === "string" ? identity.email : undefined,
+      message,
+    });
+  },
+});
+
+/** Rewrites your own reply. Your own only, for the reason `edit` gives. */
+export const editReply = mutation({
+  args: { id: v.id("feedbackReplies"), message: v.string() },
+  handler: async (ctx, args) => {
+    const { identity, org } = await requireOrg(ctx);
+    const row = await ctx.db.get(args.id);
+    if (!row || row.orgId !== org._id) throw new Error("Reply not found");
+    if (row.userId !== identity.subject) throw new Error("That is not yours to edit");
+    const message = args.message.trim();
+    if (message.length === 0) throw new Error("Write something to reply with");
+    await ctx.db.patch(args.id, { message, editedAt: Date.now() });
+    return null;
   },
 });
 

@@ -4,11 +4,13 @@ import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { api } from "../../../../convex/_generated/api";
-import type { FeedbackItem } from "../../../../convex/feedback";
+import type { FeedbackItem, FeedbackReply } from "../../../../convex/feedback";
 import { getFeedbackType } from "@/lib/feedback-types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -47,6 +49,69 @@ function TypeChip({ type }: { type: FeedbackItem["type"] }) {
   );
 }
 
+/**
+ * A box for rewriting something you already said, or for writing a reply.
+ *
+ * Shared by both because they are the same control with a different verb, and
+ * a reply that behaved differently from an edit would be one thing too many to
+ * learn on a page nobody visits twice a day.
+ */
+function MessageBox({
+  initial,
+  action,
+  placeholder,
+  onSubmit,
+  onCancel,
+}: {
+  initial?: string;
+  action: string;
+  placeholder?: string;
+  onSubmit: (message: string) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(initial ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (draft.trim().length === 0) return;
+    setSaving(true);
+    try {
+      await onSubmit(draft.trim());
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder={placeholder}
+        rows={2}
+        autoFocus
+        onKeyDown={(e) => {
+          // Enter sends, as it does everywhere else a short message is typed;
+          // Shift+Enter is the newline.
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void submit();
+          }
+          if (e.key === "Escape") onCancel();
+        }}
+      />
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={() => void submit()} disabled={saving || draft.trim().length === 0}>
+          {saving ? "Saving…" : action}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function FeedbackRow({
   item,
   onToggle,
@@ -54,26 +119,128 @@ function FeedbackRow({
   item: FeedbackItem;
   onToggle: (id: FeedbackItem["_id"], next: "open" | "addressed") => void;
 }) {
+  const editFeedback = useMutation(api.feedback.edit);
+  const reply = useMutation(api.feedback.reply);
+  const editReply = useMutation(api.feedback.editReply);
+  // One thing open at a time: the comment being edited, the reply being
+  // edited, or the new reply. Anything else and the row becomes a form.
+  const [open, setOpen] = useState<
+    { kind: "edit" } | { kind: "reply" } | { kind: "editReply"; id: FeedbackReply["_id"] } | null
+  >(null);
+
   const isAddressed = item.status === "addressed";
+
+  async function run(work: Promise<unknown>, failure: string) {
+    try {
+      await work;
+      setOpen(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : failure);
+    }
+  }
+
   return (
-    <div className="flex items-start gap-3 py-3 first:pt-0">
-      <TypeChip type={item.type} />
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className={cn("text-sm", isAddressed && "text-muted-foreground line-through")}>
-          {item.message}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {item.who} &middot; {formatDate(item._creationTime)}
-        </p>
+    <div className="py-3 first:pt-0">
+      <div className="flex items-start gap-3">
+        <TypeChip type={item.type} />
+        <div className="min-w-0 flex-1 space-y-1">
+          {open?.kind === "edit" ? (
+            <MessageBox
+              initial={item.message}
+              action="Save"
+              onCancel={() => setOpen(null)}
+              onSubmit={(message) =>
+                run(editFeedback({ id: item._id, message }), "Could not save it.")
+              }
+            />
+          ) : (
+            <p className={cn("text-sm", isAddressed && "text-muted-foreground line-through")}>
+              {item.message}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {item.who} &middot; {formatDate(item._creationTime)}
+            {item.edited && " · edited"}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {item.mine && open === null && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => setOpen({ kind: "edit" })}
+            >
+              Edit
+            </Button>
+          )}
+          {open === null && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => setOpen({ kind: "reply" })}
+            >
+              Reply
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs"
+            onClick={() => onToggle(item._id, isAddressed ? "open" : "addressed")}
+          >
+            {isAddressed ? "Reopen" : "Mark addressed"}
+          </Button>
+        </div>
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="shrink-0 text-xs"
-        onClick={() => onToggle(item._id, isAddressed ? "open" : "addressed")}
-      >
-        {isAddressed ? "Reopen" : "Mark addressed"}
-      </Button>
+
+      {(item.replies.length > 0 || open?.kind === "reply") && (
+        <div className="mt-3 space-y-3 border-l-2 border-border pl-4 sm:ml-[4.5rem]">
+          {item.replies.map((r) => (
+            <div key={r._id} className="space-y-1">
+              {open?.kind === "editReply" && open.id === r._id ? (
+                <MessageBox
+                  initial={r.message}
+                  action="Save"
+                  onCancel={() => setOpen(null)}
+                  onSubmit={(message) =>
+                    run(editReply({ id: r._id, message }), "Could not save it.")
+                  }
+                />
+              ) : (
+                <>
+                  <p className="text-sm">{r.message}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {r.who} &middot; {formatDate(r._creationTime)}
+                    {r.edited && " · edited"}
+                    {r.mine && open === null && (
+                      <button
+                        type="button"
+                        onClick={() => setOpen({ kind: "editReply", id: r._id })}
+                        className="ml-2 underline underline-offset-2 hover:text-foreground"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </p>
+                </>
+              )}
+            </div>
+          ))}
+
+          {open?.kind === "reply" && (
+            <MessageBox
+              action="Reply"
+              placeholder="Reply to this…"
+              onCancel={() => setOpen(null)}
+              onSubmit={(message) =>
+                run(reply({ feedbackId: item._id, message }), "Could not post the reply.")
+              }
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
