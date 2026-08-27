@@ -1,38 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { fieldValue, shouldSave, shouldSettle } from "./synced-field";
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
 /**
- * Saves a field a beat after typing stops, when it differs from what is
- * stored. Returns the state so the field can show a quiet indicator instead
- * of needing a Save button.
+ * A field that saves a beat after typing stops, and takes on changes made by
+ * anyone else in the meantime.
  *
- * `save` must be stable — wrap it in useCallback, or the timer restarts on
- * every render and nothing is ever written.
+ * It owns the value rather than the caller holding its own copy in useState,
+ * because that copy was the bug: it never learned about a change made
+ * elsewhere, so it wrote its stale text back over it, and the other browser
+ * did the same in return.
+ *
+ * `savedValue` is the stored value, live from the query. `save` must be
+ * stable — wrap it in useCallback, or the timer restarts on every render and
+ * nothing is ever written.
  */
-export function useDebouncedSave(
-  value: string,
+export function useSyncedField(
   savedValue: string,
   save: (value: string) => Promise<void>,
-  delay = 800,
-): SaveState {
+  options: { delay?: number; canSave?: (value: string) => boolean } = {},
+): { value: string; setValue: (next: string) => void; state: SaveState } {
+  const { delay = 800, canSave } = options;
+  // Null means "not editing" — the field shows whatever is stored. Only
+  // typing creates a draft.
+  const [draft, setDraft] = useState<string | null>(null);
   const [state, setState] = useState<SaveState>("idle");
 
   useEffect(() => {
-    if (value === savedValue) return;
+    if (!shouldSave(draft, savedValue, canSave)) return;
+    const written = draft as string;
     const timer = setTimeout(() => {
-      // setState runs in the timeout, not synchronously in the effect body.
       setState("saving");
-      save(value)
-        .then(() => setState("saved"))
+      save(written)
+        .then(() => {
+          setState("saved");
+          // Let go of the draft now the write has landed, so the field
+          // follows the query again and shows what anyone else does next.
+          // Unless more has been typed since — then that is still unsaved
+          // and holding it is the point.
+          setDraft((current) => (shouldSettle(current, written) ? null : current));
+        })
         .catch(() => setState("error"));
     }, delay);
     return () => clearTimeout(timer);
-  }, [value, savedValue, save, delay]);
+  }, [draft, savedValue, save, delay, canSave]);
 
-  return state;
+  const setValue = useCallback((next: string) => setDraft(next), []);
+
+  return { value: fieldValue(draft, savedValue), setValue, state };
 }
 
 /** Short status text for a debounced field, or null when there is nothing to say. */

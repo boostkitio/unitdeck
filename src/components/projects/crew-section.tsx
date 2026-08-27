@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import { GripVerticalIcon } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { type ProjectCrewMember } from "../../../convex/projectCrew";
@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { EmailLink, PhoneLink } from "@/components/contact-link";
 import { formatShootDateRange } from "@/lib/format-date";
 import { ReleaseComposer } from "@/components/documents/release-composer";
+import { dropIndex, moveToSlot } from "@/lib/reorder";
 
 // "order" is the arranged order — director first, camera together — which the
 // query already returns. It is the default view; a column sort is a temporary
@@ -89,11 +90,43 @@ export function CrewSection({
   const reorderCrew = useMutation(api.projectCrew.reorder);
   const arranging = sort.key === "order";
 
-  async function move(index: number, delta: number) {
-    const next = [...sortedCrew];
-    const target = index + delta;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
+  // Dragging, by pointer events rather than HTML5 drag-and-drop, because the
+  // latter does nothing at all on a touch screen and this list is read on set.
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragSlot, setDragSlot] = useState<number | null>(null);
+
+  function slotUnder(clientY: number): number {
+    const midpoints = rowRefs.current.slice(0, sortedCrew.length).flatMap((row) => {
+      if (!row) return [];
+      const rect = row.getBoundingClientRect();
+      return [rect.top + rect.height / 2];
+    });
+    return dropIndex(midpoints, clientY);
+  }
+
+  function startDrag(index: number, event: React.PointerEvent<HTMLButtonElement>) {
+    // The handle keeps the pointer for the whole drag, so leaving the row —
+    // or the table — does not drop it half way.
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragFrom(index);
+    setDragSlot(index);
+  }
+
+  function onDragMove(event: React.PointerEvent<HTMLButtonElement>) {
+    if (dragFrom === null) return;
+    setDragSlot(slotUnder(event.clientY));
+  }
+
+  async function endDrag() {
+    const from = dragFrom;
+    const slot = dragSlot;
+    setDragFrom(null);
+    setDragSlot(null);
+    if (from === null || slot === null) return;
+    const next = moveToSlot(sortedCrew, from, slot);
+    // Dropped back where it started: nothing to write.
+    if (next === sortedCrew) return;
     try {
       await reorderCrew({ projectId, orderedIds: next.map((m) => m._id) });
     } catch (err) {
@@ -211,29 +244,39 @@ export function CrewSection({
             </TableHeader>
             <TableBody>
               {sortedCrew.map((member, index) => (
-                <TableRow key={member._id}>
+                <TableRow
+                  key={member._id}
+                  ref={(row) => {
+                    rowRefs.current[index] = row;
+                  }}
+                  className={cn(
+                    dragFrom === index && "opacity-40",
+                    // The line the row will land on, drawn on whichever side
+                    // of the gap it belongs to.
+                    dragFrom !== null &&
+                      dragSlot === index &&
+                      "shadow-[inset_0_2px_0_0_var(--color-primary)]",
+                    dragFrom !== null &&
+                      dragSlot === sortedCrew.length &&
+                      index === sortedCrew.length - 1 &&
+                      "shadow-[inset_0_-2px_0_0_var(--color-primary)]",
+                  )}
+                >
                   {arranging && (
                     <TableCell className="w-px pr-0 align-middle">
-                      <div className="flex flex-col">
-                        <button
-                          type="button"
-                          aria-label={`Move ${member.name ?? member.role} up`}
-                          disabled={index === 0}
-                          onClick={() => void move(index, -1)}
-                          className="text-muted-foreground hover:text-foreground disabled:opacity-25"
-                        >
-                          <ChevronUpIcon className="size-4" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Move ${member.name ?? member.role} down`}
-                          disabled={index === sortedCrew.length - 1}
-                          onClick={() => void move(index, 1)}
-                          className="text-muted-foreground hover:text-foreground disabled:opacity-25"
-                        >
-                          <ChevronDownIcon className="size-4" />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Drag ${member.name ?? member.role} to reorder`}
+                        // touch-none stops the browser scrolling the page
+                        // instead of handing us the drag.
+                        className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+                        onPointerDown={(e) => startDrag(index, e)}
+                        onPointerMove={onDragMove}
+                        onPointerUp={() => void endDrag()}
+                        onPointerCancel={() => void endDrag()}
+                      >
+                        <GripVerticalIcon className="size-4" />
+                      </button>
                     </TableCell>
                   )}
                   <TableCell className="font-medium">

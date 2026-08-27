@@ -32,6 +32,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { matchesSearch } from "@/lib/search";
+import { SearchInput } from "@/components/search-input";
 import { CsvExportButton } from "@/components/csv-export-button";
 import { formatShootDate } from "@/lib/format-date";
 import { PROJECT_STATUSES } from "@/lib/project-status";
@@ -178,6 +179,8 @@ function EquipmentList({
 }) {
   const update = useMutation(api.projectEquipment.update);
   const remove = useMutation(api.projectEquipment.remove);
+  const removeAll = useMutation(api.projectEquipment.removeMany);
+  const [clearing, setClearing] = useState(false);
 
   const { sort, toggle } = useTableSort<EquipmentSortKey>({ key: "item", dir: "asc" });
   const sorted = useMemo(() => sortRows(rows, sort, equipmentSortValue), [rows, sort]);
@@ -193,6 +196,27 @@ function EquipmentList({
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update it.");
+    }
+  }
+
+  /**
+   * Clearing the list. Two clicks rather than one: it is the only control here
+   * that throws away more than the line you are looking at, and there is no
+   * undo behind it.
+   */
+  async function handleRemoveAll() {
+    if (!clearing) {
+      setClearing(true);
+      return;
+    }
+    setClearing(false);
+    try {
+      const result = await removeAll({ ids: rows.map((row) => row._id) });
+      toast.success(
+        `${result.removed} line${result.removed === 1 ? "" : "s"} removed from this project.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove them.");
     }
   }
 
@@ -256,7 +280,22 @@ function EquipmentList({
                     className="w-32"
                   />
                   <SortableHead label="Notes" sortKey="notes" sort={sort} onSort={toggle} />
-                  <TableHead className="w-px" />
+                  {/* Sits over the per-row Remove, in the same column, because
+                      it is the same action applied to the whole list. */}
+                  <TableHead className="w-px">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void handleRemoveAll()}
+                      onBlur={() => setClearing(false)}
+                      className={cn(
+                        "-my-1 font-normal",
+                        clearing && "text-destructive hover:text-destructive",
+                      )}
+                    >
+                      {clearing ? `Remove all ${rows.length}?` : "Remove all"}
+                    </Button>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -775,6 +814,12 @@ function ApplyPackageDialog({
 }) {
   const packages = useQuery(api.equipmentPackages.list, {});
   const applyToProject = useMutation(api.equipmentPackages.applyToProject);
+  const [search, setSearch] = useState("");
+  // Searched by what is inside as well as by name, because the package you
+  // are hunting for is usually "the one with the FX9 in it".
+  const shown = (packages ?? []).filter((pkg) =>
+    matchesSearch(search, [pkg.name, pkg.notes, ...pkg.items.map((i) => i.item)]),
+  );
   const [busy, setBusy] = useState(false);
 
   async function apply(packageId: Id<"equipmentPackages">) {
@@ -813,8 +858,22 @@ function ApplyPackageDialog({
               tab and it will show up here.
             </p>
           ) : (
+            <>
+              {packages.length > 3 && (
+                <SearchInput
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Search packages or the kit inside…"
+                  className="mb-3"
+                />
+              )}
+              {shown.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No package matches “{search}”.
+                </p>
+              ) : (
             <ul className="divide-y divide-border rounded-md border border-border">
-              {packages.map((pkg) => (
+              {shown.map((pkg) => (
                 <li key={pkg._id}>
                   <button
                     type="button"
@@ -832,6 +891,8 @@ function ApplyPackageDialog({
                 </li>
               ))}
             </ul>
+              )}
+            </>
           )}
         </div>
         <DialogFooter>

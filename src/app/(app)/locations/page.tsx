@@ -57,8 +57,10 @@ export default function LocationsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const locations = useQuery(
     api.locations.list,
-    organization ? { includeArchived: showArchived } : "skip"
+    organization ? (showArchived ? { archivedOnly: true } : {}) : "skip"
   );
+  // Counted so the link can say how much is back there, as Projects does.
+  const archived = useQuery(api.locations.list, organization ? { archivedOnly: true } : "skip");
   const [editing, setEditing] = useState<LocationDoc | "new" | null>(null);
   const [search, setSearch] = useState("");
   const { sort, toggle } = useTableSort<LocationSortKey>({ key: "name", dir: "asc" });
@@ -87,7 +89,16 @@ export default function LocationsPage() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight">Locations</h1>
+        <div>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
+            {showArchived ? "Archived locations" : "Locations"}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {showArchived
+              ? "Kept for reference — everything recorded about them is still there."
+              : "Every address you shoot at."}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <CsvExportButton
             filename="locations"
@@ -112,9 +123,6 @@ export default function LocationsPage() {
               l.notes,
             ])}
           />
-          <Button variant="ghost" onClick={() => setShowArchived((v) => !v)}>
-            {showArchived ? "Hide archived" : "Show archived"}
-          </Button>
           <Button onClick={() => setEditing("new")}>Add location</Button>
         </div>
       </div>
@@ -189,6 +197,16 @@ export default function LocationsPage() {
             </div>
           </>
         )}
+
+        {/* Same control, same words, same corner as the Projects list: the
+            place to look for archived work should not move between tabs. */}
+        <div className="mt-6 flex justify-end">
+          <Button variant="ghost" size="sm" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived
+              ? "← Back to active locations"
+              : `View archived${archived !== undefined && archived.length > 0 ? ` (${archived.length})` : ""}`}
+          </Button>
+        </div>
       </div>
       {editing !== null && (
         <LocationDialog

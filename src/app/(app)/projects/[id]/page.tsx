@@ -35,7 +35,7 @@ import {
   ProjectStatus,
   statusLabel,
 } from "@/lib/project-status";
-import { saveStateLabel, useDebouncedSave } from "@/lib/use-debounced-save";
+import { saveStateLabel, useSyncedField } from "@/lib/use-debounced-save";
 import { ProjectForecast } from "@/components/projects/project-forecast";
 import { ShootDatesEditor } from "@/components/projects/shoot-dates-editor";
 import { LocationSection } from "@/components/projects/location-section";
@@ -89,9 +89,7 @@ function ProjectEditor({
   const setArchived = useMutation(api.projects.setArchived);
   const deleteProject = useMutation(api.projects.remove);
 
-  const [name, setName] = useState(project.name);
   const [jobNumber, setJobNumber] = useState(project.jobNumber ?? "");
-  const [briefSummary, setBriefSummary] = useState(project.briefSummary ?? "");
 
   const saveName = useCallback(
     async (value: string) => {
@@ -106,11 +104,20 @@ function ProjectEditor({
     [updateProject, project._id],
   );
 
-  // A blank name is rejected server-side, so hold the last stored value until
-  // there is something to save rather than firing a doomed request per keypress.
-  const nameToSave = name.trim().length === 0 ? project.name : name;
-  const nameState = useDebouncedSave(nameToSave, project.name, saveName);
-  const briefState = useDebouncedSave(briefSummary, project.briefSummary ?? "", saveBrief);
+  // Both of these follow the stored value while nobody is typing in them, so
+  // a change made by somebody else in the same project appears here rather
+  // than being written back over. A blank name is rejected server-side, so it
+  // is held rather than fired off per keypress.
+  const {
+    value: name,
+    setValue: setName,
+    state: nameState,
+  } = useSyncedField(project.name, saveName, { canSave: (v) => v.trim().length > 0 });
+  const {
+    value: briefSummary,
+    setValue: setBriefSummary,
+    state: briefState,
+  } = useSyncedField(project.briefSummary ?? "", saveBrief);
 
   /**
    * The job number addresses the project in the URL, so a change moves the

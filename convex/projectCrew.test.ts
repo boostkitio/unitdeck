@@ -152,13 +152,16 @@ test("filling a role cannot double-book someone already on the project", async (
   ).rejects.toThrow(/already on this project/);
 });
 
-test("unfilled roles sort above booked crew", async () => {
+test("crew nobody has arranged come back in the order they were booked", async () => {
   const { ids, asA } = await setup();
   await asA.mutation(api.projectCrew.add, { projectId: ids.project, personId: ids.person });
   await asA.mutation(api.projectCrew.add, { projectId: ids.project, role: "Gaffer" });
 
+  // Unfilled roles used to be lifted to the top here, which is why arranging
+  // the list never held: the read undid it. Booking order is what an
+  // unarranged list means now, and dragging is how it changes.
   const crew = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
-  expect(crew.map((m) => m.name)).toEqual([null, "Sam Reed"]);
+  expect(crew.map((m) => m.name ?? m.role)).toEqual(["Sam Reed", "Gaffer"]);
 });
 
 test("talent are booked like crew and kept apart from them", async () => {
@@ -206,4 +209,60 @@ test("a booking can be moved between crew and talent", async () => {
 
   const rows = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
   expect(rows[0].kind).toBe("talent");
+});
+
+test("the arranged order is what the list comes back in", async () => {
+  const { t, ids, asA } = await setup();
+  const people = await t.run(async (ctx) => {
+    const project = (await ctx.db.get(ids.project))!;
+    const made: string[] = [];
+    // Deliberately alphabetical in reverse of the order they will be arranged
+    // into, so an alphabetical sort anywhere in the read is visible.
+    for (const name of ["Zoe Ash", "Ada Vaughn", "Mo Khan"]) {
+      made.push(
+        await ctx.db.insert("people", { orgId: project.orgId, name, role: "Camera" }),
+      );
+    }
+    return made;
+  });
+  const bookings: string[] = [];
+  for (const personId of people) {
+    bookings.push(
+      await asA.mutation(api.projectCrew.add, {
+        projectId: ids.project,
+        personId: personId as never,
+      }),
+    );
+  }
+
+  // Arrange them: Mo, Zoe, Ada — which is neither alphabetical nor the order
+  // they were booked in.
+  await asA.mutation(api.projectCrew.reorder, {
+    projectId: ids.project,
+    orderedIds: [bookings[2], bookings[0], bookings[1]] as never,
+  });
+
+  const rows = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
+  expect(rows.map((r) => r.name)).toEqual(["Mo Khan", "Zoe Ash", "Ada Vaughn"]);
+});
+
+test("a role nobody is in keeps the place it was dragged to", async () => {
+  const { ids, asA } = await setup();
+  const booked = await asA.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    personId: ids.person,
+  });
+  const empty = await asA.mutation(api.projectCrew.add, {
+    projectId: ids.project,
+    role: "Gaffer",
+  });
+
+  // Unfilled roles used to be forced to the top whatever anyone arranged.
+  await asA.mutation(api.projectCrew.reorder, {
+    projectId: ids.project,
+    orderedIds: [booked, empty],
+  });
+
+  const rows = await asA.query(api.projectCrew.listForProject, { projectId: ids.project });
+  expect(rows.map((r) => r.name ?? r.role)).toEqual(["Sam Reed", "Gaffer"]);
 });

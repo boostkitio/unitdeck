@@ -20,12 +20,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { matchesSearch } from "@/lib/search";
-import { saveStateLabel, useDebouncedSave } from "@/lib/use-debounced-save";
+import { SearchInput } from "@/components/search-input";
+import { saveStateLabel, useSyncedField } from "@/lib/use-debounced-save";
 
 export function PackagesView() {
   const packages = useQuery(api.equipmentPackages.list, {});
   const removePackage = useMutation(api.equipmentPackages.remove);
 
+  const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<Id<"equipmentPackages"> | null>(null);
   const [duplicating, setDuplicating] = useState<EquipmentPackage | null>(null);
@@ -35,6 +37,16 @@ export function PackagesView() {
   const open = useMemo(
     () => (packages ?? []).find((p) => p._id === editingId) ?? null,
     [packages, editingId],
+  );
+
+  // A package is worth finding by what is in it, not only by what it is
+  // called: "which package has the FX9 in it" is the question being asked.
+  const shown = useMemo(
+    () =>
+      (packages ?? []).filter((pkg) =>
+        matchesSearch(search, [pkg.name, pkg.notes, ...pkg.items.map((i) => i.item)]),
+      ),
+    [packages, search],
   );
 
   async function handleRemove(pkg: EquipmentPackage) {
@@ -48,7 +60,17 @@ export function PackagesView() {
 
   return (
     <div>
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {packages !== undefined && packages.length > 0 ? (
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search packages, notes or the kit inside…"
+            className="max-w-sm"
+          />
+        ) : (
+          <span />
+        )}
         <Button onClick={() => setCreating(true)}>New package</Button>
       </div>
 
@@ -64,7 +86,7 @@ export function PackagesView() {
         </p>
       ) : (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {packages.map((pkg) => (
+          {shown.map((pkg) => (
             <Card key={pkg._id}>
               <CardHeader>
                 <CardTitle>{pkg.name}</CardTitle>
@@ -266,7 +288,7 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
   const updatePackage = useMutation(api.equipmentPackages.update);
   const createEquipment = useMutation(api.equipment.create);
 
-  const [name, setName] = useState(pkg.name);
+
   const [search, setSearch] = useState("");
   const [freeText, setFreeText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -286,8 +308,11 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
 
   // A blank name is rejected server-side, so hold the stored value until there
   // is something worth saving rather than firing a doomed request per keypress.
-  const nameToSave = name.trim().length === 0 ? pkg.name : name;
-  const nameState = useDebouncedSave(nameToSave, pkg.name, saveName);
+  const {
+    value: name,
+    setValue: setName,
+    state: nameState,
+  } = useSyncedField(pkg.name, saveName, { canSave: (v) => v.trim().length > 0 });
   const nameStatus = saveStateLabel(nameState);
 
   const inPackage = useMemo(

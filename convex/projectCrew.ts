@@ -75,11 +75,10 @@ export const listForProject = query({
         kind: booking.kind ?? "crew",
       });
     }
-    // Roles still to fill sort to the top: they are the outstanding work.
-    members.sort((a, b) => {
-      if ((a.name === null) !== (b.name === null)) return a.name === null ? -1 : 1;
-      return (a.name ?? a.role).localeCompare(b.name ?? b.role);
-    });
+    // Nothing re-sorts here. The bookings were read in the arranged order and
+    // that is the order they go out in — an alphabetical pass at this point
+    // threw the arrangement away, so dragging somebody up wrote a sortOrder
+    // that was never read back and the row sprang straight to where it was.
     return members;
   },
 });

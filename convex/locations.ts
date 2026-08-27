@@ -25,7 +25,13 @@ const locationFields = {
 };
 
 export const list = query({
-  args: { includeArchived: v.optional(v.boolean()) },
+  // `archivedOnly` switches the list over to what has been archived, the same
+  // way the projects list does, rather than mixing the two together —
+  // archived work is looked at on its own or not at all.
+  args: {
+    includeArchived: v.optional(v.boolean()),
+    archivedOnly: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const locations = await ctx.db
@@ -36,6 +42,7 @@ export const list = query({
     // A project-only address belongs to its production, not to the database
     // everyone picks from, so it never appears in this list.
     const shared = locations.filter((l) => !l.projectOnly);
+    if (args.archivedOnly) return shared.filter((l) => l.archived === true);
     return args.includeArchived ? shared : shared.filter((l) => !l.archived);
   },
 });
