@@ -37,6 +37,60 @@ export const listForProject = query({
   },
 });
 
+/**
+ * The kit list as it goes out of the door: every line with the serial number
+ * of the thing it names, and the production and company it belongs to.
+ *
+ * A serial only exists for kit picked from the inventory — anything hired in
+ * or typed by hand has none, and says so rather than showing a blank that
+ * reads as a missing serial.
+ */
+export const kitList = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) return null;
+
+    const rows = await ctx.db
+      .query("projectEquipment")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(500);
+
+    const items = [];
+    for (const row of rows) {
+      const owned = row.equipmentId ? await ctx.db.get(row.equipmentId) : null;
+      items.push({
+        id: String(row._id),
+        section: sectionOf(row),
+        dept: row.dept ?? owned?.dept ?? null,
+        item: row.item,
+        serialNumber: owned?.orgId === org._id ? (owned.serialNumber ?? null) : null,
+        // Whether this is ours at all, which is what a rental house is
+        // reading the list to work out.
+        owned: owned !== null && owned.orgId === org._id,
+        quantity: row.quantity ?? 1,
+        cost: row.cost ?? null,
+        status: row.status,
+        notes: row.notes ?? null,
+      });
+    }
+
+    const logoUrl = org.settings?.logoStorageId
+      ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? null)
+      : null;
+
+    return {
+      project: {
+        name: project.name,
+        jobNumber: project.jobNumber ?? null,
+      },
+      company: { name: org.name, logoUrl },
+      items,
+    };
+  },
+});
+
 export const add = mutation({
   args: {
     projectId: v.id("projects"),
