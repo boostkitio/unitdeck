@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   categoryTotals,
+  costFromRate,
   categoryVariance,
   formatPence,
   lineCost,
@@ -70,6 +71,31 @@ describe("rateFromCost reproduces the rate card", () => {
     ["Drone Op", 1995.01, 2205],
   ])("%s at 10/0/0.3", (_role, cost, rate) => {
     expect(rateFromCost(p(cost), TEMPLATE)).toBe(p(rate));
+  });
+});
+
+// Typing a rate is how a producer works: they know what the job will bear.
+describe("costFromRate runs the rate card backwards", () => {
+  // Within a penny of the cost the sheet holds for these rates. It cannot be
+  // closer: the rate is rounded to £5, so a range of costs produces each one.
+  test("a rate implies the cost carrying those margins", () => {
+    expect(costFromRate(p(585), VEEAM)).toBeCloseTo(p(486.28), -0.5);
+    expect(costFromRate(p(420), VEEAM)).toBeCloseTo(p(349.13), -0.5);
+    expect(costFromRate(p(775), VEEAM)).toBeCloseTo(p(644.22), -0.5);
+  });
+
+  test("with no margins at all the cost is the rate", () => {
+    const none = { contingencyBp: 0, profitBp: 0, insuranceBp: 0 };
+    expect(costFromRate(p(21800), none)).toBe(p(21800));
+  });
+
+  // It cannot be an exact inverse: rounding up to £5 throws away which cost
+  // produced the rate. What it must do is never claim a margin that is not
+  // there, so the cost it returns must round back to the rate it was given.
+  test("the cost it gives back re-prices to the rate it was given", () => {
+    for (const rate of [35, 150, 420, 585, 775, 2400, 21800]) {
+      expect(rateFromCost(costFromRate(p(rate), VEEAM), VEEAM)).toBe(p(rate));
+    }
   });
 });
 

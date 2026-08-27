@@ -4,6 +4,7 @@ import { requireOrg } from "./lib/auth";
 import { quoteCategoryValidator, quoteUnitValidator } from "./schema";
 import {
   categoryTotals,
+  costFromRate,
   quoteTotals,
   rateFromCost,
   type CategoryTotals,
@@ -629,6 +630,15 @@ export const updateLine = mutation({
       }
       patch.ratePence = Math.round(args.ratePence);
       patch.rateOverridden = true;
+      // The cost follows the rate backwards, unless the cost was set in the
+      // same breath — then the producer has said what both are and neither
+      // should be worked out from the other. Typing a rate is how a producer
+      // works: they know what the job will bear, and the cost that leaves is
+      // the answer. Letting the two drift apart makes the margin the quote
+      // claims to be carrying a fiction.
+      if (args.costPence === undefined) {
+        patch.costPence = costFromRate(Math.round(args.ratePence), marginsOf(quote));
+      }
     } else if (args.costPence !== undefined && !line.rateOverridden) {
       // The cost moved and nobody had pinned the rate, so it follows.
       patch.ratePence = rateFromCost(cost, marginsOf(quote), quote.roundToPence);

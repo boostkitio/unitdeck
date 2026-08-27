@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CellInput } from "@/components/quotes/cell-input";
+import { saveStateLabel, useSyncedField } from "@/lib/use-debounced-save";
 import { AddLineDialog } from "@/components/quotes/add-line-dialog";
 import { QuoteStatusChip } from "../page";
 import { formatPence, bpInput, parsePercent, parsePounds, poundsInput } from "@/lib/money";
@@ -60,6 +61,19 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   const repriceLines = useMutation(api.quotes.repriceLines);
   const addCrew = useMutation(api.quotes.addCrewFromProject);
   const addKit = useMutation(api.quotes.addKitFromProject);
+  const saveName = useCallback(
+    async (value: string) => {
+      await update({ id: quoteId, title: value });
+    },
+    [update, quoteId]
+  );
+  // Follows the stored title while nobody is typing, so a colleague's rename
+  // shows rather than being masked by a stale box.
+  const {
+    value: name,
+    setValue: setName,
+    state: nameState,
+  } = useSyncedField(data.quote.title ?? "", saveName);
   const [adding, setAdding] = useState<QuoteCategory | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -85,14 +99,28 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
     <div>
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-heading text-2xl font-semibold tracking-tight">
-              {quote.number}
-            </h1>
+            {/* The name is the title field, edited where it is read — the same
+                as a production's. */}
+            <label htmlFor="quote-name" className="sr-only">
+              Quote name
+            </label>
+            <input
+              id="quote-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={quote.number}
+              className="w-full max-w-xl rounded-md border border-transparent bg-transparent px-2 py-1 font-heading text-2xl font-semibold tracking-tight outline-none transition-colors hover:border-border focus:border-border focus:bg-background sm:text-3xl"
+            />
             <QuoteStatusChip status={quote.status} />
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 px-2 text-sm text-muted-foreground">
+            {saveStateLabel(nameState) && (
+              <span className="mr-2 text-xs">{saveStateLabel(nameState)}</span>
+            )}
+            <span className="font-mono text-xs">{quote.number}</span>
+            {" · "}
             {data.project ? (
               <Link href={`/projects/${data.project._id}`} className="hover:underline">
                 {data.project.name}
@@ -100,7 +128,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             ) : (
               // Not an error: a quote is usually written before there is a job
               // to hang it on. It is put on one from the production itself.
-              (quote.title ?? "Not on a production yet")
+              "Not on a production yet"
             )}
             {quote.clientName ? ` · ${quote.clientName}` : ""}
           </p>
@@ -156,6 +184,8 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_20rem]">
         {/* Lines, by category */}
         <div className="min-w-0 space-y-6">
+          <QuoteDetails quoteId={quoteId} data={data} />
+
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
@@ -365,7 +395,6 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             </CardContent>
           </Card>
 
-          <QuoteDetails quoteId={quoteId} data={data} />
         </div>
       </div>
 
@@ -380,7 +409,7 @@ function EmptyCategory({ label, onAdd }: { label: string; onAdd: () => void }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-3">
       <p className="text-sm text-muted-foreground">{label}</p>
-      <Button variant="ghost" size="sm" onClick={onAdd}>
+      <Button size="sm" onClick={onAdd}>
         Add
       </Button>
     </div>
@@ -421,20 +450,18 @@ function CategoryCard({
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base">{label}</CardTitle>
-        <Button variant="ghost" size="sm" onClick={onAdd}>
+        <Button size="sm" onClick={onAdd}>
           Add
         </Button>
       </CardHeader>
       <CardContent className="px-0">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[52rem] text-sm">
+          <table className="w-full min-w-[44rem] text-sm">
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
                 <th className="px-3 py-1.5 text-left font-medium">Line</th>
-                <th className="px-1 py-1.5 text-left font-medium">On the client&apos;s copy</th>
-                <th className="px-1 py-1.5 text-right font-medium">How many</th>
-                <th className="px-1 py-1.5 text-right font-medium">Units</th>
-                <th className="px-1 py-1.5 text-left font-medium">Per</th>
+                <th className="px-1 py-1.5 text-left font-medium">Notes</th>
+                <th className="px-1 py-1.5 text-right font-medium">Pax</th>
                 <th className="px-1 py-1.5 text-right font-medium">Cost</th>
                 <th className="px-1 py-1.5 text-right font-medium">Rate</th>
                 <th className="px-1 py-1.5 text-right font-medium">Total</th>
@@ -444,21 +471,73 @@ function CategoryCard({
             <tbody>
               {lines.map((line) => (
                 <tr key={line._id} className="border-b border-border last:border-0">
-                  <td className="min-w-40 px-2 py-0.5">
+                  <td className="min-w-52 px-2 py-1 align-top">
                     <CellInput
                       value={line.name}
                       onCommit={(name) =>
                         save(updateLine({ id: line._id, name }), "Could not rename it.")
                       }
                     />
-                    {line.notes && (
-                      <p className="px-1.5 pb-1 text-xs text-muted-foreground">{line.notes}</p>
-                    )}
+                    {/* How long, and of what. Under the name rather than in
+                        columns of its own: it is part of describing the line,
+                        and it keeps the money columns next to each other where
+                        they can be read down. */}
+                    <div className="flex items-center gap-1 px-1.5 pb-0.5">
+                      <span className="text-xs text-muted-foreground">&times;</span>
+                      <span className="w-12">
+                        <CellInput
+                          inputMode="decimal"
+                          className="px-1 py-0 text-xs"
+                          value={String(line.unitAmount)}
+                          onCommit={(raw) => {
+                            const unitAmount = Number(raw);
+                            if (!Number.isFinite(unitAmount) || unitAmount < 0) {
+                              toast.error("That is not a number.");
+                              return;
+                            }
+                            return save(
+                              updateLine({ id: line._id, unitAmount }),
+                              "Could not save it."
+                            );
+                          }}
+                        />
+                      </span>
+                      <Select
+                        value={line.unit}
+                        onValueChange={(v) =>
+                          v &&
+                          void save(
+                            updateLine({
+                              id: line._id,
+                              unit: v as (typeof QUOTE_UNITS)[number]["value"],
+                            }),
+                            "Could not change the unit."
+                          )
+                        }
+                      >
+                        <SelectTrigger className="h-6 w-24 border-0 bg-transparent px-1 text-xs text-muted-foreground shadow-none hover:bg-muted/60">
+                          <SelectValue>{unitLabel(line.unit)}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {QUOTE_UNITS.map((u) => (
+                            <SelectItem key={u.value} value={u.value}>
+                              {u.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {line.notes && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {line.notes}
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="min-w-32 px-1 py-0.5">
+                  <td className="min-w-36 px-1 py-1 align-top">
                     <CellInput
                       value={line.clientNotes ?? ""}
                       placeholder="—"
+                      title="Printed against this line on the client's copy."
                       onCommit={(clientNotes) =>
                         save(
                           updateLine({ id: line._id, clientNotes }),
@@ -467,7 +546,7 @@ function CategoryCard({
                       }
                     />
                   </td>
-                  <td className="w-20 px-1 py-0.5">
+                  <td className="w-20 px-1 py-1 align-top">
                     <CellInput
                       align="right"
                       inputMode="decimal"
@@ -482,54 +561,11 @@ function CategoryCard({
                       }}
                     />
                   </td>
-                  <td className="w-20 px-1 py-0.5">
+                  <td className="w-24 px-1 py-1 align-top">
                     <CellInput
                       align="right"
                       inputMode="decimal"
-                      value={String(line.unitAmount)}
-                      onCommit={(raw) => {
-                        const unitAmount = Number(raw);
-                        if (!Number.isFinite(unitAmount) || unitAmount < 0) {
-                          toast.error("That is not a number.");
-                          return;
-                        }
-                        return save(
-                          updateLine({ id: line._id, unitAmount }),
-                          "Could not save it."
-                        );
-                      }}
-                    />
-                  </td>
-                  <td className="w-24 px-1 py-0.5">
-                    <Select
-                      value={line.unit}
-                      onValueChange={(v) =>
-                        v &&
-                        void save(
-                          updateLine({
-                            id: line._id,
-                            unit: v as (typeof QUOTE_UNITS)[number]["value"],
-                          }),
-                          "Could not change the unit."
-                        )
-                      }
-                    >
-                      <SelectTrigger className="h-7 w-full border-0 bg-transparent px-1.5 text-xs shadow-none hover:bg-muted/60">
-                        <SelectValue>{unitLabel(line.unit)}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {QUOTE_UNITS.map((u) => (
-                          <SelectItem key={u.value} value={u.value}>
-                            {u.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className="w-24 px-1 py-0.5">
-                    <CellInput
-                      align="right"
-                      inputMode="decimal"
+                      title="What it costs us. The rate follows it."
                       value={poundsInput(line.costPence)}
                       onCommit={(raw) => {
                         const costPence = parsePounds(raw);
@@ -544,16 +580,18 @@ function CategoryCard({
                       }}
                     />
                   </td>
-                  <td className="w-24 px-1 py-0.5">
+                  <td className="w-24 px-1 py-1 align-top">
                     <CellInput
                       align="right"
                       inputMode="decimal"
                       title={
                         line.rateOverridden
-                          ? "Set by hand — a margin change leaves it alone. Clear it to go back to the derived rate."
-                          : "Worked out from the cost and the margins."
+                          ? "Set by hand, so the cost was worked out backwards from it and a margin change leaves it alone. Clear it to go back to the rate the card gives."
+                          : "Worked out from the cost and the margins. Type over it and the cost follows backwards."
                       }
-                      className={line.rateOverridden ? "font-medium underline decoration-dotted" : undefined}
+                      className={
+                        line.rateOverridden ? "font-medium underline decoration-dotted" : undefined
+                      }
                       value={poundsInput(line.ratePence)}
                       onCommit={(raw) => {
                         if (raw.trim() === "") {
@@ -574,10 +612,12 @@ function CategoryCard({
                       }}
                     />
                   </td>
-                  <td className="w-28 px-2 py-0.5 text-right tabular-nums">
-                    {formatPence(Math.round(line.ratePence * line.pax * line.unitAmount))}
+                  <td className="w-28 px-2 py-1 text-right align-top text-sm tabular-nums">
+                    <span className="inline-block py-1">
+                      {formatPence(Math.round(line.ratePence * line.pax * line.unitAmount))}
+                    </span>
                   </td>
-                  <td className="w-16 px-1 py-0.5 text-right">
+                  <td className="w-14 px-1 py-1 text-right align-top">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -650,7 +690,7 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">The quote itself</CardTitle>
+        <CardTitle className="text-base">Details</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="space-y-1.5">
@@ -663,17 +703,6 @@ function QuoteDetails({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteDat
             onBlur={(e) =>
               e.target.value !== quote.number && save({ number: e.target.value })
             }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="quote-title" className="text-xs text-muted-foreground">
-            What it is for
-          </Label>
-          <Input
-            id="quote-title"
-            defaultValue={quote.title ?? ""}
-            placeholder="Docuseries, three episodes"
-            onBlur={(e) => save({ title: e.target.value })}
           />
         </div>
         <div className="space-y-1.5">

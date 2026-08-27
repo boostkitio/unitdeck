@@ -65,8 +65,13 @@ export function AddLineDialog({
   const [pax, setPax] = useState("1");
   const [amount, setAmount] = useState("1");
 
-  const shown = (items ?? []).filter(
-    (item) => matchesSearch(search, [item.name, item.notes, item.section])
+  // Only this section's lines. Scrolling past 200 rows of kit to find a
+  // producer is how the wrong line ends up under the wrong heading — and the
+  // heading you clicked Add under has already said which part of the card you
+  // meant.
+  const forSection = (items ?? []).filter((item) => item.category === category);
+  const shown = forSection.filter((item) =>
+    matchesSearch(search, [item.name, item.notes, item.section])
   );
 
   async function pick(itemId: Id<"rateCardItems">) {
@@ -146,7 +151,7 @@ export function AddLineDialog({
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Search the rate card…"
+              placeholder={`Search ${categoryLabel(category).toLowerCase()}…`}
             />
             {items === undefined ? (
               <Skeleton className="h-40 w-full" />
@@ -154,7 +159,9 @@ export function AddLineDialog({
               <p className="py-8 text-center text-sm text-muted-foreground">
                 {items.length === 0
                   ? "The rate card is empty — fill it in first."
-                  : `Nothing on the card matches “${search}”.`}
+                  : forSection.length === 0
+                    ? `Nothing on the rate card is filed under ${categoryLabel(category)}.`
+                    : `Nothing here matches “${search}”.`}
               </p>
             ) : (
               <ul className="max-h-80 divide-y divide-border overflow-y-auto rounded-md border border-border">

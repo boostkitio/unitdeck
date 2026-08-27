@@ -66,6 +66,26 @@ export function rateFromCost(
   return roundUpTo(marked, roundToPence);
 }
 
+/**
+ * The cost a rate implies — `rateFromCost` run backwards.
+ *
+ * Typing a client rate is how a producer works: they know what the job will
+ * bear, and the cost that leaves is the answer. Without this the two columns
+ * drift apart and the margin the quote claims to be carrying is fiction.
+ *
+ * Not an exact inverse, and it cannot be: rounding up to the nearest £5 throws
+ * away which cost produced the rate.
+ *
+ * It rounds down, deliberately. Rounding to nearest can land a hundredth of a
+ * penny over the boundary, and the rate card rounds up from there — so a £150
+ * line typed by hand would re-price itself to £155 the next time the margins
+ * were touched. Down by a penny is invisible; a line that moves on its own is
+ * not.
+ */
+export function costFromRate(ratePence: number, margins: Margins): number {
+  return Math.floor((ratePence * BP) / (BP + marginBp(margins)));
+}
+
 /** What a line costs us: everybody, for every unit. */
 export function lineCost(line: QuoteLine): number {
   return Math.round(line.costPence * line.pax * line.unitAmount);

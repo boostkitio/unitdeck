@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
 import { api } from "../../../../convex/_generated/api";
@@ -42,6 +43,7 @@ export function QuoteStatusChip({ status }: { status: string }) {
 }
 
 export default function QuotesPage() {
+  const router = useRouter();
   const { organization } = useOrganization();
   const quotes = useQuery(api.quotes.list, organization ? {} : "skip");
   const [search, setSearch] = useState("");
@@ -113,11 +115,13 @@ export default function QuotesPage() {
                 </TableHeader>
                 <TableBody>
                   {shown.map((quote) => (
-                    <TableRow key={quote._id} className="cursor-pointer hover:bg-muted/50">
+                    <TableRow
+                      key={quote._id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => router.push(`/quotes/${quote._id}`)}
+                    >
                       <TableCell>
-                        <Link href={`/quotes/${quote._id}`} className="font-medium hover:underline">
-                          {quote.number}
-                        </Link>
+                        <span className="font-medium">{quote.number}</span>
                         {quote.quoteType && (
                           <span className="ml-2 text-xs text-muted-foreground">
                             {quote.quoteType}
@@ -129,6 +133,7 @@ export default function QuotesPage() {
                           <Link
                             href={`/projects/${quote.projectId}`}
                             className="hover:underline"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             {quote.projectName}
                           </Link>

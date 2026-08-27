@@ -364,6 +364,72 @@ test("deleting a quote takes its lines and overrides with it", async () => {
 // A quote before there is a job to hang it on
 // ---------------------------------------------------------------------------
 
+test("typing a rate works the cost out backwards", async () => {
+  const { ids, asA } = await setup();
+  const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await asA.mutation(api.quotes.addLine, {
+    quoteId,
+    category: "production",
+    name: "Camera Op",
+    unit: "day",
+    costPence: p(399),
+  });
+  let loaded = await asA.query(api.quotes.get, { id: quoteId });
+  expect(loaded!.lines[0].ratePence).toBe(p(480));
+
+  // The client will bear £600. The cost that leaves, at 10/10/0.3, is what
+  // the line should carry — otherwise the margin the quote claims is fiction.
+  await asA.mutation(api.quotes.updateLine, {
+    id: loaded!.lines[0]._id,
+    ratePence: p(600),
+  });
+  loaded = await asA.query(api.quotes.get, { id: quoteId });
+  expect(loaded!.lines[0].ratePence).toBe(p(600));
+  expect(loaded!.lines[0].costPence).toBeCloseTo(p(498.75), -0.5);
+  expect(loaded!.lines[0].rateOverridden).toBe(true);
+});
+
+test("setting cost and rate together leaves both exactly as given", async () => {
+  const { ids, asA } = await setup();
+  const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const id = await asA.mutation(api.quotes.addLine, {
+    quoteId,
+    category: "post",
+    name: "Stock Licensing",
+    unit: "generic",
+    costPence: p(21800),
+    ratePence: p(21800),
+  });
+  await asA.mutation(api.quotes.updateLine, {
+    id,
+    costPence: p(19000),
+    ratePence: p(19000),
+  });
+
+  const loaded = await asA.query(api.quotes.get, { id: quoteId });
+  expect(loaded!.lines[0].costPence).toBe(p(19000));
+  expect(loaded!.lines[0].ratePence).toBe(p(19000));
+});
+
+// A line whose rate was typed must not move when the margins are touched.
+test("a hand-typed rate survives a re-price", async () => {
+  const { ids, asA } = await setup();
+  const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const id = await asA.mutation(api.quotes.addLine, {
+    quoteId,
+    category: "production",
+    name: "Camera Op",
+    unit: "day",
+    costPence: p(399),
+  });
+  await asA.mutation(api.quotes.updateLine, { id, ratePence: p(600) });
+  await asA.mutation(api.quotes.update, { id: quoteId, profitBp: 0 });
+  await asA.mutation(api.quotes.repriceLines, { quoteId });
+
+  const loaded = await asA.query(api.quotes.get, { id: quoteId });
+  expect(loaded!.lines[0].ratePence).toBe(p(600));
+});
+
 test("a quote can be started with no production at all", async () => {
   const { ids, asA } = await setup();
   const id = await asA.mutation(api.quotes.create, {
