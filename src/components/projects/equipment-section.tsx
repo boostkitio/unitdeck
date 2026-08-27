@@ -70,7 +70,6 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
   const equipment = useQuery(api.projectEquipment.listForProject, { projectId });
   const clashes = useQuery(api.projectEquipment.clashesForProject, { projectId });
 
-  const [applying, setApplying] = useState(false);
   const [adding, setAdding] = useState<SectionKey | null>(null);
   const [editing, setEditing] = useState<EquipmentRow | null>(null);
 
@@ -92,7 +91,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
         title="Equipment"
         rows={standard}
         loading={rows === undefined}
-        empty="Nothing listed. Add a package, or list the kit going out on this job."
+        empty="Nothing listed. Add equipment to pull in your own kit, a package, or the list off another job."
         onEdit={setEditing}
         actions={
           <>
@@ -106,9 +105,6 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
               render={<Link href={`/projects/${projectId}/kit-list`} />}
             >
               Kit list
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setApplying(true)}>
-              Add from package or project
             </Button>
             <Button size="sm" onClick={() => setAdding("equipment")}>
               Add equipment
@@ -130,9 +126,6 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
         }
       />
 
-      {applying && (
-        <AddFromDialog projectId={projectId} onClose={() => setApplying(false)} />
-      )}
       {adding && (
         <EquipmentDialog
           projectId={projectId}
@@ -564,6 +557,9 @@ function EquipmentPicker({
   );
 }
 
+/** Where kit being added comes from. */
+type AddMode = "pick" | "package" | "project" | "type";
+
 function EquipmentDialog({
   projectId,
   section,
@@ -583,11 +579,19 @@ function EquipmentDialog({
   const add = useMutation(api.projectEquipment.add);
   const update = useMutation(api.projectEquipment.update);
 
-  // Kit you own is picked from the list; the hire-in list is typed, so each
-  // section opens on the way its kit usually arrives.
-  const [mode, setMode] = useState<"pick" | "type">(
+  // Where the kit is coming from. The Equipment list is your own gear, which
+  // arrives three ways — off the shelf, off a package, off a job you have
+  // already done — so all three live behind this one button rather than
+  // scattered across the section header. The Additional list is only ever
+  // typed, because a hire-in is by definition not in any of the three.
+  const [mode, setMode] = useState<AddMode>(
     section === "equipment" ? "pick" : "type",
   );
+  const sources: { key: AddMode; label: string }[] = [
+    { key: "pick", label: "From equipment" },
+    { key: "package", label: "From package" },
+    { key: "project", label: "From project" },
+  ];
   const [added, setAdded] = useState(0);
 
   const [item, setItem] = useState(row?.item ?? "");
@@ -665,27 +669,25 @@ function EquipmentDialog({
 
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{row ? "Edit equipment" : "Add equipment"}</DialogTitle>
         </DialogHeader>
 
-        {!row && (
+        {/* Only the Equipment list has a choice to make. The Additional list
+            opens straight on the form, since there is nothing to pick from. */}
+        {!row && section === "equipment" && (
           <div className="flex flex-wrap gap-2 border-b border-border pb-3">
-            <Button
-              size="sm"
-              variant={mode === "pick" ? "secondary" : "ghost"}
-              onClick={() => setMode("pick")}
-            >
-              From your equipment
-            </Button>
-            <Button
-              size="sm"
-              variant={mode === "type" ? "secondary" : "ghost"}
-              onClick={() => setMode("type")}
-            >
-              Something you hire in
-            </Button>
+            {sources.map((source) => (
+              <Button
+                key={source.key}
+                size="sm"
+                variant={mode === source.key ? "secondary" : "ghost"}
+                onClick={() => setMode(source.key)}
+              >
+                {source.label}
+              </Button>
+            ))}
           </div>
         )}
 
@@ -697,6 +699,14 @@ function EquipmentDialog({
               disabled={saving}
               onPick={(id) => void pick(id)}
             />
+          </div>
+        ) : !row && mode === "package" ? (
+          <div className="py-2">
+            <FromPackage projectId={projectId} onDone={onClose} />
+          </div>
+        ) : !row && mode === "project" ? (
+          <div className="py-2">
+            <FromProject projectId={projectId} onDone={onClose} />
           </div>
         ) : (
         <div className="space-y-4 py-2">
@@ -743,7 +753,10 @@ function EquipmentDialog({
             </div>
           </div>
           {/* Which list it sits in, so a line put in the wrong one — or an
-              older line from before the split — can be moved. */}
+              older line from before the split — can be moved. Only when
+              editing: adding from a section already said which list you
+              meant, and asking again is a question with one right answer. */}
+          {row && (
           <div className="space-y-2">
             <Label>List</Label>
             <div className="flex gap-2">
@@ -766,6 +779,7 @@ function EquipmentDialog({
               Additional is for kit hired in, or anything off a normal job.
             </p>
           </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="equipment-notes">Notes (optional)</Label>
             <Textarea
@@ -793,67 +807,6 @@ function EquipmentDialog({
               </Button>
             )}
           </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/**
- * Where a kit list comes from: a package you maintain, or a job you have
- * already done.
- *
- * Two sources rather than one, because "the same as we took on the Tesco
- * shoot" is how the question usually arrives, and a package only answers the
- * standing-kit half of it. The source is picked first, then the thing.
- */
-function AddFromDialog({
-  projectId,
-  onClose,
-}: {
-  projectId: Id<"projects">;
-  onClose: () => void;
-}) {
-  const [source, setSource] = useState<"package" | "project">("package");
-
-  return (
-    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
-      <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-y-auto sm:p-5">
-        <DialogHeader>
-          <DialogTitle>Add from a package or a project</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex gap-1 rounded-md bg-muted p-1">
-          {(["package", "project"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setSource(option)}
-              aria-pressed={source === option}
-              className={cn(
-                "flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
-                source === option
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {option === "package" ? "Package" : "Project"}
-            </button>
-          ))}
-        </div>
-
-        <div className="py-2">
-          {source === "package" ? (
-            <FromPackage projectId={projectId} onDone={onClose} />
-          ) : (
-            <FromProject projectId={projectId} onDone={onClose} />
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
