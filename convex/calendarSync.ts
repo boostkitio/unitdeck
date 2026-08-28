@@ -670,9 +670,43 @@ export const syncNow = action({
   args: {},
   handler: async (
     ctx
-  ): Promise<{ people: number; events: number; written: number; removed: number }> => {
+  ): Promise<{
+    people: number;
+    events: number;
+    written: number;
+    removed: number;
+    /** What the server actually saw, said plainly, for when it saw nothing. */
+    diagnosis: string;
+  }> => {
     const org = await ctx.runQuery(internal.calendarSync.myOrg, {});
-    if (!org) return { people: 0, events: 0, written: 0, removed: 0 };
+    if (!org) {
+      return {
+        people: 0,
+        events: 0,
+        written: 0,
+        removed: 0,
+        diagnosis:
+          "Calendar sync is off, or no domain has been saved. Settings → Google Calendar. The domain box saves when you click out of it.",
+      };
+    }
+
+    const look = await ctx.runQuery(internal.calendarSync.staffReport, {
+      orgId: org.orgId,
+      domain: org.domain,
+    });
+    if (look.matched === 0) {
+      return {
+        people: 0,
+        events: 0,
+        written: 0,
+        removed: 0,
+        diagnosis:
+          `Looking for addresses at "${org.domain}". Checked ${look.checked} people, ` +
+          `${look.withEmail} with an address` +
+          (look.archived > 0 ? `, ${look.archived} archived and skipped` : "") +
+          `. Found: ${look.samples.length > 0 ? look.samples.join(", ") : "no addresses at all"}.`,
+      };
+    }
 
     const projects = await ctx.runQuery(internal.calendarSync.liveProjects, {
       orgId: org.orgId,
@@ -686,7 +720,12 @@ export const syncNow = action({
     }
 
     const read = await ctx.runAction(internal.calendarSync.refreshBusyForOrg, org);
-    return { ...read, written, removed };
+    return {
+      ...read,
+      written,
+      removed,
+      diagnosis: `${look.matched} people at ${org.domain}.`,
+    };
   },
 });
 
@@ -698,5 +737,33 @@ export const liveProjects = internalQuery({
       .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
       .take(500);
     return projects.filter((p) => p.archived !== true).map((p) => p._id);
+  },
+});
+
+/**
+ * What the staff lookup saw, in the terms somebody could act on.
+ *
+ * Written because three rounds of "nobody at your domain" against a People
+ * list that plainly has them needed evidence rather than another guess: how
+ * many rows were read, how many carry an address, how many were skipped as
+ * archived, and what those addresses actually look like.
+ */
+export const staffReport = internalQuery({
+  args: { orgId: v.id("organisations"), domain: v.string() },
+  handler: async (ctx, args) => {
+    const people = await ctx.db
+      .query("people")
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+      .take(1000);
+    const live = people.filter((person) => person.archived !== true);
+    const withEmail = live.filter((person) => person.email && person.email.trim().length > 0);
+    return {
+      checked: people.length,
+      archived: people.length - live.length,
+      withEmail: withEmail.length,
+      matched: live.filter((person) => isStaffEmail(person.email, args.domain)).length,
+      // The addresses as stored, so a stray character shows itself.
+      samples: withEmail.slice(0, 4).map((person) => person.email!),
+    };
   },
 });

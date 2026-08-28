@@ -226,14 +226,22 @@ function SyncCalendarsButton({ lastRead }: { lastRead: number | null }) {
         onClick={() => {
           setSyncing(true);
           void refresh({})
-            .then((r) =>
+            .then((r) => {
+              // When nothing happened, the toast carries the evidence rather
+              // than a suggestion: what was looked for, how many rows were
+              // read, and the addresses as they are actually stored.
+              if (r.people === 0) {
+                toast.error("Nothing to sync", {
+                  description: r.diagnosis,
+                  duration: 30000,
+                });
+                return;
+              }
               toast.success(
-                r.people === 0
-                  ? "Nobody at your domain to sync. Add your staff to People with their work addresses."
-                  : `${r.written} booking${r.written === 1 ? "" : "s"} written, ${r.events} commitments read from ${r.people} calendar${r.people === 1 ? "" : "s"}.`,
+                `${r.written} booking${r.written === 1 ? "" : "s"} written, ${r.events} commitments read from ${r.people} calendar${r.people === 1 ? "" : "s"}.`,
                 r.removed > 0 ? { description: `${r.removed} entries taken down.` } : undefined
-              )
-            )
+              );
+            })
             .catch((err: unknown) =>
               toast.error(err instanceof Error ? err.message : "Could not read them.")
             )
