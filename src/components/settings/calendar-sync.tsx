@@ -57,6 +57,20 @@ export function CalendarSync() {
         </p>
       </div>
 
+      {!settings.configured && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <p className="font-medium">This deployment has no Google service account.</p>
+          <p className="mt-1 text-xs">
+            Until it does, nothing is written to anyone&apos;s calendar and nothing is read
+            back — every other setting here is inert. Set{" "}
+            <span className="font-mono">GOOGLE_CALENDAR_CLIENT_EMAIL</span> and{" "}
+            <span className="font-mono">GOOGLE_CALENDAR_PRIVATE_KEY</span> in the Convex
+            dashboard, on the <strong>Production</strong> deployment — the site runs on
+            Production, and variables set on Development do nothing here.
+          </p>
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="calendar-domain">Your email domain</Label>
         <Input

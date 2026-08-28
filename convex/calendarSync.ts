@@ -678,6 +678,22 @@ export const syncNow = action({
     /** What the server actually saw, said plainly, for when it saw nothing. */
     diagnosis: string;
   }> => {
+    // Asked first, and said plainly. Without the service account every step
+    // below returns nothing at all — which reads as "no staff", "no
+    // bookings" and "no calendars", none of which is what is wrong.
+    if (!serviceAccountFromEnv(process.env)) {
+      return {
+        people: 0,
+        events: 0,
+        written: 0,
+        removed: 0,
+        diagnosis:
+          "This Convex deployment has no Google service account, so nothing can be written or read. " +
+          "Set GOOGLE_CALENDAR_CLIENT_EMAIL and GOOGLE_CALENDAR_PRIVATE_KEY in the Convex dashboard — " +
+          "on the Production deployment, not Development. The site runs on Production.",
+      };
+    }
+
     const org = await ctx.runQuery(internal.calendarSync.myOrg, {});
     if (!org) {
       return {
