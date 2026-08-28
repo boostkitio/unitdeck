@@ -276,10 +276,39 @@ export const settings = query({
       .query("calendarEvents")
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(500);
+    // Who this could write to at all. Nought here is usually the answer to
+    // "why has nothing happened": the people in the contacts book are
+    // freelancers, and the staff have never been added.
+    const domain = org.settings?.calendarDomain;
+    const people = await ctx.db
+      .query("people")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(1000);
+    const staff = people.filter(
+      (person) => person.archived !== true && isStaffEmail(person.email, domain)
+    );
+
+    const busy = await ctx.db
+      .query("calendarBusy")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(2000);
+
     return {
       enabled: org.settings?.calendarSync === true,
-      domain: org.settings?.calendarDomain,
+      domain,
+      // Whether the deployment has the service account at all. Without it
+      // every sync is a no-op by design, which looks exactly like a sync that
+      // is quietly broken — so it says which of the two it is.
+      configured: Boolean(
+        process.env.GOOGLE_CALENDAR_CLIENT_EMAIL && process.env.GOOGLE_CALENDAR_PRIVATE_KEY
+      ),
+      clientEmail: process.env.GOOGLE_CALENDAR_CLIENT_EMAIL ?? null,
+      staff: staff.map((person) => ({ name: person.name, email: person.email! })),
       synced: failures.filter((row) => row.state === "synced").length,
+      // What has been read back off those calendars, and when. Nought read
+      // with staff present means the hourly sweep has not run yet.
+      busyEntries: busy.filter((row) => !row.ours).length,
+      lastRead: busy.reduce((latest, row) => Math.max(latest, row.fetchedAt), 0) || null,
       // Surfaced rather than swallowed: a sync that quietly stopped working is
       // worse than one that never started.
       problems: failures
@@ -535,5 +564,73 @@ export const busy = query({
       startDate: row.startDate,
       endDate: row.endDate,
     }));
+  },
+});
+
+/**
+ * Asks Google for a token and a day's events, and reports what it said.
+ *
+ * The whole point is the error text. Every failure in this feature is one of
+ * four things — the key is not on the deployment, the client ID was never
+ * authorised, the scope is wrong, or the address is not in the domain — and
+ * Google names which one. Silence names nothing.
+ */
+export const testConnection = action({
+  args: { email: v.optional(v.string()) },
+  handler: async (
+    ctx
+    ,
+    args
+  ): Promise<{ ok: boolean; message: string; tried?: string }> => {
+    const account = serviceAccountFromEnv(process.env);
+    if (!account) {
+      return {
+        ok: false,
+        message:
+          "This deployment has no service account. Set GOOGLE_CALENDAR_CLIENT_EMAIL and GOOGLE_CALENDAR_PRIVATE_KEY in the Convex dashboard, on the Production deployment.",
+      };
+    }
+
+    const org = await ctx.runQuery(internal.calendarSync.myOrg, {});
+    if (!org) {
+      return {
+        ok: false,
+        message:
+          "Calendar sync is off, or no domain is set. Both are on this page.",
+      };
+    }
+
+    const staff = await ctx.runQuery(internal.calendarSync.staffFor, {
+      orgId: org.orgId,
+      domain: org.domain,
+    });
+    const tried = args.email?.trim() || staff[0]?.email;
+    if (!tried) {
+      return {
+        ok: false,
+        message: `Nobody in your people list has an address at ${org.domain}, so there is no calendar to write to. Add your own staff to People with their work addresses.`,
+      };
+    }
+
+    try {
+      const token = await accessTokenFor(account, tried);
+      const events = await listEvents({
+        token,
+        calendarId: tried,
+        from: today(),
+        to: daysFromToday(7),
+      });
+      return {
+        ok: true,
+        tried,
+        message: `Connected. Read ${events.length} entr${events.length === 1 ? "y" : "ies"} from ${tried} for the next week.`,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        tried,
+        message: err instanceof Error ? err.message : "Google refused, without saying why.",
+      };
+    }
   },
 });

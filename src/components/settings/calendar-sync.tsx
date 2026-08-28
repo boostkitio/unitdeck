@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 export function CalendarSync() {
   const settings = useQuery(api.calendarSync.settings, {});
   const configure = useMutation(api.calendarSync.configure);
+  const testConnection = useAction(api.calendarSync.testConnection);
+  const refreshBusy = useAction(api.calendarSync.refreshBusyNow);
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [domain, setDomain] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -88,6 +92,97 @@ export function CalendarSync() {
             : "Off. Nothing is written to anyone's calendar."}
         </span>
       </div>
+
+      {/* What is actually true right now, rather than what should be. Each
+          line here has been the answer to "why is nothing happening" at least
+          once. */}
+      <dl className="grid gap-1 rounded-lg border border-border p-3 text-xs sm:grid-cols-[12rem_1fr]">
+        <dt className="text-muted-foreground">Service account</dt>
+        <dd>
+          {settings.configured ? (
+            <span className="break-all">{settings.clientEmail}</span>
+          ) : (
+            <span className="text-destructive">
+              Not set on this deployment — nothing can be written or read until it is.
+            </span>
+          )}
+        </dd>
+        <dt className="text-muted-foreground">People at this domain</dt>
+        <dd>
+          {settings.staff.length === 0 ? (
+            <span className="text-destructive">
+              None. Only people in your People list with an address at{" "}
+              {settings.domain ?? "your domain"} get an entry, so nothing has anywhere to go.
+            </span>
+          ) : (
+            settings.staff.map((person) => person.name).join(", ")
+          )}
+        </dd>
+        <dt className="text-muted-foreground">Entries written</dt>
+        <dd>{settings.synced}</dd>
+        <dt className="text-muted-foreground">Commitments read back</dt>
+        <dd>
+          {settings.busyEntries}
+          {settings.lastRead
+            ? ` — last read ${new Date(settings.lastRead).toLocaleString("en-GB")}`
+            : " — never read yet"}
+        </dd>
+      </dl>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={checking}
+          onClick={() => {
+            setChecking(true);
+            setResult(null);
+            void testConnection({})
+              .then((r) => setResult(r))
+              .catch((err: unknown) =>
+                setResult({
+                  ok: false,
+                  message: err instanceof Error ? err.message : "Could not run the test.",
+                })
+              )
+              .finally(() => setChecking(false));
+          }}
+        >
+          {checking ? "Asking Google…" : "Test the connection"}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={checking || !settings.enabled}
+          onClick={() => {
+            setChecking(true);
+            void refreshBusy({})
+              .then((r) =>
+                toast.success(
+                  `Read ${r.people} calendar${r.people === 1 ? "" : "s"}, ${r.events} entries.`
+                )
+              )
+              .catch((err: unknown) =>
+                toast.error(err instanceof Error ? err.message : "Could not read them.")
+              )
+              .finally(() => setChecking(false));
+          }}
+        >
+          Read calendars now
+        </Button>
+      </div>
+
+      {result && (
+        <p
+          className={
+            result.ok
+              ? "rounded-lg border border-emerald-500/40 bg-emerald-50 p-3 text-xs text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+              : "rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive"
+          }
+        >
+          {result.message}
+        </p>
+      )}
 
       {settings.problems.length > 0 && (
         <div className="rounded-lg border border-amber-400/40 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200">
