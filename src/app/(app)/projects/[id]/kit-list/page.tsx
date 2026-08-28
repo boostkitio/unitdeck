@@ -7,6 +7,7 @@ import { api } from "../../../../../../convex/_generated/api";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatShootDateRange } from "@/lib/format-date";
 
 /**
  * The kit list as a document rather than a spreadsheet.
@@ -43,6 +44,7 @@ export default function KitListPage({ params }: { params: Promise<{ id: string }
   }));
 
   const total = data.items.reduce((sum, row) => sum + (row.cost ?? 0), 0);
+  const shootDates = formatShootDateRange(data.project.shootDates);
 
   return (
     <div>
@@ -64,6 +66,11 @@ export default function KitListPage({ params }: { params: Promise<{ id: string }
               {data.project.name}
               {data.project.jobNumber && ` · ${data.project.jobNumber}`}
             </p>
+            {/* When the kit is out for. Said plainly under the production,
+                because the dates are half of what anybody checks this list
+                against — and a list with no dates on it has been signed for
+                on the wrong week before now. */}
+            {shootDates && <p className="mt-0.5 text-neutral-700">{shootDates}</p>}
           </div>
           {data.company.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element

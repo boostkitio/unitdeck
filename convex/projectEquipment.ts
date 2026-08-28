@@ -107,10 +107,22 @@ export const kitList = query({
       ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? null)
       : null;
 
+    // The days the kit is out for. A rental house reading this list wants to
+    // know when as much as what, and whoever signs for it on collection is
+    // signing for those dates.
+    const days = await ctx.db
+      .query("shootDays")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(500);
+
     return {
       project: {
         name: project.name,
         jobNumber: project.jobNumber ?? null,
+        shootDates: days
+          .filter((day) => day.orgId === org._id)
+          .map((day) => day.date)
+          .sort(),
       },
       company: { name: org.name, logoUrl },
       items,
