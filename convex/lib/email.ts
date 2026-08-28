@@ -2,6 +2,26 @@ import type { CallSheetData } from "./callSheetData";
 
 export const FROM = "UnitDeck <callsheets@mail.unitdeck.app>";
 
+/**
+ * The From line, in the name of whoever pressed send.
+ *
+ * The address itself cannot be theirs: mail is signed for mail.unitdeck.app,
+ * and sending as somebody@klaxon.studio from a domain Klaxon has not
+ * authorised is what a spam filter is for — it lands in junk or is rejected
+ * outright. So the name is theirs, the address is ours, and Reply-To is
+ * theirs, which is what makes a reply go where they expect. To a client it
+ * reads as being from the producer, and answering it reaches the producer.
+ *
+ * If a customer wants their own domain on the envelope, that is a DNS record
+ * away — verify the domain with the mail provider and this becomes their
+ * address for real.
+ */
+export function fromLine(name: string | undefined): string {
+  const cleaned = name?.trim().replace(/["<>]/g, "");
+  if (!cleaned) return FROM;
+  return `${cleaned} (UnitDeck) <callsheets@mail.unitdeck.app>`;
+}
+
 export type SendEmailResult =
   | { ok: true; id: string }
   | { ok: false; error: string };
@@ -16,6 +36,8 @@ export async function sendEmail(args: {
   subject: string;
   html: string;
   from?: string;
+  /** Where a reply goes: the person who sent it, not the app. */
+  replyTo?: string;
   attachments?: EmailAttachment[];
 }): Promise<SendEmailResult> {
   try {
@@ -27,6 +49,7 @@ export async function sendEmail(args: {
         to: args.to,
         subject: args.subject,
         html: args.html,
+        ...(args.replyTo ? { reply_to: args.replyTo } : {}),
         ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       }),
     });

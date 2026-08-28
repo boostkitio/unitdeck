@@ -1,6 +1,7 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../../convex/_generated/api";
 import { QuoteDocument } from "@/components/quotes/quote-document";
+import { PrintPageStyles } from "@/components/print-page-styles";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +23,13 @@ export default async function PrintQuotePage({
     return <p className="p-8 text-sm">This print link has expired.</p>;
   }
   return (
-    <QuoteDocument
-      data={data}
-      ownerName={data.quote.producerName ?? null}
-      ownerEmail={data.quote.producerEmail ?? null}
-    />
+    <>
+      <PrintPageStyles />
+      <QuoteDocument
+        data={data}
+        ownerName={data.quote.producerName ?? null}
+        ownerEmail={data.quote.producerEmail ?? null}
+      />
+    </>
   );
 }

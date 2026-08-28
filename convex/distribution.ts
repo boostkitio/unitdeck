@@ -2,7 +2,8 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
-import { callSheetEmail, sendEmail } from "./lib/email";
+import { callSheetEmail, fromLine, sendEmail } from "./lib/email";
+import { senderOf } from "./lib/sender";
 import { Id } from "./_generated/dataModel";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -115,6 +116,7 @@ export const send = mutation({
     await ctx.scheduler.runAfter(0, internal.distribution.deliverEmails, {
       sendIds,
       isUpdate,
+      ...(await senderOf(ctx)),
     });
     return draft._id;
   },
@@ -159,7 +161,14 @@ export const recordSendResult = internalMutation({
  * (engineering rule: no fire-and-forget sends, ever).
  */
 export const deliverEmails = internalAction({
-  args: { sendIds: v.array(v.id("sends")), isUpdate: v.boolean() },
+  args: {
+    sendIds: v.array(v.id("sends")),
+    isUpdate: v.boolean(),
+    // Whoever pressed send: their name on the From line, their address on
+    // Reply-To, so a crew member answering reaches a person.
+    senderName: v.optional(v.string()),
+    senderEmail: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const apiKey = process.env.RESEND_API_KEY;
     const siteUrl = process.env.SITE_URL;
@@ -177,7 +186,14 @@ export const deliverEmails = internalAction({
         setModeUrl: `${siteUrl}/s/${recipient.token}`,
         isUpdate: args.isUpdate,
       });
-      const result = await sendEmail({ apiKey, to: [recipient.email], subject, html });
+      const result = await sendEmail({
+        apiKey,
+        to: [recipient.email],
+        subject,
+        html,
+        from: fromLine(args.senderName),
+        replyTo: args.senderEmail,
+      });
       await ctx.runMutation(internal.distribution.recordSendResult, {
         sendId,
         ok: result.ok,

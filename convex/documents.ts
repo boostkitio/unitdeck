@@ -9,7 +9,8 @@ import {
   releaseTitle,
   signerSubject,
 } from "./lib/documentData";
-import { talentReleaseInviteEmail, signedCopyEmail, sendEmail } from "./lib/email";
+import { talentReleaseInviteEmail, signedCopyEmail, sendEmail, fromLine } from "./lib/email";
+import { senderOf } from "./lib/sender";
 import { api, internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 
@@ -270,7 +271,10 @@ export const send = mutation({
     if (doc.status !== "draft") throw new Error("Only a draft can be sent");
     if (!doc.signer.email) throw new Error("Add the signer's email before sending");
     await ctx.db.patch(args.id, { status: "sent", sentAt: Date.now() });
-    await ctx.scheduler.runAfter(0, internal.documents.deliverInvite, { id: args.id });
+    await ctx.scheduler.runAfter(0, internal.documents.deliverInvite, {
+      id: args.id,
+      ...(await senderOf(ctx)),
+    });
     return null;
   },
 });
@@ -297,7 +301,13 @@ export const recordInviteResult = internalMutation({
 });
 
 export const deliverInvite = internalAction({
-  args: { id: v.id("documents") },
+  args: {
+    id: v.id("documents"),
+    // Whoever pressed send: their name on the From line, their address on
+    // Reply-To, so a signer with a question answers a person.
+    senderName: v.optional(v.string()),
+    senderEmail: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const apiKey = process.env.RESEND_API_KEY;
     const siteUrl = process.env.SITE_URL;
@@ -313,7 +323,14 @@ export const deliverInvite = internalAction({
       kind: doc.data.kind === "location" ? "location" : "talent",
       reminder: doc.inviteDelivery?.status === "delivered",
     });
-    const result = await sendEmail({ apiKey, to: [doc.signer.email], subject, html });
+    const result = await sendEmail({
+      apiKey,
+      to: [doc.signer.email],
+      subject,
+      html,
+      from: fromLine(args.senderName),
+      replyTo: args.senderEmail,
+    });
     if (!result.ok) console.error("Talent release invite send failed", result.error);
     await ctx.runMutation(internal.documents.recordInviteResult, {
       id: args.id,
@@ -336,7 +353,10 @@ export const resendInvite = mutation({
     const { doc } = await requireOwnedDoc(ctx, args.id);
     if (doc.status !== "sent") throw new Error("Only a document waiting to be signed can be chased");
     if (!doc.signer.email) throw new Error("Add the signer's email before sending");
-    await ctx.scheduler.runAfter(0, internal.documents.deliverInvite, { id: args.id });
+    await ctx.scheduler.runAfter(0, internal.documents.deliverInvite, {
+      id: args.id,
+      ...(await senderOf(ctx)),
+    });
     return null;
   },
 });

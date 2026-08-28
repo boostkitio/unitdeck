@@ -1,6 +1,7 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../../convex/_generated/api";
 import { TalentReleaseDocument } from "@/components/documents/talent-release-document";
+import { PrintPageStyles } from "@/components/print-page-styles";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +17,12 @@ export default async function PrintDocumentPage({
     return <p className="p-8 text-sm">This print link has expired.</p>;
   }
   return (
-    <TalentReleaseDocument
-      data={result.data}
-      signature={result.signature ?? undefined}
-    />
+    <>
+      <PrintPageStyles />
+      <TalentReleaseDocument
+        data={result.data}
+        signature={result.signature ?? undefined}
+      />
+    </>
   );
 }

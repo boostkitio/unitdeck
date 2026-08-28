@@ -35,6 +35,7 @@ import type * as lib_email from "../lib/email.js";
 import type * as lib_geocode from "../lib/geocode.js";
 import type * as lib_llm from "../lib/llm.js";
 import type * as lib_personName from "../lib/personName.js";
+import type * as lib_sender from "../lib/sender.js";
 import type * as lib_plusCode from "../lib/plusCode.js";
 import type * as lib_quoteMath from "../lib/quoteMath.js";
 import type * as lib_rateCardOrder from "../lib/rateCardOrder.js";
@@ -94,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   "lib/geocode": typeof lib_geocode;
   "lib/llm": typeof lib_llm;
   "lib/personName": typeof lib_personName;
+  "lib/sender": typeof lib_sender;
   "lib/plusCode": typeof lib_plusCode;
   "lib/quoteMath": typeof lib_quoteMath;
   "lib/rateCardOrder": typeof lib_rateCardOrder;

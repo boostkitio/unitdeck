@@ -37,7 +37,7 @@ import { NoteCell } from "@/components/projects/note-cell";
  *  client's book — the booking is what a removal deletes. */
 type IndexedContact = ProjectClientContact;
 
-type ContactSortKey = "name" | "role" | "email" | "phone" | "notes";
+type ContactSortKey = "name" | "role" | "status" | "email" | "phone" | "notes";
 
 function contactSortValue(contact: IndexedContact, key: ContactSortKey): string | number | null {
   switch (key) {
@@ -51,6 +51,10 @@ function contactSortValue(contact: IndexedContact, key: ContactSortKey): string 
       return contact.phone ?? null;
     case "notes":
       return contact.notes;
+    case "status":
+      // On site first when sorted ascending: they are the ones a call sheet
+      // and a catering order have to account for.
+      return contact.attendance === "on_site" ? 0 : 1;
   }
 }
 
@@ -178,8 +182,15 @@ export function ProjectClientSection({
                 <TableRow>
                   <SortableHead label="Name" sortKey="name" sort={sort} onSort={toggle} />
                   <SortableHead label="Role" sortKey="role" sort={sort} onSort={toggle} />
-                  {/* Kept so the columns line up with crew and talent. */}
-                  <TableHead className="w-32" />
+                  {/* The same column crew and talent carry their booking
+                      status in, so the three tables read as one. */}
+                  <SortableHead
+                    label="Status"
+                    sortKey="status"
+                    sort={sort}
+                    onSort={toggle}
+                    className="w-32"
+                  />
                   <SortableHead label="Email" sortKey="email" sort={sort} onSort={toggle} />
                   <SortableHead label="Phone" sortKey="phone" sort={sort} onSort={toggle} />
                   <SortableHead label="Notes" sortKey="notes" sort={sort} onSort={toggle} />
@@ -197,7 +208,7 @@ export function ProjectClientSection({
                         status. A client is not booked, but whether they are
                         coming changes the call sheet and the catering, so it
                         is the same click in the same column. */}
-                    <TableCell>
+                    <TableCell className="w-32 align-middle">
                       <button
                         type="button"
                         onClick={() =>

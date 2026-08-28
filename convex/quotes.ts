@@ -10,7 +10,8 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { joinName } from "./lib/personName";
-import { quoteEmail, sendEmail } from "./lib/email";
+import { fromLine, quoteEmail, sendEmail } from "./lib/email";
+import { senderOf } from "./lib/sender";
 import { quoteCategoryValidator, quoteUnitValidator } from "./schema";
 import { inCardOrder, SECTION_CATEGORY } from "./lib/rateCardOrder";
 import {
@@ -1168,12 +1169,13 @@ export const sendToClient = mutation({
     fileName: v.string(),
   },
   handler: async (ctx, args) => {
-    const { org, identity } = await requireOrg(ctx);
+    const { org } = await requireOrg(ctx);
     const quote = await ctx.db.get(args.id);
     if (!quote || quote.orgId !== org._id) throw new Error("Quote not found");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.to.trim())) {
       throw new Error("That does not look like an email address");
     }
+    const sender = await senderOf(ctx);
 
     await ctx.scheduler.runAfter(0, internal.quotes.deliverToClient, {
       quoteId: args.id,
@@ -1182,10 +1184,11 @@ export const sendToClient = mutation({
       message: args.message,
       fileId: args.fileId,
       fileName: args.fileName,
-      fromName:
-        quote.producerName ??
-        (typeof identity.name === "string" ? identity.name.trim() : "") ??
-        undefined,
+      // Whoever pressed send, not whoever raised the quote — a client
+      // replying should reach the person who actually emailed them. The
+      // producer named on the document is the fallback.
+      fromName: sender.senderName ?? quote.producerName ?? undefined,
+      fromEmail: sender.senderEmail ?? quote.producerEmail ?? undefined,
     });
 
     await ctx.db.patch(args.id, {
@@ -1205,6 +1208,7 @@ export const deliverToClient = internalAction({
     fileId: v.id("_storage"),
     fileName: v.string(),
     fromName: v.optional(v.string()),
+    fromEmail: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<null> => {
     const apiKey = process.env.RESEND_API_KEY;
@@ -1218,6 +1222,9 @@ export const deliverToClient = internalAction({
     const result = await sendEmail({
       apiKey,
       to: [args.to],
+      // In the producer's name, and a reply reaches them rather than us.
+      from: fromLine(args.fromName),
+      replyTo: args.fromEmail,
       subject: `Quote ${quote?.number ?? ""} from ${args.orgName}`.trim(),
       html: quoteEmail({
         orgName: args.orgName,
