@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { expect, test } from "vitest";
-import { eventIdFor, isStaffEmail, planEvents } from "./calendarPlan";
+import { cleanEmail, eventIdFor, isStaffEmail, planEvents } from "./calendarPlan";
 
 const days = [
   { _id: "day1", date: "2026-09-14", label: "Day 1: interviews" },
@@ -123,4 +123,47 @@ test("an entry's id is the same every time, and different for everything else", 
   // Google only accepts base32hex, and the id is ours to choose — so it has to
   // be in that alphabet or the write is refused.
   expect(eventIdFor("p1", "day1")).toMatch(/^[a-v0-9]{5,1024}$/);
+});
+
+test("an address is matched as a person would read it, not as it was typed", () => {
+  // Every one of these is somebody's real address in a contacts book: pasted
+  // out of a mail client, imported from a CSV with a trailing space, typed in
+  // capitals, left with a comma from a list.
+  for (const typed of [
+    "sam@klaxon.studio",
+    "  sam@klaxon.studio  ",
+    "Sam@Klaxon.Studio",
+    "SAM@KLAXON.STUDIO",
+    "Sam Okafor <sam@klaxon.studio>",
+    "sam@klaxon.studio,",
+    "sam@klaxon.studio;",
+    "sam@klaxon.studio.",
+  ]) {
+    expect(isStaffEmail(typed, "klaxon.studio")).toBe(true);
+    expect(cleanEmail(typed)).toBe("sam@klaxon.studio");
+  }
+
+  // And the ones that genuinely are not this domain still are not.
+  expect(isStaffEmail("sam@klaxon.studio.example", "klaxon.studio")).toBe(false);
+  expect(isStaffEmail("sam@notklaxon.studio", "klaxon.studio")).toBe(false);
+  expect(isStaffEmail("sam", "klaxon.studio")).toBe(false);
+  expect(cleanEmail("not an address")).toBeNull();
+});
+
+test("the domain box is as forgiving as the addresses are", () => {
+  for (const typed of ["klaxon.studio", "@klaxon.studio", " Klaxon.Studio ", "KLAXON.STUDIO"]) {
+    expect(isStaffEmail("sam@klaxon.studio", typed)).toBe(true);
+  }
+});
+
+test("a booking is written to the cleaned address, never the raw string", () => {
+  const [event] = planEvents({
+    projectName: "Brand film",
+    domain: "klaxon.studio",
+    crew: [{ personId: "p1", status: "confirmed" }],
+    people: [{ _id: "p1", name: "Sam", role: "Producer", email: "Sam Okafor <SAM@klaxon.studio> " }],
+    days: [{ _id: "day1", date: "2026-09-14" }],
+  });
+  // Google is handed an address, not a display name wrapped round one.
+  expect(event.email).toBe("sam@klaxon.studio");
 });

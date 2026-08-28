@@ -11,7 +11,14 @@ import {
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { requireOrg } from "./lib/auth";
-import { eventIdFor, isStaffEmail, planEvents, type PlannedEvent } from "./lib/calendarPlan";
+import {
+  cleanEmail,
+  domainOf,
+  eventIdFor,
+  isStaffEmail,
+  planEvents,
+  type PlannedEvent,
+} from "./lib/calendarPlan";
 import { accessTokenFor, serviceAccountFromEnv } from "./lib/googleAuth";
 import { deleteEvent, listEvents, writeEvent } from "./lib/googleCalendarApi";
 
@@ -293,9 +300,24 @@ export const settings = query({
       .withIndex("by_org", (q) => q.eq("orgId", org._id))
       .take(2000);
 
+    // When nothing matched, the useful thing is the addresses themselves: it
+    // is almost always a stored string that is not quite an address.
+    const otherDomains =
+      staff.length > 0
+        ? []
+        : [
+            ...new Set(
+              people
+                .filter((person) => person.archived !== true && person.email)
+                .map((person) => domainOf(person.email))
+                .filter((d): d is string => d !== null)
+            ),
+          ].slice(0, 6);
+
     return {
       enabled: org.settings?.calendarSync === true,
       domain,
+      otherDomains,
       // Whether the deployment has the service account at all. Without it
       // every sync is a no-op by design, which looks exactly like a sync that
       // is quietly broken — so it says which of the two it is.
@@ -413,7 +435,7 @@ export const staffFor = internalQuery({
       .take(1000);
     return people
       .filter((person) => person.archived !== true && isStaffEmail(person.email, args.domain))
-      .map((person) => ({ personId: person._id, email: person.email! }));
+      .map((person) => ({ personId: person._id, email: cleanEmail(person.email)! }));
   },
 });
 

@@ -51,10 +51,51 @@ export type PlanDay = {
  * get as far as being refused.
  */
 export function isStaffEmail(email: string | undefined, domain: string | undefined): boolean {
-  if (!email || !domain) return false;
-  const at = email.lastIndexOf("@");
-  if (at === -1) return false;
-  return email.slice(at + 1).toLowerCase() === domain.replace(/^@/, "").toLowerCase();
+  const found = domainOf(email);
+  const wanted = domainOf(`x@${(domain ?? "").replace(/^@/, "")}`);
+  return found !== null && wanted !== null && found === wanted;
+}
+
+/**
+ * The domain part of an address as a person actually typed or pasted it.
+ *
+ * Addresses arrive from a CSV, from a paste out of Outlook, from somebody
+ * filling in a form in a hurry — so they come with trailing spaces, wrapped
+ * in angle brackets with a name in front, in capitals, with a comma or a
+ * semicolon left on the end from a list. Every one of those is the same
+ * address to a person, and comparing the raw strings called all of them
+ * strangers.
+ */
+export function domainOf(email: string | undefined): string | null {
+  if (!email) return null;
+  let cleaned = email.trim().toLowerCase();
+  // "Charlie Fox <charlie@klaxon.studio>" — take what is inside the brackets.
+  const bracketed = cleaned.match(/<([^>]+)>/);
+  if (bracketed) cleaned = bracketed[1].trim();
+  cleaned = cleaned.replace(/[\s,;.>]+$/, "");
+  const at = cleaned.lastIndexOf("@");
+  if (at === -1) return null;
+  const domain = cleaned.slice(at + 1).trim();
+  return domain.length > 0 ? domain : null;
+}
+
+/**
+ * The address itself, cleaned the same way.
+ *
+ * What is written to and read from Google has to be the bare address, not the
+ * string somebody pasted around it.
+ */
+export function cleanEmail(email: string | undefined): string | null {
+  if (!email) return null;
+  // Lower-cased deliberately. Google treats a Workspace address as one address
+  // however it is capitalised, and we key our record of what we wrote on this
+  // string — so "Sam@" and "sam@" being two of them would write the entry
+  // twice and take neither down.
+  let cleaned = email.trim().toLowerCase();
+  const bracketed = cleaned.match(/<([^>]+)>/);
+  if (bracketed) cleaned = bracketed[1].trim();
+  cleaned = cleaned.replace(/[\s,;.>]+$/, "");
+  return cleaned.includes("@") ? cleaned : null;
 }
 
 /**
@@ -114,7 +155,7 @@ export function planEvents(args: {
       events.push({
         personId: booking.personId,
         shootDayId: day._id,
-        email: person!.email!,
+        email: cleanEmail(person!.email)!,
         date: day.date,
         summary: `${prefix}${args.projectName}${role ? ` — ${role}` : ""}`,
         description: describe({

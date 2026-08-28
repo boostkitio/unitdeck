@@ -111,8 +111,17 @@ export function CalendarSync() {
         <dd>
           {settings.staff.length === 0 ? (
             <span className="text-destructive">
-              None. Only people in your People list with an address at{" "}
-              {settings.domain ?? "your domain"} get an entry, so nothing has anywhere to go.
+              None matched {settings.domain ?? "your domain"}.
+              {settings.otherDomains.length > 0 && (
+                <>
+                  {" "}
+                  The addresses in your People list are at:{" "}
+                  {settings.otherDomains.join(", ")}. If one of those should be your domain,
+                  correct the box above; if it is a near miss, the address itself has
+                  something in it — a stray space, a name in front — worth fixing on the
+                  person.
+                </>
+              )}
             </span>
           ) : (
             settings.staff.map((person) => person.name).join(", ")
