@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { type UpcomingShootDay } from "../../../convex/dashboard";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MonthCalendar, useToday, type DayState } from "@/components/ui/month-calendar";
 import { MONTH_NAMES, dateKey, daysInMonth, monthOf, type Month } from "@/lib/calendar";
@@ -58,6 +60,7 @@ export function ShootCalendar() {
   // their Google calendars: it is here so a shoot is not booked over
   // somebody's holiday, not to be edited.
   const busy = useQuery(api.calendarSync.busy, range ?? "skip");
+  const calendars = useQuery(api.calendarSync.settings, {});
 
   // date -> shoots on that date, for O(1) lookup while painting cells.
   const byDate = useMemo(() => {
@@ -99,6 +102,11 @@ export function ShootCalendar() {
     <Card>
       <CardHeader>
         <CardTitle>Schedule</CardTitle>
+        {calendars?.enabled && (
+          <CardAction>
+            <SyncCalendarsButton lastRead={calendars.lastRead ?? null} />
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent>
         <MonthCalendar
@@ -185,5 +193,55 @@ function OtherCommitments({
         From their own calendars. UnitDeck does not change these.
       </p>
     </div>
+  );
+}
+
+
+/**
+ * Reading your own people's calendars, now rather than on the hour.
+ *
+ * Here because this is the card the answer shows up on. The sweep runs hourly
+ * on its own; somebody who has just switched the sync on, or just booked a
+ * holiday, should not have to wait for the clock to find out whether it works.
+ */
+function SyncCalendarsButton({ lastRead }: { lastRead: number | null }) {
+  const refresh = useAction(api.calendarSync.syncNow);
+  const [syncing, setSyncing] = useState(false);
+
+  return (
+    <span className="flex items-center gap-2">
+      {lastRead && (
+        <span className="text-xs text-muted-foreground">
+          {new Date(lastRead).toLocaleTimeString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={syncing}
+        title="Puts bookings on your people's Google calendars and reads back what else they have on."
+        onClick={() => {
+          setSyncing(true);
+          void refresh({})
+            .then((r) =>
+              toast.success(
+                r.people === 0
+                  ? "Nobody at your domain to sync. Add your staff to People with their work addresses."
+                  : `${r.written} booking${r.written === 1 ? "" : "s"} written, ${r.events} commitments read from ${r.people} calendar${r.people === 1 ? "" : "s"}.`,
+                r.removed > 0 ? { description: `${r.removed} entries taken down.` } : undefined
+              )
+            )
+            .catch((err: unknown) =>
+              toast.error(err instanceof Error ? err.message : "Could not read them.")
+            )
+            .finally(() => setSyncing(false));
+        }}
+      >
+        {syncing ? "Syncing…" : "Sync calendars"}
+      </Button>
+    </span>
   );
 }

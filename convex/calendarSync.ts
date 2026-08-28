@@ -634,3 +634,47 @@ export const testConnection = action({
     }
   },
 });
+
+
+/**
+ * Both directions, on demand: bookings out, commitments in.
+ *
+ * The button that calls this is on the dashboard's Schedule card, because
+ * that is where somebody notices the answer is missing. Everything it does
+ * happens on its own anyway — writes as bookings change, reads on the hour —
+ * so this is only ever about not waiting.
+ */
+export const syncNow = action({
+  args: {},
+  handler: async (
+    ctx
+  ): Promise<{ people: number; events: number; written: number; removed: number }> => {
+    const org = await ctx.runQuery(internal.calendarSync.myOrg, {});
+    if (!org) return { people: 0, events: 0, written: 0, removed: 0 };
+
+    const projects = await ctx.runQuery(internal.calendarSync.liveProjects, {
+      orgId: org.orgId,
+    });
+    let written = 0;
+    let removed = 0;
+    for (const projectId of projects) {
+      const result = await ctx.runAction(internal.calendarSync.reconcileProject, { projectId });
+      written += result.written;
+      removed += result.removed;
+    }
+
+    const read = await ctx.runAction(internal.calendarSync.refreshBusyForOrg, org);
+    return { ...read, written, removed };
+  },
+});
+
+export const liveProjects = internalQuery({
+  args: { orgId: v.id("organisations") },
+  handler: async (ctx, args): Promise<Id<"projects">[]> => {
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_org", (q) => q.eq("orgId", args.orgId))
+      .take(500);
+    return projects.filter((p) => p.archived !== true).map((p) => p._id);
+  },
+});
