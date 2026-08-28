@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { type ProjectClientContact } from "../../../convex/projectClients";
@@ -77,6 +78,7 @@ export function ProjectClientSection({
   const addToShoot = useMutation(api.projectClients.add);
   const removeFromShoot = useMutation(api.projectClients.remove);
   const setContactNotes = useMutation(api.projectClients.setNotes);
+  const setAttendance = useMutation(api.projectClients.setAttendance);
   const { sort, toggle } = useTableSort<ContactSortKey>({ key: "name", dir: "asc" });
 
   const [editing, setEditing] = useState<IndexedContact | null>(null);
@@ -92,7 +94,13 @@ export function ProjectClientSection({
   const available = useMemo(() => {
     const on = new Set((onShoot ?? []).map((c) => c.index));
     return (client?.contacts ?? [])
-      .map((c, index) => ({ ...c, index, bookingId: null, notes: null }))
+      .map((c, index) => ({
+        ...c,
+        index,
+        bookingId: null,
+        notes: null,
+        attendance: "off_site" as const,
+      }))
       .filter((c) => !on.has(c.index));
   }, [client, onShoot]);
 
@@ -185,7 +193,34 @@ export function ProjectClientSection({
                     <TableCell className="text-muted-foreground">
                       {contact.role ?? "·"}
                     </TableCell>
-                    <TableCell />
+                    {/* Where the crew and talent tables carry the booking
+                        status. A client is not booked, but whether they are
+                        coming changes the call sheet and the catering, so it
+                        is the same click in the same column. */}
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void setAttendance({
+                            projectId,
+                            index: contact.index,
+                            attendance: contact.attendance === "on_site" ? "off_site" : "on_site",
+                          }).catch((err: unknown) =>
+                            toast.error(
+                              err instanceof Error ? err.message : "Could not change it."
+                            )
+                          )
+                        }
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-xs font-medium transition-colors",
+                          contact.attendance === "on_site"
+                            ? "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400"
+                            : "bg-muted text-muted-foreground hover:bg-muted/70"
+                        )}
+                      >
+                        {contact.attendance === "on_site" ? "On site" : "Off site"}
+                      </button>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       <EmailLink email={contact.email} />
                     </TableCell>

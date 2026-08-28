@@ -35,6 +35,10 @@ export async function POST(req: NextRequest) {
   let pdf: Uint8Array;
   try {
     const page = await browser.newPage();
+    // Rendered as a light page whatever the machine's own preference is: a
+    // document generated from a dark-mode screen was coming out framed in
+    // black, because the page background paints the margins too.
+    await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "light" }]);
     await page.goto(printUrl, { waitUntil: "networkidle0", timeout: 30000 });
     pdf = await page.pdf({
       format: "a4",

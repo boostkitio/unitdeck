@@ -9,6 +9,8 @@ import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +36,13 @@ import { SearchInput } from "@/components/search-input";
 import { CellInput } from "@/components/quotes/cell-input";
 import { matchesSearch } from "@/lib/search";
 import { formatPence, parsePercent, parsePounds, poundsInput } from "@/lib/money";
-import { QUOTE_CATEGORIES, QUOTE_UNITS, categoryLabel, unitLabel } from "@/lib/quote-labels";
+import {
+  QUOTE_CATEGORIES,
+  QUOTE_UNITS,
+  categoryLabel,
+  unitLabel,
+  type QuoteCategory,
+} from "@/lib/quote-labels";
 import { rateFromCost } from "../../../../../convex/lib/quoteMath";
 
 /**
@@ -48,6 +56,17 @@ import { rateFromCost } from "../../../../../convex/lib/quoteMath";
 export default function RateCardPage() {
   const { organization } = useOrganization();
   const items = useQuery(api.rateCard.list, organization ? {} : "skip");
+  // The headings each category already uses, so a new line joins one rather
+  // than inventing a heading of its own that nothing else shares.
+  const sectionsByCategory = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const item of items ?? []) {
+      const held = map.get(item.category) ?? [];
+      if (!held.includes(item.section)) held.push(item.section);
+      map.set(item.category, held);
+    }
+    return map;
+  }, [items]);
   const add = useMutation(api.rateCard.add);
   const update = useMutation(api.rateCard.update);
   const remove = useMutation(api.rateCard.remove);
@@ -124,24 +143,13 @@ export default function RateCardPage() {
               });
             }}
           />
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              void run(
-                add({
-                  category: "production",
-                  section: "PRODUCTION CREW",
-                  name: "New line",
-                  unit: "day",
-                  costPence: 0,
-                }).then(() => toast.success("Line added — name it and set the cost.")),
-                "Could not add it."
-              )
-            }
-          >
-            Add line
-          </Button>
+          <AddLineDialog
+            sections={sectionsByCategory}
+            onAdd={async (line) => {
+              await add(line);
+              toast.success("Line added — set the cost on it.");
+            }}
+          />
         </div>
       </div>
 
@@ -486,3 +494,184 @@ function RebuildDialog({ onRebuild }: { onRebuild: () => Promise<void> }) {
     </>
   );
 }
+
+
+/**
+ * Adding a line, which means saying where it goes.
+ *
+ * The old button dropped everything into Production Crew and left you to
+ * move it, which for a card of eighteen headings is a guess followed by a
+ * correction. Category and heading are asked for up front, and the headings
+ * offered are the ones that category already uses.
+ */
+function AddLineDialog({
+  sections,
+  onAdd,
+}: {
+  sections: Map<string, string[]>;
+  onAdd: (line: {
+    category: QuoteCategory;
+    section: string;
+    name: string;
+    unit: (typeof QUOTE_UNITS)[number]["value"];
+    costPence: number;
+  }) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState<QuoteCategory>("production");
+  const [section, setSection] = useState<string>("");
+  const [newSection, setNewSection] = useState("");
+  const [name, setName] = useState("");
+  const [unit, setUnit] = useState<(typeof QUOTE_UNITS)[number]["value"]>("day");
+  const [cost, setCost] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const available = sections.get(category) ?? [];
+  const chosen = section === NEW_SECTION ? newSection.trim() : section || available[0] || "";
+  const ready = name.trim().length > 0 && chosen.length > 0;
+
+  async function submit() {
+    setSaving(true);
+    try {
+      await onAdd({
+        category,
+        section: chosen,
+        name: name.trim(),
+        unit,
+        costPence: Math.round((Number(cost) || 0) * 100),
+      });
+      setName("");
+      setCost("");
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add it.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>
+        Add line
+      </Button>
+      {open && (
+        <Dialog open onOpenChange={(next) => (!next ? setOpen(false) : undefined)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add a line to the rate card</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select
+                  value={category}
+                  onValueChange={(value) => {
+                    if (!value) return;
+                    setCategory(value as QuoteCategory);
+                    setSection("");
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>{categoryLabel(category)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {QUOTE_CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Heading</Label>
+                <Select
+                  value={section || available[0] || NEW_SECTION}
+                  onValueChange={(value) => value && setSection(value)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {section === NEW_SECTION ? "A new heading…" : section || available[0] || "A new heading…"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {available.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={NEW_SECTION}>A new heading…</SelectItem>
+                  </SelectContent>
+                </Select>
+                {section === NEW_SECTION && (
+                  <Input
+                    value={newSection}
+                    onChange={(e) => setNewSection(e.target.value.toUpperCase())}
+                    placeholder="DRONE"
+                    autoFocus
+                  />
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="new-line-name">Line</Label>
+                <Input
+                  id="new-line-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Sound Op (with kit)"
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Per</Label>
+                  <Select
+                    value={unit}
+                    onValueChange={(value) =>
+                      value && setUnit(value as (typeof QUOTE_UNITS)[number]["value"])
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>{unitLabel(unit)}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {QUOTE_UNITS.map((u) => (
+                        <SelectItem key={u.value} value={u.value}>
+                          {u.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-line-cost">Cost to us</Label>
+                  <Input
+                    id="new-line-cost"
+                    inputMode="decimal"
+                    value={cost}
+                    onChange={(e) => setCost(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button disabled={!ready || saving} onClick={() => void submit()}>
+                {saving ? "Adding…" : "Add line"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+/** Sentinel for "not one of the headings already there". */
+const NEW_SECTION = "__new__";

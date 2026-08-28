@@ -151,8 +151,19 @@
 }
 
 @media print {
+  /*
+   * White paper, always.
+   *
+   * The page background paints the margin area as well as the content, so a
+   * document rendered while the app is in dark mode came out as a white sheet
+   * inside a thick black border — which is what a client was being emailed.
+   * Forced here rather than left to the theme, because a document is a
+   * document whatever the person who generated it has their screen set to.
+   */
+  html,
   body {
-    background: white;
+    background: #fff !important;
+    color-scheme: light;
   }
 
   /*

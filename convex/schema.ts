@@ -376,6 +376,14 @@ export default defineSchema({
      * because it is true of this production and not of the next one.
      */
     notes: v.optional(v.string()),
+    /**
+     * Whether this client is coming to the shoot.
+     *
+     * The single thing a production office wants to know about a client on a
+     * job — it changes the call sheet, the per diems and how many chairs are
+     * needed. Absent reads as off site, which is what most of them are.
+     */
+    attendance: v.optional(v.union(v.literal("on_site"), v.literal("off_site"))),
   })
     .index("by_org", ["orgId"])
     .index("by_project", ["projectId"]),

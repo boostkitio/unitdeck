@@ -12,6 +12,8 @@ export type ProjectClientContact = ClientContact & {
   index: number;
   /** Notes about them on this production only. */
   notes: string | null;
+  /** Whether they are coming to the shoot. Absent reads as off site. */
+  attendance: "on_site" | "off_site";
 };
 
 async function ownedProject(ctx: QueryCtx | MutationCtx, id: Id<"projects">) {
@@ -82,6 +84,9 @@ export const listForProject = query({
     // A note can exist before anybody has pruned the list, so it is looked up
     // by contact in both branches rather than only where bookings are read.
     const noted = new Map(mine.map((r) => [r.contactId, r.notes ?? null]));
+    const attending = new Map(
+      mine.map((r) => [r.contactId, r.attendance ?? ("off_site" as const)])
+    );
 
     if (!project.clientContactsChosen) {
       return book.map((contact, index) => ({
@@ -89,6 +94,7 @@ export const listForProject = query({
         bookingId: null,
         index,
         notes: contact.id ? (noted.get(contact.id) ?? null) : null,
+        attendance: contact.id ? (attending.get(contact.id) ?? "off_site") : "off_site",
       }));
     }
 
@@ -100,6 +106,7 @@ export const listForProject = query({
         ...contact,
         bookingId: booked.get(contact.id!)!,
         notes: noted.get(contact.id!) ?? null,
+        attendance: attending.get(contact.id!) ?? ("off_site" as const),
       }));
   },
 });
@@ -199,6 +206,48 @@ export async function clearForProject(ctx: MutationCtx, projectId: Id<"projects"
  * before anybody has pruned the list settles who is on it first — the same
  * thing adding or removing does, and it takes nobody off.
  */
+/**
+ * Whether a client is on set or working from their own desk.
+ *
+ * Written against the booking like a note is, and for the same reason: it is
+ * true of this production and not of the client. Setting it before anybody has
+ * pruned the list settles who is on the job first, and takes nobody off.
+ */
+export const setAttendance = mutation({
+  args: {
+    projectId: v.id("projects"),
+    index: v.number(),
+    attendance: v.union(v.literal("on_site"), v.literal("off_site")),
+  },
+  handler: async (ctx, args) => {
+    const { org, project } = await ownedProject(ctx, args.projectId);
+    if (!project.clientId) throw new Error("This production has no client");
+    const book = await ensureContactIds(ctx, project.clientId);
+    const contact = book[args.index];
+    if (!contact?.id) throw new Error("Contact not found");
+
+    const rows = await ctx.db
+      .query("projectClients")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(200);
+    const mine = rows.filter((r) => r.clientId === project.clientId);
+    if (!project.clientContactsChosen) {
+      await writeOutBook(ctx, org._id, args.projectId, project.clientId, book, mine);
+    }
+
+    const fresh = await ctx.db
+      .query("projectClients")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(200);
+    const row = fresh.find(
+      (r) => r.clientId === project.clientId && r.contactId === contact.id,
+    );
+    if (!row) throw new Error("They are not on this production");
+    await ctx.db.patch(row._id, { attendance: args.attendance });
+    return null;
+  },
+});
+
 export const setNotes = mutation({
   args: { projectId: v.id("projects"), index: v.number(), notes: v.string() },
   handler: async (ctx, args) => {

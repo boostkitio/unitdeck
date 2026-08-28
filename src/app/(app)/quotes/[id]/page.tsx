@@ -497,6 +497,12 @@ function CategoryCard({
   );
   const shown = visible;
 
+  // Closed to begin with, every section of them. A quote is worked through a
+  // heading at a time, and opening on two hundred lines is a wall rather than
+  // a starting point. A section with something priced in it opens itself,
+  // because what is on the quote should not be behind a click.
+  const [open, setOpen] = useState(priced.length > 0);
+
   async function save(work: Promise<unknown>, failure: string) {
     try {
       await work;
@@ -508,18 +514,34 @@ function CategoryCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-baseline gap-2 text-base">
-          {label}
-          <span className="text-xs font-normal text-muted-foreground">
-            {priced.length} of {lines.length} priced
-          </span>
+        <CardTitle className="text-base">
+          <button
+            type="button"
+            onClick={() => setOpen((was) => !was)}
+            className="flex items-baseline gap-2 text-left transition-colors hover:text-primary"
+          >
+            <span className="text-xs">{open ? "▾" : "▸"}</span>
+            {label}
+            <span className="text-xs font-normal text-muted-foreground">
+              {priced.length > 0
+                ? `${priced.length} priced · ${formatPence(subtotal)}`
+                : `${lines.length} lines`}
+            </span>
+          </button>
         </CardTitle>
         <CardAction>
-          <Button size="sm" onClick={onAdd}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setOpen(true);
+              onAdd();
+            }}
+          >
             Add
           </Button>
         </CardAction>
       </CardHeader>
+      {open && (
       <CardContent className="px-0">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[54rem] text-sm">
@@ -792,6 +814,7 @@ function CategoryCard({
           </span>
         </div>
       </CardContent>
+      )}
     </Card>
   );
 }

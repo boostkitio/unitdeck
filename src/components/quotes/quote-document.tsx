@@ -214,13 +214,16 @@ export function QuoteDocument({
               <table className="mt-1 w-full table-fixed border-collapse">
                 <thead>
                   <tr className="border-b border-neutral-400 text-left text-[8.5pt] uppercase tracking-wide text-neutral-600">
-                    <th className="w-[32%] py-1 font-semibold">Job</th>
-                    <th className="w-[24%] py-1 font-semibold">Notes</th>
-                    <th className="w-[8%] py-1 text-right font-semibold">Pax</th>
-                    <th className="w-[10%] py-1 text-right font-semibold">Amount</th>
-                    <th className="w-[8%] py-1 font-semibold">Unit</th>
-                    <th className="w-[9%] py-1 text-right font-semibold">Rate</th>
-                    <th className="w-[9%] py-1 text-right font-semibold">Total</th>
+{/* The money columns are the ones that run out of room: a
+                        five-figure licence fee needs more than a ninth of the
+                        page, and the notes column can spare it. */}
+                    <th className="w-[27%] py-1 pr-2 font-semibold">Job</th>
+                    <th className="w-[19%] py-1 pr-2 font-semibold">Notes</th>
+                    <th className="w-[6%] py-1 pr-2 text-right font-semibold">Pax</th>
+                    <th className="w-[8%] py-1 pr-2 text-right font-semibold">Amount</th>
+                    <th className="w-[9%] py-1 pr-2 font-semibold">Unit</th>
+                    <th className="w-[15%] py-1 pr-2 text-right font-semibold">Rate</th>
+                    <th className="w-[16%] py-1 text-right font-semibold">Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -241,18 +244,24 @@ export function QuoteDocument({
                         </td>
                       </tr>
                     )}
-                    <tr className="border-b border-neutral-200 align-top">
-                      <td className="py-1.5 font-medium">{line.name}</td>
-                      <td className="py-1.5 text-neutral-600">{line.clientNotes ?? ""}</td>
-                      <td className="py-1.5 text-right tabular-nums">{line.pax}</td>
-                      <td className="py-1.5 text-right tabular-nums">
+                    <tr className="border-b border-neutral-200 align-top text-[9pt]">
+                      <td className="py-1.5 pr-2 font-medium">{line.name}</td>
+                      <td className="py-1.5 pr-2 text-[8.5pt] text-neutral-600">
+                        {line.clientNotes ?? ""}
+                      </td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">{line.pax}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">
                         {line.unitAmount.toFixed(line.unit === "mile" ? 0 : 1)}
                       </td>
-                      <td className="py-1.5 text-neutral-600">{unitLabel(line.unit)}</td>
-                      <td className="py-1.5 text-right tabular-nums">
+                      <td className="py-1.5 pr-2 text-[8.5pt] text-neutral-600">
+                        {unitLabel(line.unit)}
+                      </td>
+                      {/* Never wrapped: a figure broken over two lines is not
+                          a figure anybody can read at a glance. */}
+                      <td className="py-1.5 pr-2 text-right tabular-nums whitespace-nowrap">
                         {formatPence(line.ratePence)}
                       </td>
-                      <td className="py-1.5 text-right tabular-nums">
+                      <td className="py-1.5 text-right tabular-nums whitespace-nowrap">
                         {formatPence(Math.round(line.ratePence * line.pax * line.unitAmount))}
                       </td>
                     </tr>
@@ -260,10 +269,10 @@ export function QuoteDocument({
                   ))}
                   <tr>
                     <td colSpan={5} />
-                    <td className="py-1.5 text-right text-[8.5pt] font-semibold uppercase tracking-wide text-neutral-600">
+                    <td className="py-1.5 pr-2 text-right text-[8pt] font-semibold uppercase tracking-wide text-neutral-600">
                       Subtotal
                     </td>
-                    <td className="py-1.5 text-right font-semibold tabular-nums">
+                    <td className="py-1.5 text-right font-semibold tabular-nums whitespace-nowrap">
                       {formatPence(c.totals.total)}
                     </td>
                   </tr>
