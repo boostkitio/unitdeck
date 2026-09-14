@@ -31,6 +31,88 @@ export const list = query({
   },
 });
 
+/** What the department picker offers before anybody has added their own. */
+export const DEFAULT_DEPARTMENTS = [
+  "Camera",
+  "Lenses",
+  "Grip",
+  "Lighting",
+  "Sound",
+  "Monitoring",
+  "Power",
+  "Data",
+  "Consumables",
+];
+
+/**
+ * Every department kit can be filed under: the defaults, the ones added by
+ * hand, and any already on a piece of kit — so a department typed before the
+ * picker existed is still there to choose. Alphabetical, one of each
+ * whatever its capitalisation.
+ */
+export const departments = query({
+  args: {},
+  handler: async (ctx): Promise<string[]> => {
+    const { org } = await requireOrg(ctx);
+    const [saved, owned, onJobs] = await Promise.all([
+      ctx.db
+        .query("equipmentDepartments")
+        .withIndex("by_org", (q) => q.eq("orgId", org._id))
+        .take(500),
+      ctx.db
+        .query("equipment")
+        .withIndex("by_org", (q) => q.eq("orgId", org._id))
+        .take(MAX_INVENTORY),
+      ctx.db
+        .query("projectEquipment")
+        .withIndex("by_org", (q) => q.eq("orgId", org._id))
+        .take(MAX_INVENTORY),
+    ]);
+    const byKey = new Map<string, string>();
+    for (const name of [
+      ...DEFAULT_DEPARTMENTS,
+      ...saved.map((d) => d.name),
+      ...owned.filter((row) => !row.archived).map((row) => row.dept),
+      ...onJobs.map((row) => row.dept),
+    ]) {
+      const trimmed = name?.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, trimmed);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b));
+  },
+});
+
+/**
+ * Adds a department to the picker, and gives back the name to file under —
+ * the existing spelling when it is already there in another case, so
+ * "lighting" does not become a second Lighting.
+ */
+export const addDepartment = mutation({
+  args: { name: v.string() },
+  handler: async (ctx, args): Promise<string> => {
+    const { org } = await requireOrg(ctx);
+    const name = args.name.trim().replace(/\s+/g, " ");
+    if (name.length === 0) throw new Error("Name the department");
+    if (name.length > 60) throw new Error("Keep the department name under 60 characters");
+
+    const match = (candidate: string | undefined) =>
+      candidate?.trim().toLowerCase() === name.toLowerCase();
+    const known = DEFAULT_DEPARTMENTS.find(match);
+    if (known) return known;
+    const saved = await ctx.db
+      .query("equipmentDepartments")
+      .withIndex("by_org", (q) => q.eq("orgId", org._id))
+      .take(500);
+    const existing = saved.find((d) => match(d.name));
+    if (existing) return existing.name;
+
+    await ctx.db.insert("equipmentDepartments", { orgId: org._id, name });
+    return name;
+  },
+});
+
 function checkNumbers(args: {
   weightKg?: number | null;
   valueNew?: number | null;

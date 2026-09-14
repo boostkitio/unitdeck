@@ -31,6 +31,7 @@ import { SearchInput } from "@/components/search-input";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { matchesSearch } from "@/lib/search";
 import { PackagesView } from "@/components/equipment/packages-view";
+import { DepartmentSelect } from "@/components/equipment/department-select";
 
 type EquipmentSortKey =
   | "dept"
@@ -411,11 +412,10 @@ export default function EquipmentPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="eq-dept">Dept</Label>
-                <Input
+                <DepartmentSelect
                   id="eq-dept"
                   value={form.dept}
-                  onChange={(e) => setForm({ ...form, dept: e.target.value })}
-                  placeholder="Camera, Lighting, Sound…"
+                  onChange={(dept) => setForm({ ...form, dept })}
                 />
               </div>
               <div className="space-y-2">

@@ -33,6 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { matchesSearch } from "@/lib/search";
 import { SearchInput } from "@/components/search-input";
+import { DepartmentSelect } from "@/components/equipment/department-select";
 import { formatShootDate } from "@/lib/format-date";
 import { PROJECT_STATUSES } from "@/lib/project-status";
 import { cn } from "@/lib/utils";
@@ -722,12 +723,7 @@ function EquipmentDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="equipment-dept">Department (optional)</Label>
-            <Input
-              id="equipment-dept"
-              value={dept}
-              onChange={(e) => setDept(e.target.value)}
-              placeholder="Camera, Lighting, Sound, Grip…"
-            />
+            <DepartmentSelect id="equipment-dept" value={dept} onChange={setDept} />
           </div>
           <div className="flex gap-4">
             <div className="space-y-2">

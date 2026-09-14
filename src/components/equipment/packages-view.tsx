@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { matchesSearch } from "@/lib/search";
 import { SearchInput } from "@/components/search-input";
+import { DepartmentSelect } from "@/components/equipment/department-select";
 import { saveStateLabel, useSyncedField } from "@/lib/use-debounced-save";
 
 export function PackagesView() {
@@ -504,12 +505,7 @@ function PackageEditor({ pkg, onClose }: { pkg: EquipmentPackage; onClose: () =>
                     }}
                   />
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <Input
-                      value={newDept}
-                      onChange={(e) => setNewDept(e.target.value)}
-                      placeholder="Dept (optional)"
-                      aria-label="Department"
-                    />
+                    <DepartmentSelect value={newDept} onChange={setNewDept} />
                     <Input
                       value={newSerial}
                       onChange={(e) => setNewSerial(e.target.value)}

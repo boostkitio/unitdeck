@@ -496,6 +496,14 @@ export default defineSchema({
     archived: v.optional(v.boolean()),
   }).index("by_org", ["orgId"]),
 
+  // Departments kit is filed under, added from the department picker. The
+  // picker also offers the house defaults and anything already in use, so
+  // this holds only the ones somebody has added by hand.
+  equipmentDepartments: defineTable({
+    orgId: v.id("organisations"),
+    name: v.string(),
+  }).index("by_org", ["orgId"]),
+
   // A named bundle of kit — "Standard camera package" — so a production can
   // pull in a whole setup instead of listing every item by hand.
   equipmentPackages: defineTable({

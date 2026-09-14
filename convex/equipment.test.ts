@@ -201,3 +201,36 @@ test("rows with no item name are reported rather than dropped in silence", async
   expect(result).toMatchObject({ created: 1, skipped: 2 });
   expect(result.notes.join(" ")).toMatch(/2 rows had no item name/i);
 });
+
+test("the department list offers the defaults, the ones in use and the ones added", async () => {
+  const { asA } = await setup();
+  await asA.mutation(api.equipment.create, { item: "Mavic 3", dept: "Aerial" });
+  await asA.mutation(api.equipment.create, { item: "Sky panel", dept: "lighting" });
+
+  // Adding one in another case files it under the spelling already there.
+  expect(await asA.mutation(api.equipment.addDepartment, { name: "  LIGHTING " })).toBe("Lighting");
+  expect(await asA.mutation(api.equipment.addDepartment, { name: "Special  effects" })).toBe(
+    "Special effects"
+  );
+  expect(await asA.mutation(api.equipment.addDepartment, { name: "special effects" })).toBe(
+    "Special effects"
+  );
+  await expect(asA.mutation(api.equipment.addDepartment, { name: "   " })).rejects.toThrow();
+
+  const list = await asA.query(api.equipment.departments, {});
+  expect(list).toContain("Camera");
+  expect(list).toContain("Aerial");
+  expect(list).toContain("Special effects");
+  expect(list.filter((d) => d.toLowerCase() === "lighting")).toEqual(["Lighting"]);
+  expect(list).toEqual([...list].sort((a, b) => a.localeCompare(b)));
+});
+
+test("another org does not see the departments you added", async () => {
+  const { t, asA } = await setup();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
+  });
+  await asA.mutation(api.equipment.addDepartment, { name: "Drones" });
+  const asB = t.withIdentity({ subject: "user_b", org_id: "org_b" });
+  expect(await asB.query(api.equipment.departments, {})).not.toContain("Drones");
+});
