@@ -9,6 +9,7 @@ import {
   SheetDay,
 } from "./lib/callSheetData";
 import { contactsOf } from "./clients";
+import { byCrewOrder } from "./lib/crewOrder";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -141,10 +142,14 @@ async function buildFromProject(
     extras.push({ id: `${prefix}day`, ...(await dayParts(ctx, project, extra, schedule, prefix)) });
   }
 
-  const crewRows = await ctx.db
-    .query("projectCrew")
-    .withIndex("by_project", (q) => q.eq("projectId", day.projectId))
-    .take(300);
+  // In the order the production's crew list is arranged in — director first,
+  // camera together — not the order people happened to be booked.
+  const crewRows = (
+    await ctx.db
+      .query("projectCrew")
+      .withIndex("by_project", (q) => q.eq("projectId", day.projectId))
+      .take(300)
+  ).sort(byCrewOrder);
   const people = new Map<string, Doc<"people">>();
   for (const row of crewRows) {
     if (!row.personId || people.has(String(row.personId))) continue;

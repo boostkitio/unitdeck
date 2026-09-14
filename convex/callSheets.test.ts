@@ -600,3 +600,40 @@ test("the production's hotels come onto the call sheet", async () => {
   const older = await asA.query(api.callSheets.getCurrent, { shootDayId: dayB });
   expect(older?.data.hotels).toEqual([{ id: "hotel-1", name: "Hotel du Vin", checkIn: "From 3pm" }]);
 });
+
+test("crew and talent come onto the sheet in the order the production arranges them", async () => {
+  const { t, ids, asA } = await setup();
+  const [sound, director, camera, actorB, actorA] = await t.run(async (ctx) => {
+    const book = async (role: string, kind: "crew" | "talent" = "crew") =>
+      await ctx.db.insert("projectCrew", {
+        orgId: ids.orgA,
+        projectId: ids.projectA,
+        role,
+        kind,
+        status: "pencilled",
+      });
+    // Booked in an order nobody would read a call sheet in.
+    return [
+      await book("Sound recordist"),
+      await book("Director"),
+      await book("Camera operator"),
+      await book("Lead B", "talent"),
+      await book("Lead A", "talent"),
+    ];
+  });
+  await asA.mutation(api.projectCrew.reorder, {
+    projectId: ids.projectA,
+    orderedIds: [director, camera, sound, actorA, actorB],
+  });
+
+  await asA.mutation(api.callSheets.generateFromProject, { shootDayId: ids.dayA });
+  const data = (await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA }))!.data;
+  const listed = await asA.query(api.projectCrew.listForProject, { projectId: ids.projectA });
+
+  expect(data.crew.map((c) => c.role)).toEqual(["Director", "Camera operator", "Sound recordist"]);
+  expect(data.crew.map((c) => c.role)).toEqual(
+    listed.filter((m) => m.kind === "crew").map((m) => m.role)
+  );
+  const talent = data.contactSections?.find((s) => s.title === "Talent");
+  expect(talent?.rows.map((r) => r.role)).toEqual(["Lead A", "Lead B"]);
+});
