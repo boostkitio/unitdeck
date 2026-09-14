@@ -45,7 +45,9 @@ export function LocationSection({
     ? [
         !location.nearestHospital && "nearest A&E",
         !location.nearestPoliceStation && "police station",
-        !location.nearestStation && "nearest station",
+        // The Tube is left out: most locations are nowhere near one, and a
+        // blank there is the right answer rather than a gap.
+        !location.nearestRail && "nearest National Rail station",
         !location.plusCode && "Plus Code",
       ].filter((v): v is string => typeof v === "string")
     : [];
@@ -187,7 +189,21 @@ export function LocationSection({
                   {location.nearestPoliceStation}
                 </p>
               )}
-              {location.nearestStation && (
+              {location.nearestTube && (
+                <p className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Nearest Tube:</span>{" "}
+                  {location.nearestTube}
+                </p>
+              )}
+              {location.nearestRail && (
+                <p className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Nearest National Rail:</span>{" "}
+                  {location.nearestRail}
+                </p>
+              )}
+              {/* Looked up before the two were kept apart: still worth showing
+                  until the lookup is run again or they are typed in. */}
+              {!location.nearestTube && !location.nearestRail && location.nearestStation && (
                 <p className="text-muted-foreground">
                   <span className="font-medium text-foreground">Nearest station:</span>{" "}
                   {location.nearestStation}
@@ -209,7 +225,8 @@ export function LocationSection({
                         const filled = [
                           result.nearestHospital && "nearest A&E",
                           result.nearestPoliceStation && "police station",
-                          result.nearestStation && "nearest station",
+                          result.nearestTube && "nearest Tube",
+                          result.nearestRail && "nearest National Rail station",
                           result.plusCode && "Plus Code",
                         ].filter(Boolean);
                         if (filled.length > 0) {
@@ -614,6 +631,9 @@ function LocationPickerDialog({
  * and Remove — so adding parking meant searching for the same address again
  * and re-adding it.
  *
+ * The stations are here too: they are looked up from the address, and a
+ * lookup that names the wrong one has to be put right from where it is read.
+ *
  * Name and address are deliberately not here: changing those changes the
  * location for every production using it, which belongs on the locations page.
  */
@@ -628,6 +648,8 @@ function LocationDetailsDialog({
   const [parkingNotes, setParkingNotes] = useState(location.parkingNotes ?? "");
   const [accessNotes, setAccessNotes] = useState(location.accessNotes ?? "");
   const [satNav, setSatNav] = useState(location.satNav ?? "");
+  const [nearestTube, setNearestTube] = useState(location.nearestTube ?? "");
+  const [nearestRail, setNearestRail] = useState(location.nearestRail ?? "");
   const [notes, setNotes] = useState(location.notes ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -639,6 +661,9 @@ function LocationDetailsDialog({
         parkingNotes: parkingNotes.trim() || undefined,
         accessNotes: accessNotes.trim() || undefined,
         satNav: satNav.trim() || undefined,
+        // Sent even when blank, so clearing a wrong station clears it.
+        nearestTube: nearestTube.trim(),
+        nearestRail: nearestRail.trim(),
         notes: notes.trim() || undefined,
       });
       toast.success("Location details saved.");
@@ -685,6 +710,28 @@ function LocationDetailsDialog({
               onChange={(e) => setSatNav(e.target.value)}
               placeholder="A postcode that actually takes you to the gate"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="loc-details-tube">Nearest Tube</Label>
+            <Input
+              id="loc-details-tube"
+              value={nearestTube}
+              onChange={(e) => setNearestTube(e.target.value)}
+              placeholder="White City (Central line), 6 min walk"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="loc-details-rail">Nearest National Rail station</Label>
+            <Input
+              id="loc-details-rail"
+              value={nearestRail}
+              onChange={(e) => setNearestRail(e.target.value)}
+              placeholder="Shepherd's Bush, 12 min walk"
+            />
+            <p className="text-xs text-muted-foreground">
+              Filled in from the address. Correct either station here if it is wrong, or leave
+              it blank.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="loc-details-notes">Notes</Label>

@@ -101,7 +101,11 @@ async function dayParts(
       parkingNotes: l.parkingNotes,
       nearestHospital: l.nearestHospital,
       satNav: l.satNav,
-      publicTransport: l.nearestStation ?? l.publicTransport,
+      nearestTube: l.nearestTube,
+      nearestRail: l.nearestRail,
+      // Only where neither station has been looked up separately yet.
+      publicTransport:
+        l.nearestTube || l.nearestRail ? undefined : (l.nearestStation ?? l.publicTransport),
       nearestPoliceStation: l.nearestPoliceStation,
     })),
     schedule: forToday.map((row, i) => ({

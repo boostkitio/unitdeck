@@ -18,6 +18,8 @@ const locationFields = {
   notes: v.optional(v.string()),
   satNav: v.optional(v.string()),
   nearestStation: v.optional(v.string()),
+  nearestTube: v.optional(v.string()),
+  nearestRail: v.optional(v.string()),
   // Superseded by nearestStation, which said the same thing twice. Still
   // accepted so existing rows and any older client keep working.
   publicTransport: v.optional(v.string()),
@@ -66,7 +68,13 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     if (args.name.trim().length === 0) throw new Error("Location name is required");
-    return await ctx.db.insert("locations", { orgId: org._id, ...args, name: args.name.trim() });
+    return await ctx.db.insert("locations", {
+      orgId: org._id,
+      ...args,
+      name: args.name.trim(),
+      nearestTube: args.nearestTube?.trim() || undefined,
+      nearestRail: args.nearestRail?.trim() || undefined,
+    });
   },
 });
 
@@ -74,6 +82,8 @@ export const update = mutation({
   args: {
     id: v.id("locations"),
     nearestStation: v.optional(v.string()),
+    nearestTube: v.optional(v.string()),
+    nearestRail: v.optional(v.string()),
     name: v.optional(v.string()),
     address: v.optional(v.string()),
     plusCode: v.optional(v.string()),
@@ -91,7 +101,13 @@ export const update = mutation({
     const { org } = await requireOrg(ctx);
     const location = await ctx.db.get(args.id);
     if (!location || location.orgId !== org._id) throw new Error("Location not found");
-    const { id, ...patch } = args;
+    const { id, ...rest } = args;
+    const patch: Omit<typeof args, "id"> = { ...rest };
+    // The stations are corrected by hand when the lookup got them wrong, and
+    // clearing one has to clear it rather than leave the wrong answer behind.
+    for (const key of ["nearestTube", "nearestRail"] as const) {
+      if (patch[key] !== undefined) patch[key] = patch[key]!.trim() || undefined;
+    }
     if (patch.name !== undefined && patch.name.trim().length === 0) {
       throw new Error("Location name is required");
     }
@@ -170,6 +186,8 @@ export const saveEnrichment = internalMutation({
     nearestHospital: v.optional(v.string()),
     nearestPoliceStation: v.optional(v.string()),
     nearestStation: v.optional(v.string()),
+    nearestTube: v.optional(v.string()),
+    nearestRail: v.optional(v.string()),
     plusCode: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
@@ -182,7 +200,13 @@ export const saveEnrichment = internalMutation({
     // Never overwrite something a human typed: only fill what is blank.
     const patch: Record<string, unknown> = {};
     const fill = (
-      key: "nearestHospital" | "nearestPoliceStation" | "nearestStation" | "plusCode"
+      key:
+        | "nearestHospital"
+        | "nearestPoliceStation"
+        | "nearestStation"
+        | "nearestTube"
+        | "nearestRail"
+        | "plusCode"
     ) => {
       const value = args[key];
       if (value && !location[key]?.trim()) patch[key] = value;
@@ -190,6 +214,8 @@ export const saveEnrichment = internalMutation({
     fill("nearestHospital");
     fill("nearestPoliceStation");
     fill("nearestStation");
+    fill("nearestTube");
+    fill("nearestRail");
     fill("plusCode");
     if (args.lat !== undefined && args.lng !== undefined && location.lat === undefined) {
       patch.lat = args.lat;
@@ -203,7 +229,8 @@ export const saveEnrichment = internalMutation({
 
 /**
  * Fills in everything derivable from a location's address: coordinates, the
- * nearest A&E and police station, public transport, and the Plus Code. Runs automatically when a location is saved.
+ * nearest A&E and police station, the nearest Tube and National Rail stations,
+ * and the Plus Code. Runs automatically when a location is saved.
  *
  * Only blank fields are written, so anything typed by hand survives.
  */
@@ -216,6 +243,8 @@ export const enrichLocation = action({
     nearestHospital?: string;
     nearestPoliceStation?: string;
     nearestStation?: string;
+    nearestTube?: string;
+    nearestRail?: string;
     plusCode?: string;
   }> => {
     const identity = await ctx.auth.getUserIdentity();
@@ -232,23 +261,28 @@ export const enrichLocation = action({
     if (!coords) coords = await geocodeAddress(location.address).catch(() => null);
 
     const system = `You are a UK location assistant for a film and TV production management tool.
-Given a UK address, name the nearest NHS A&E or major hospital, the nearest police station, and the nearest rail or Underground station.
+Given a UK address, name the nearest NHS A&E or major hospital, the nearest police station, the nearest London Underground-style station, and the nearest National Rail station.
 
 Reply with ONLY a JSON object in exactly this shape, no prose, no code fences:
 {
   "nearestHospital": "Name of nearest A&E or hospital, or null",
   "nearestPoliceStation": "Name of nearest police station, or null",
-  "nearestStation": "Nearest rail/Underground/tram station with line and walking time, or null"
+  "nearestTube": "Nearest London Underground, Overground, DLR or Elizabeth line station with line and walking time, or null",
+  "nearestRail": "Nearest National Rail station with walking or driving time, or null"
 }
 
 Rules:
 - Give commonly used names, e.g. "Wexham Park Hospital", "Slough Police Station".
-- "nearestStation" MUST name a specific station, and where it applies the line and
-  approximate walking time, e.g. "White City (Central line), 6 min walk" or
-  "Slough rail station, 12 min walk". Never answer with a generic phrase like
-  "good transport links" or "various stations nearby" — return null instead.
-- In London prefer the nearest Underground, Overground or DLR station; elsewhere
-  prefer the nearest National Rail station.
+- "nearestTube" is only for London's Transport for London network: the Underground,
+  Overground, DLR or Elizabeth line, e.g. "White City (Central line), 6 min walk".
+  Outside Greater London, or when no such station is within about 30 minutes' walk,
+  return null.
+- "nearestRail" MUST be a National Rail station (a mainline station served by train
+  operating companies, not a Tube-only station), with approximate walking time, or
+  driving time when it is too far to walk, e.g. "Slough, 12 min walk" or
+  "Tunbridge Wells, 10 min drive". Give one for every UK address you can place.
+- A station served by both, such as "Stratford", may be the answer to both.
+- Never answer with a generic phrase like "good transport links" — return null instead.
 - Use null when you are not confident. Never invent a name.`;
 
     const raw = await chatJson({
@@ -265,7 +299,11 @@ Rules:
 
     const nearestHospital = text(obj?.nearestHospital);
     const nearestPoliceStation = text(obj?.nearestPoliceStation);
-    const nearestStation = text(obj?.nearestStation);
+    const nearestTube = text(obj?.nearestTube);
+    const nearestRail = text(obj?.nearestRail);
+    // Still filled for anything that reads the single field: the Tube in
+    // London, where that is how people travel in, the railway elsewhere.
+    const nearestStation = nearestTube ?? nearestRail;
 
     // Arithmetic, not a lookup: this cannot fail once there are coordinates.
     const plusCode = coords ? plusCodeFor(coords.lat, coords.lng, location.address) : undefined;
@@ -275,6 +313,8 @@ Rules:
       nearestHospital,
       nearestPoliceStation,
       nearestStation,
+      nearestTube,
+      nearestRail,
       plusCode,
       lat: coords?.lat,
       lng: coords?.lng,
@@ -284,6 +324,8 @@ Rules:
       nearestHospital,
       nearestPoliceStation,
       nearestStation,
+      nearestTube,
+      nearestRail,
       plusCode,
     };
   },

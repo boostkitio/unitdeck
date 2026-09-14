@@ -298,6 +298,18 @@ export function CallSheetDocument({
                         <dd>{loc.parkingNotes}</dd>
                       </>
                     )}
+                    {loc.nearestTube && (
+                      <>
+                        <dt className="font-semibold">Nearest Tube</dt>
+                        <dd>{loc.nearestTube}</dd>
+                      </>
+                    )}
+                    {loc.nearestRail && (
+                      <>
+                        <dt className="font-semibold">Nearest rail</dt>
+                        <dd>{loc.nearestRail}</dd>
+                      </>
+                    )}
                     {loc.publicTransport && (
                       <>
                         <dt className="font-semibold">Transport</dt>

@@ -75,3 +75,26 @@ test("create and update persist the new logistics fields", async () => {
   expect(updated?.publicTransport).toBe("Bermondsey tube 20 min");
   expect(updated?.nearestPoliceStation).toBe("Southwark Police Station");
 });
+
+test("the nearest Tube and National Rail station are kept apart, and can be corrected or cleared", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.locations.create, {
+    name: "BBC TV Centre",
+    address: "101 Wood Lane, London W12 7FA",
+    nearestTube: "  White City (Central line), 6 min walk ",
+    nearestRail: "",
+  });
+  let saved = await asA.query(api.locations.get, { id });
+  expect(saved?.nearestTube).toBe("White City (Central line), 6 min walk");
+  expect(saved?.nearestRail).toBeUndefined();
+
+  await asA.mutation(api.locations.update, { id, nearestRail: "Shepherd's Bush, 12 min walk" });
+  saved = await asA.query(api.locations.get, { id });
+  expect(saved?.nearestRail).toBe("Shepherd's Bush, 12 min walk");
+
+  // A blank clears a wrong answer rather than keeping it.
+  await asA.mutation(api.locations.update, { id, nearestTube: "   " });
+  saved = await asA.query(api.locations.get, { id });
+  expect(saved?.nearestTube).toBeUndefined();
+  expect(saved?.nearestRail).toBe("Shepherd's Bush, 12 min walk");
+});

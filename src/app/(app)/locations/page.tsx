@@ -118,6 +118,8 @@ export default function LocationsPage() {
               l.nearestHospital,
               l.nearestPoliceStation,
               l.nearestStation,
+              l.nearestTube,
+              l.nearestRail,
               l.plusCode,
               l.satNav,
               l.notes,
@@ -239,7 +241,8 @@ function LocationDialog({
   const [accessNotes, setAccessNotes] = useState(location?.accessNotes ?? "");
   const [nearestHospital, setNearestHospital] = useState(location?.nearestHospital ?? "");
   const [satNav, setSatNav] = useState(location?.satNav ?? "");
-  const [nearestStation, setNearestStation] = useState(location?.nearestStation ?? "");
+  const [nearestTube, setNearestTube] = useState(location?.nearestTube ?? "");
+  const [nearestRail, setNearestRail] = useState(location?.nearestRail ?? "");
   const [nearestPoliceStation, setNearestPoliceStation] = useState(
     location?.nearestPoliceStation ?? ""
   );
@@ -296,7 +299,9 @@ function LocationDialog({
         accessNotes: accessNotes || undefined,
         nearestHospital: nearestHospital || undefined,
         satNav: satNav || undefined,
-        nearestStation: nearestStation || undefined,
+        // Blank rather than absent, so clearing a wrong station clears it.
+        nearestTube: nearestTube.trim(),
+        nearestRail: nearestRail.trim(),
         nearestPoliceStation: nearestPoliceStation || undefined,
         lat,
         lng,
@@ -318,7 +323,8 @@ function LocationDialog({
           const filled = [
             r.nearestHospital && "nearest A&E",
             r.nearestPoliceStation && "police station",
-            r.nearestStation && "nearest station",
+            r.nearestTube && "nearest Tube",
+            r.nearestRail && "nearest National Rail station",
             r.plusCode && "Plus Code",
           ].filter(Boolean);
           // Say so either way: a silent no-op looks identical to a failure.
@@ -552,14 +558,25 @@ function LocationDialog({
               />
             </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="loc-station">Nearest station</Label>
-            <Input
-              id="loc-station"
-              value={nearestStation}
-              onChange={(e) => setNearestStation(e.target.value)}
-              placeholder="White City (Central line), 6 min walk"
-            />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="loc-tube">Nearest Tube</Label>
+              <Input
+                id="loc-tube"
+                value={nearestTube}
+                onChange={(e) => setNearestTube(e.target.value)}
+                placeholder="White City (Central line), 6 min walk"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="loc-rail">Nearest National Rail station</Label>
+              <Input
+                id="loc-rail"
+                value={nearestRail}
+                onChange={(e) => setNearestRail(e.target.value)}
+                placeholder="Shepherd's Bush, 12 min walk"
+              />
+            </div>
           </div>
         </div>
         <DialogFooter className="flex items-center justify-between sm:justify-between">

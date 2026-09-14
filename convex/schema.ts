@@ -549,6 +549,12 @@ export default defineSchema({
     // The nearest tube/rail station, named on its own rather than buried in a
     // paragraph — it is the single thing crew look for when travelling in.
     nearestStation: v.optional(v.string()),
+    // The two a crew member travelling in actually asks for, kept apart: the
+    // nearest Tube (Underground, Overground, DLR or Elizabeth line) and the
+    // nearest National Rail station. `nearestStation` was one answer for both
+    // and is still read where these are blank.
+    nearestTube: v.optional(v.string()),
+    nearestRail: v.optional(v.string()),
     // IANA zone for the coordinates, learned from the weather service. Kept so
     // sun times can be shown in local time for a date beyond the forecast.
     timezone: v.optional(v.string()),
