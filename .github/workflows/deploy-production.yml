@@ -1,0 +1,50 @@
+name: Deploy production
+
+# Deploys main to Vercel from CI rather than through Vercel's Git integration.
+#
+# Vercel declines to build a commit whose author is not a member of the Vercel
+# team, and it declines silently: the project still reads as connected, the
+# push still arrives, and no deployment or error surfaces anywhere. That left
+# every commit from a non-member author sitting on main undeployed.
+#
+# A deployment created through the CLI has no commit author to check, so this
+# path deploys whoever wrote the commit.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One production deploy at a time, and never cancel one already building: it
+# may be part-way through pushing Convex functions.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy to production
+    runs-on: ubuntu-latest
+    env:
+      # Identifiers, not credentials. These let the CLI resolve the project
+      # without a checkout-local .vercel directory, which is not committed.
+      VERCEL_ORG_ID: team_60nnb90cWITel5JHGeceWKBP
+      VERCEL_PROJECT_ID: prj_lTvgfOajM7TbNXAzMgM2Vg00vcci
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # The build runs on Vercel and still runs the project's buildCommand,
+      # "npx convex deploy --cmd 'npm run build'", so Convex functions are
+      # deployed by the same step they always were.
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes vercel@59 deploy --prod --yes
