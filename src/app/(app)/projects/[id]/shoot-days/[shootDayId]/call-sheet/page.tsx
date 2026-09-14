@@ -77,6 +77,7 @@ function Composer({
   const [checkOpen, setCheckOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const extraDates = data.extraDays?.length ?? 0;
 
   const onChange = useCallback(
     (next: CallSheetData) => {
@@ -120,7 +121,9 @@ function Composer({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${data.title.replace(/[^\w\- ]/g, "")} call sheet ${data.date} v${draft.version}.pdf`;
+      const lastDate = data.extraDays?.at(-1)?.date;
+      const dates = lastDate ? `${data.date} to ${lastDate}` : data.date;
+      a.download = `${data.title.replace(/[^\w\- ]/g, "")} call sheet ${dates} v${draft.version}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success("PDF exported.");
@@ -145,7 +148,10 @@ function Composer({
           >
             ← Back to project
           </Link>
-          <h1 className="text-sm font-semibold">Call sheet · v{draft.version}</h1>
+          <h1 className="text-sm font-semibold">
+            {extraDates > 0 ? `Combined call sheet · ${extraDates + 1} dates` : "Call sheet"} · v
+            {draft.version}
+          </h1>
           <span
             className={
               saveState === "error"
@@ -230,7 +236,7 @@ function Composer({
         {/* The settings are what you are actually working in, so they get the
             room; the sheet is a check that it reads right, so it sits tighter. */}
         <div className="w-full shrink-0 border-r border-border bg-card p-4 md:w-[480px] md:overflow-y-auto md:p-6 lg:w-[560px]">
-          <ComposerForm data={data} onChange={onChange} />
+          <ComposerForm data={data} onChange={onChange} projectId={draft.projectId} />
         </div>
         <div className="hidden min-w-0 flex-1 overflow-y-auto bg-muted p-6 md:block">
           <FitToWidth>

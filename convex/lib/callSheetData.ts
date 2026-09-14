@@ -53,6 +53,42 @@ export const accommodationValidator = v.object({
   notes: v.optional(v.string()),
 });
 
+/**
+ * A hotel as the sheet prints it: one of the production's accommodation
+ * entries, copied on when the sheet is laid out so the document still reads
+ * the same after the booking is edited.
+ */
+export const hotelValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  address: v.optional(v.string()),
+  phone: v.optional(v.string()),
+  checkIn: v.optional(v.string()),
+  nights: v.optional(v.number()),
+  bookingRef: v.optional(v.string()),
+  notes: v.optional(v.string()),
+});
+
+/**
+ * A further date on a combined call sheet.
+ *
+ * The first date is the sheet's own top-level fields, as it always was; these
+ * are the ones after it. Only what changes from day to day lives here — the
+ * crew, contacts, kit and hotel are the production's and are printed once.
+ */
+export const sheetDayValidator = v.object({
+  id: v.string(),
+  shootDayId: v.optional(v.id("shootDays")),
+  date: v.string(), // "YYYY-MM-DD"
+  label: v.optional(v.string()),
+  generalCallTime: v.string(),
+  schedule: v.array(scheduleBlockValidator),
+  locations: v.array(locationEntryValidator),
+  weatherSummary: v.optional(v.string()),
+  sunrise: v.optional(v.string()),
+  sunset: v.optional(v.string()),
+});
+
 export const sectionRowValidator = v.object({
   id: v.string(),
   personId: v.optional(v.id("people")),
@@ -118,9 +154,17 @@ export const callSheetDataValidator = v.object({
   weatherSummary: v.optional(v.string()),
   sunrise: v.optional(v.string()),
   sunset: v.optional(v.string()),
-  // Where the unit sleeps that night. Comes off the shoot day, so a job
-  // that moves puts the right hotel on the right sheet.
+  // Where the unit slept, on sheets drafted when a hotel was held per shoot
+  // day. Superseded by `hotels`; still read so those sheets print as before.
   accommodation: v.optional(accommodationValidator),
+  // Where the unit sleeps: the production's accommodation list.
+  hotels: v.optional(v.array(hotelValidator)),
+  // What the first date is called — "Day 1: interviews". Printed on a
+  // combined sheet, where the dates need telling apart.
+  dayLabel: v.optional(v.string()),
+  // The dates after the first on a sheet that covers several. Absent or empty
+  // on an ordinary one-day sheet.
+  extraDays: v.optional(v.array(sheetDayValidator)),
   callTimes: v.optional(v.array(callTimeValidator)),
   crewSectionTitle: v.optional(v.string()),
   contactSections: v.optional(v.array(contactSectionValidator)),
@@ -143,6 +187,36 @@ export type ContactSection = Infer<typeof contactSectionValidator>;
 export type CallTimeEntry = Infer<typeof callTimeValidator>;
 export type EquipmentRow = Infer<typeof equipmentRowValidator>;
 export type CameraInfo = Infer<typeof cameraInfoValidator>;
+export type Hotel = Infer<typeof hotelValidator>;
+export type SheetDay = Infer<typeof sheetDayValidator>;
+
+/**
+ * Every date the sheet covers, in order, the first one included.
+ *
+ * The first date keeps the sheet's own call times; the rest have only a
+ * general call, which is all a day block holds.
+ */
+export function sheetDays(data: CallSheetData): (SheetDay & { callTimes?: CallTimeEntry[] })[] {
+  const first = {
+    id: "day-1",
+    date: data.date,
+    label: data.dayLabel,
+    generalCallTime: data.generalCallTime,
+    callTimes: data.callTimes,
+    schedule: data.schedule,
+    locations: data.locations,
+    weatherSummary: data.weatherSummary,
+    sunrise: data.sunrise,
+    sunset: data.sunset,
+  };
+  return [first, ...(data.extraDays ?? [])];
+}
+
+/** The hotels to print, reading a sheet from before the list as its one hotel. */
+export function sheetHotels(data: CallSheetData): Hotel[] {
+  if (data.hotels) return data.hotels;
+  return data.accommodation ? [{ id: "hotel-legacy", ...data.accommodation }] : [];
+}
 
 /**
  * One-way, idempotent migration: fold the deprecated flat `contacts[]` into a

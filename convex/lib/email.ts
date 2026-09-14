@@ -93,7 +93,12 @@ export function callSheetEmail(args: {
   isUpdate: boolean;
 }): { subject: string; html: string } {
   const { data, recipientName, recipientCallTime, setModeUrl, isUpdate } = args;
-  const dateText = formatEmailDate(data.date);
+  // A combined sheet names its first and last date, so nobody reads it as a
+  // one-day call.
+  const lastDate = data.extraDays?.at(-1)?.date;
+  const dateText = lastDate
+    ? `${formatEmailDate(data.date)} to ${formatEmailDate(lastDate)}`
+    : formatEmailDate(data.date);
   const subject = `${isUpdate ? "Updated call sheet" : "Call sheet"}: ${data.title} – ${dateText}`;
   const firstLocation = data.locations[0];
 
@@ -113,7 +118,7 @@ export function callSheetEmail(args: {
     ${row("Hello", escapeHtml(recipientName))}
     ${row("Date", escapeHtml(dateText))}
     ${row("Your call time", `<strong>${escapeHtml(recipientCallTime)}</strong>`)}
-    ${row("General call", escapeHtml(data.generalCallTime))}
+    ${row(lastDate ? "Day 1 general call" : "General call", escapeHtml(data.generalCallTime))}
     ${firstLocation ? row("Location", `${escapeHtml(firstLocation.name)}<br/><span style="color:#525252;">${escapeHtml(firstLocation.address)}</span>`) : ""}
   </table>
   <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:6px;background:#171717;">

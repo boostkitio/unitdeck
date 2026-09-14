@@ -10,9 +10,19 @@ One Google API: the **Maps Embed API**, an `<iframe>` pointing at
 
 We deliberately do **not** use the Maps Static API. It was used once, for the
 map printed on a call sheet, and was dropped on 2026-08-27: it is billed per
-request for a picture nobody navigates by, and on paper the Plus Code is what
-actually gets somebody to the gate. A printed call sheet now always shows the
-Plus Code, so there is no key to get wrong and no image to break.
+request, and only the Embed API is on the key.
+
+The printed call sheet has a map image again since 2026-09-14, but not from
+Google: it is laid out from OpenStreetMap tiles (`osmTiles` in
+`src/lib/maps.ts`), which are plain images, print like any other, and need no
+key. OpenStreetMap's licence asks for a credit wherever its map is shown, so
+the map carries "© OpenStreetMap". The Plus Code is printed under the map, and
+stands in for it when a location has never been placed.
+
+OpenStreetMap's tile servers are for light use. A call sheet asks for a
+handful of tiles per location when it is previewed or turned into a PDF,
+which is well within that. If volume ever grows to where it is not, swap the
+tile URL in `osmTiles` for a commercial tile provider.
 
 Nor do we use the Maps JavaScript API, the Places API, or Google Geocoding.
 Turning an address into coordinates is Nominatim (OpenStreetMap), in
@@ -106,15 +116,14 @@ would need IP restrictions instead.
 | --- | --- |
 | `src/components/projects/location-section.tsx` | link tile, via `src/lib/maps.ts` |
 | `src/app/(app)/locations/page.tsx` | link tile, via `src/lib/maps.ts` |
-| `src/components/call-sheet/call-sheet-document.tsx` | always prints the Plus Code, key or no key |
+| `src/components/call-sheet/call-sheet-document.tsx` | never uses the key: an OpenStreetMap image with the Plus Code under it, or the Plus Code alone for an unplaced location |
 
 Both former gaps are closed. The unsupported `maps?q=...&output=embed`
 endpoint is gone, and no map now depends on it. URL building lives in
 `src/lib/maps.ts` and is tested.
 
 A missing key is no longer a broken panel: on screen the tile becomes a link
-to Google Maps, and on a printed call sheet it becomes the Plus Code, which is
-what someone without a clickable page actually needs.
+to Google Maps, and a printed call sheet does not depend on the key at all.
 
 ## Content-Security-Policy
 

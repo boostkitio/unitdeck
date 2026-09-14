@@ -3,15 +3,18 @@
 import { useEffect } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import type {
   CallSheetData,
   CameraInfo,
   ContactSection,
   CrewRow,
+  Hotel,
   ScheduleBlock,
   SectionRow,
+  SheetDay,
 } from "../../../convex/lib/callSheetData";
-import { migrateLegacyContacts } from "../../../convex/lib/callSheetData";
+import { migrateLegacyContacts, sheetHotels } from "../../../convex/lib/callSheetData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,12 +50,23 @@ function move<T>(arr: T[], from: number, to: number): T[] {
 export function ComposerForm({
   data,
   onChange,
+  projectId,
 }: {
   data: CallSheetData;
   onChange: (next: CallSheetData) => void;
+  /** The production the sheet is for, to pull its hotels back in from. */
+  projectId?: Id<"projects">;
 }) {
   const people = useQuery(api.people.list, {});
+  const stays = useQuery(api.accommodation.listForProject, projectId ? { projectId } : "skip");
   const set = (patch: Partial<CallSheetData>) => onChange({ ...data, ...patch });
+  const extraDays = data.extraDays ?? [];
+  const combined = extraDays.length > 0;
+  const setDay = (id: string, patch: Partial<SheetDay>) =>
+    set({ extraDays: extraDays.map((d) => (d.id === id ? { ...d, ...patch } : d)) });
+  const hotels = sheetHotels(data);
+  const setHotel = (id: string, patch: Partial<Hotel>) =>
+    set({ hotels: hotels.map((h) => (h.id === id ? { ...h, ...patch } : h)), accommodation: undefined });
 
   useEffect(() => {
     if (data.contacts && data.contacts.length > 0) {
@@ -73,7 +87,7 @@ export function ComposerForm({
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="cs-date">Date</Label>
+            <Label htmlFor="cs-date">{combined ? "Day 1 date" : "Date"}</Label>
             <Input
               id="cs-date"
               type="date"
@@ -91,6 +105,21 @@ export function ComposerForm({
             />
           </div>
         </div>
+        {combined && (
+          <div className="space-y-2">
+            <Label htmlFor="cs-day-label">What day 1 is (optional)</Label>
+            <Input
+              id="cs-day-label"
+              value={data.dayLabel ?? ""}
+              placeholder="Interviews, B-roll, travel…"
+              onChange={(e) => set({ dayLabel: e.target.value || undefined })}
+            />
+            <p className="text-xs text-muted-foreground">
+              This sheet covers {extraDays.length + 1} dates. Each has its own call and schedule
+              below; the crew, contacts, kit and hotels are printed once for all of them.
+            </p>
+          </div>
+        )}
         <div className="space-y-2">
           <Label htmlFor="cs-important">Important notices</Label>
           <Textarea
@@ -165,109 +194,70 @@ export function ComposerForm({
       </section>
 
       {/* Schedule */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Schedule</h3>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() =>
-              set({
-                schedule: [
-                  ...data.schedule,
-                  {
-                    id: newId("blk"),
-                    start: data.schedule.at(-1)?.end ?? data.generalCallTime,
-                    title: "",
-                  } satisfies ScheduleBlock,
-                ],
-              })
-            }
-          >
-            Add block
-          </Button>
-        </div>
-        {data.schedule.map((block, i) => (
-          <div
-            key={block.id}
-            className="rounded-md border border-border p-3"
-          >
-            <div className="flex items-start gap-2">
+      <ScheduleEditor
+        title={combined ? `Schedule · Day 1` : "Schedule"}
+        schedule={data.schedule}
+        generalCallTime={data.generalCallTime}
+        onChange={(schedule) => set({ schedule })}
+      />
+
+      {/* The further dates on a combined sheet, each with its own call and
+          running order. The crew, kit and hotels below are shared. */}
+      {extraDays.map((day, i) => (
+        <section key={day.id} className="space-y-4 rounded-md border border-border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">Day {i + 2}</h3>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-600"
+              onClick={() =>
+                set({
+                  extraDays: extraDays.filter((d) => d.id !== day.id),
+                  ...(extraDays.length === 1 ? { dayLabel: undefined } : {}),
+                })
+              }
+            >
+              Take this date off the sheet
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor={`cs-date-${day.id}`}>Date</Label>
               <Input
-                type="time"
-                className="w-28"
-                value={block.start}
-                onChange={(e) =>
-                  set({
-                    schedule: data.schedule.map((b) =>
-                      b.id === block.id ? { ...b, start: e.target.value } : b
-                    ),
-                  })
-                }
-              />
-              <Input
-                type="time"
-                className="w-28"
-                value={block.end ?? ""}
-                onChange={(e) =>
-                  set({
-                    schedule: data.schedule.map((b) =>
-                      b.id === block.id ? { ...b, end: e.target.value || undefined } : b
-                    ),
-                  })
-                }
-              />
-              <Input
-                placeholder="What's happening"
-                value={block.title}
-                onChange={(e) =>
-                  set({
-                    schedule: data.schedule.map((b) =>
-                      b.id === block.id ? { ...b, title: e.target.value } : b
-                    ),
-                  })
-                }
+                id={`cs-date-${day.id}`}
+                type="date"
+                value={day.date}
+                onChange={(e) => setDay(day.id, { date: e.target.value })}
               />
             </div>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="space-y-2">
+              <Label htmlFor={`cs-call-${day.id}`}>General call</Label>
               <Input
-                placeholder="Notes (optional)"
-                className="text-sm"
-                value={block.notes ?? ""}
-                onChange={(e) =>
-                  set({
-                    schedule: data.schedule.map((b) =>
-                      b.id === block.id ? { ...b, notes: e.target.value || undefined } : b
-                    ),
-                  })
-                }
+                id={`cs-call-${day.id}`}
+                type="time"
+                value={day.generalCallTime}
+                onChange={(e) => setDay(day.id, { generalCallTime: e.target.value })}
               />
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => set({ schedule: move(data.schedule, i, i - 1) })}
-              >
-                ↑
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => set({ schedule: move(data.schedule, i, i + 1) })}
-              >
-                ↓
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-red-600"
-                onClick={() => set({ schedule: data.schedule.filter((b) => b.id !== block.id) })}
-              >
-                Remove
-              </Button>
             </div>
           </div>
-        ))}
-      </section>
+          <div className="space-y-2">
+            <Label htmlFor={`cs-label-${day.id}`}>What the day is (optional)</Label>
+            <Input
+              id={`cs-label-${day.id}`}
+              value={day.label ?? ""}
+              placeholder="Interviews, B-roll, travel…"
+              onChange={(e) => setDay(day.id, { label: e.target.value || undefined })}
+            />
+          </div>
+          <ScheduleEditor
+            title={`Schedule · Day ${i + 2}`}
+            schedule={day.schedule}
+            generalCallTime={day.generalCallTime}
+            onChange={(schedule) => setDay(day.id, { schedule })}
+          />
+        </section>
+      ))}
 
       {/* Crew */}
       <section className="space-y-3">
@@ -666,6 +656,118 @@ export function ComposerForm({
         ))}
       </section>
 
+      {/* Accommodation */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">Accommodation</h3>
+          <div className="flex items-center gap-2">
+            {projectId && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={stays === undefined}
+                title="Replaces the hotels on this sheet with the production's accommodation list."
+                onClick={() =>
+                  set({
+                    accommodation: undefined,
+                    hotels: (stays ?? []).map((stay) => ({
+                      id: newId("hotel"),
+                      name: stay.name,
+                      address: stay.address,
+                      phone: stay.phone,
+                      checkIn: stay.checkIn,
+                      nights: stay.nights,
+                      bookingRef: stay.bookingRef,
+                      notes: stay.notes,
+                    })),
+                  })
+                }
+              >
+                Pull in from production
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() =>
+                set({
+                  accommodation: undefined,
+                  hotels: [...hotels, { id: newId("hotel"), name: "" } satisfies Hotel],
+                })
+              }
+            >
+              Add hotel
+            </Button>
+          </div>
+        </div>
+        {hotels.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            Nobody staying over. Hotels added to the production&apos;s Accommodation section come
+            onto the sheet when it is generated.
+          </p>
+        )}
+        {hotels.map((hotel) => (
+          <div key={hotel.id} className="space-y-2 rounded-md border border-border p-3">
+            <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+              <Input
+                placeholder="Hotel"
+                value={hotel.name}
+                onChange={(e) => setHotel(hotel.id, { name: e.target.value })}
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-red-600"
+                onClick={() =>
+                  set({ accommodation: undefined, hotels: hotels.filter((h) => h.id !== hotel.id) })
+                }
+              >
+                Remove
+              </Button>
+            </div>
+            <Textarea
+              rows={2}
+              placeholder="Address"
+              value={hotel.address ?? ""}
+              onChange={(e) => setHotel(hotel.id, { address: e.target.value || undefined })}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                placeholder="Phone"
+                value={hotel.phone ?? ""}
+                onChange={(e) => setHotel(hotel.id, { phone: e.target.value || undefined })}
+              />
+              <Input
+                placeholder="Check-in, e.g. Mon 12 May from 3pm"
+                value={hotel.checkIn ?? ""}
+                onChange={(e) => setHotel(hotel.id, { checkIn: e.target.value || undefined })}
+              />
+              <Input
+                placeholder="Nights"
+                inputMode="numeric"
+                value={hotel.nights !== undefined ? String(hotel.nights) : ""}
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  const nights = Number(raw);
+                  if (raw === "") setHotel(hotel.id, { nights: undefined });
+                  else if (Number.isInteger(nights) && nights >= 0) setHotel(hotel.id, { nights });
+                }}
+              />
+              <Input
+                placeholder="Booking ref"
+                value={hotel.bookingRef ?? ""}
+                onChange={(e) => setHotel(hotel.id, { bookingRef: e.target.value || undefined })}
+              />
+            </div>
+            <Input
+              placeholder="Notes (optional)"
+              value={hotel.notes ?? ""}
+              onChange={(e) => setHotel(hotel.id, { notes: e.target.value || undefined })}
+            />
+          </div>
+        ))}
+      </section>
+
       {/* Camera / tech */}
       <section className="space-y-4">
         <h3 className="text-sm font-semibold">Camera / tech</h3>
@@ -775,5 +877,90 @@ export function ComposerForm({
         </label>
       </section>
     </div>
+  );
+}
+
+/** One date's running order: blocks with a start, an optional end, and notes. */
+function ScheduleEditor({
+  title,
+  schedule,
+  generalCallTime,
+  onChange,
+}: {
+  title: string;
+  schedule: ScheduleBlock[];
+  generalCallTime: string;
+  onChange: (next: ScheduleBlock[]) => void;
+}) {
+  const edit = (id: string, patch: Partial<ScheduleBlock>) =>
+    onChange(schedule.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() =>
+            onChange([
+              ...schedule,
+              {
+                id: newId("blk"),
+                start: schedule.at(-1)?.end ?? generalCallTime,
+                title: "",
+              } satisfies ScheduleBlock,
+            ])
+          }
+        >
+          Add block
+        </Button>
+      </div>
+      {schedule.map((block, i) => (
+        <div key={block.id} className="rounded-md border border-border p-3">
+          <div className="flex items-start gap-2">
+            <Input
+              type="time"
+              className="w-28"
+              value={block.start}
+              onChange={(e) => edit(block.id, { start: e.target.value })}
+            />
+            <Input
+              type="time"
+              className="w-28"
+              value={block.end ?? ""}
+              onChange={(e) => edit(block.id, { end: e.target.value || undefined })}
+            />
+            <Input
+              placeholder="What's happening"
+              value={block.title}
+              onChange={(e) => edit(block.id, { title: e.target.value })}
+            />
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Input
+              placeholder="Notes (optional)"
+              className="text-sm"
+              value={block.notes ?? ""}
+              onChange={(e) => edit(block.id, { notes: e.target.value || undefined })}
+            />
+            <Button size="sm" variant="ghost" onClick={() => onChange(move(schedule, i, i - 1))}>
+              ↑
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => onChange(move(schedule, i, i + 1))}>
+              ↓
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-600"
+              onClick={() => onChange(schedule.filter((b) => b.id !== block.id))}
+            >
+              Remove
+            </Button>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }

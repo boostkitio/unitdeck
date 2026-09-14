@@ -77,7 +77,10 @@ export default function SetModePage({ params }: { params: Promise<{ token: strin
         {data.productionCompany}
       </p>
       <h1 className="mt-1 font-heading text-xl font-semibold text-foreground">{data.title}</h1>
-      <p className="mt-0.5 text-sm text-muted-foreground">{formatDate(data.date)}</p>
+      <p className="mt-0.5 text-sm text-muted-foreground">
+        {formatDate(data.date)}
+        {data.extraDays?.length ? ` to ${formatDate(data.extraDays.at(-1)!.date)}` : ""}
+      </p>
 
       {/* Call-time hero */}
       <div className="mt-4 rounded-2xl bg-[linear-gradient(120deg,#11182F,#34406B_58%,#6B7FBE)] p-5 text-white">
