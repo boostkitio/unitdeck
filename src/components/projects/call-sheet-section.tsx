@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Doc, Id } from "../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -74,13 +74,6 @@ export function CallSheetSection({
     <Card className="mt-12">
       <CardHeader>
         <CardTitle>Call sheet</CardTitle>
-        {ordered.length > 1 && (
-          <CardAction>
-            <Button size="sm" variant="secondary" onClick={() => setCombining(true)}>
-              Combine dates
-            </Button>
-          </CardAction>
-        )}
       </CardHeader>
       <CardContent>
         {days === undefined ? (
@@ -142,12 +135,29 @@ export function CallSheetSection({
                 );
               })}
             </ul>
+            {/* Always offered, not tucked away: one sheet for the whole shoot is
+                as common an ask as one per day. */}
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-dashed border-border px-3 py-2">
+              <span className="min-w-0 flex-1 text-sm">
+                <span className="block font-medium">Combined call sheet</span>
+                <span className="block text-xs text-muted-foreground">
+                  {ordered.length > 1
+                    ? "Several dates on one sheet: the crew, kit and hotels once, each date with its own call, schedule and location."
+                    : "Add a second shoot date to put several dates on one sheet."}
+                </span>
+              </span>
+              <Button
+                size="sm"
+                onClick={() => setCombining(true)}
+                disabled={ordered.length < 2 || working !== null}
+              >
+                Generate combined call sheet
+              </Button>
+            </div>
             <p className="mt-3 text-xs text-muted-foreground">
               Generating lays out the crew, talent, client, running order, kit, location,
               accommodation and weather from this production. Edit it there, then send it by
               email or download it as a PDF.
-              {ordered.length > 1 &&
-                " To put several dates on one sheet, use Combine dates."}
             </p>
           </>
         )}
@@ -212,7 +222,7 @@ function CombineDialog({
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Combine dates onto one call sheet</DialogTitle>
+          <DialogTitle>Generate a combined call sheet</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           The crew, contacts, kit and accommodation are printed once; each date gets its own
