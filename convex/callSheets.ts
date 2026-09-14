@@ -10,6 +10,13 @@ import {
 } from "./lib/callSheetData";
 import { contactsOf } from "./clients";
 import { byCrewOrder } from "./lib/crewOrder";
+import { locationEntryFields } from "./lib/sheetLocations";
+import {
+  requireSheetKey,
+  sheetDraft,
+  sheetVersions,
+  type SheetKey,
+} from "./lib/sheetKey";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -23,13 +30,8 @@ async function requireShootDay(ctx: QueryCtx | MutationCtx, shootDayId: Id<"shoo
 }
 
 async function getDraft(ctx: QueryCtx | MutationCtx, shootDayId: Id<"shootDays">) {
-  // The draft is always the highest version row
-  const latest = await ctx.db
-    .query("callSheets")
-    .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", shootDayId))
-    .order("desc")
-    .first();
-  return latest?.status === "draft" ? latest : null;
+  // A day's own draft: the highest version that is not a combined sheet.
+  return await sheetDraft(ctx, { shootDayId });
 }
 
 /**
@@ -73,15 +75,15 @@ async function dayParts(
       return a.time.localeCompare(b.time);
     });
 
-  // The project's stored forecast is for one particular day; use it only when
-  // that is this day, and fall back to whatever the day itself recorded.
+  // Every day holds its own forecast. The project's older single forecast is
+  // only a fallback, and only for the one date it was fetched for.
   const forecast = project.forecast?.date === day.date ? project.forecast : null;
-  const weatherSummary = forecast?.summary
-    ? forecast.tempMinC !== undefined && forecast.tempMaxC !== undefined
-      ? `${forecast.summary}, ${Math.round(forecast.tempMinC)}–${Math.round(forecast.tempMaxC)}°C`
-      : forecast.summary
-    : day.weather
-      ? `${day.weather.summary}, ${Math.round(day.weather.tempMinC)}–${Math.round(day.weather.tempMaxC)}°C`
+  const weatherSummary = day.weather
+    ? `${day.weather.summary}, ${Math.round(day.weather.tempMinC)}–${Math.round(day.weather.tempMaxC)}°C`
+    : forecast?.summary
+      ? forecast.tempMinC !== undefined && forecast.tempMaxC !== undefined
+        ? `${forecast.summary}, ${Math.round(forecast.tempMinC)}–${Math.round(forecast.tempMaxC)}°C`
+        : forecast.summary
       : undefined;
 
   return {
@@ -92,21 +94,7 @@ async function dayParts(
     generalCallTime: forToday.find((row) => row.time)?.time ?? "08:00",
     locations: locations.map((l, i) => ({
       id: `${prefix}loc-${i + 1}`,
-      locationId: l._id,
-      name: l.name,
-      address: l.address,
-      lat: l.lat,
-      lng: l.lng,
-      plusCode: l.plusCode,
-      parkingNotes: l.parkingNotes,
-      nearestHospital: l.nearestHospital,
-      satNav: l.satNav,
-      nearestTube: l.nearestTube,
-      nearestRail: l.nearestRail,
-      // Only where neither station has been looked up separately yet.
-      publicTransport:
-        l.nearestTube || l.nearestRail ? undefined : (l.nearestStation ?? l.publicTransport),
-      nearestPoliceStation: l.nearestPoliceStation,
+      ...locationEntryFields(l),
     })),
     schedule: forToday.map((row, i) => ({
       id: `${prefix}sch-${i + 1}`,
@@ -115,8 +103,8 @@ async function dayParts(
       notes: row.notes,
     })),
     weatherSummary,
-    sunrise: forecast?.sunrise ?? day.sun?.sunrise,
-    sunset: forecast?.sunset ?? day.sun?.sunset,
+    sunrise: day.sun?.sunrise ?? forecast?.sunrise,
+    sunset: day.sun?.sunset ?? forecast?.sunset,
   };
 }
 
@@ -300,43 +288,34 @@ async function buildFromProject(
   };
 }
 
-/** The other dates a draft already covers, so regenerating it keeps them. */
-async function daysAlreadyCombined(
-  ctx: MutationCtx,
-  anchor: Doc<"shootDays">,
-  draft: Doc<"callSheets"> | null
-): Promise<Doc<"shootDays">[]> {
-  const out: Doc<"shootDays">[] = [];
-  for (const extra of draft?.data.extraDays ?? []) {
-    if (!extra.shootDayId || extra.shootDayId === anchor._id) continue;
-    const day = await ctx.db.get(extra.shootDayId);
-    // A date deleted from the production since drops off the sheet with it.
-    if (day && day.projectId === anchor.projectId) out.push(day);
-  }
-  return out.sort((a, b) => a.date.localeCompare(b.date));
-}
-
-/** Puts freshly built data onto a day's sheet, keeping any open draft as a version. */
+/**
+ * Puts freshly built data onto a sheet, keeping any open draft as a version.
+ * `anchor` is the day a new row is filed under: the day itself, or a combined
+ * sheet's earliest date.
+ */
 async function writeGenerated(
   ctx: MutationCtx,
   org: Doc<"organisations">,
-  day: Doc<"shootDays">,
+  key: SheetKey,
+  anchor: Doc<"shootDays">,
   data: CallSheetData,
   note: string
 ): Promise<{ id: Id<"callSheets">; replacedDraft: boolean }> {
-  const draft = await getDraft(ctx, day._id);
+  const draft = await sheetDraft(ctx, key);
   if (!draft) {
+    const [latest] = await sheetVersions(ctx, key, 1);
     const id = await ctx.db.insert("callSheets", {
       orgId: org._id,
-      shootDayId: day._id,
-      projectId: day.projectId,
-      version: 1,
+      shootDayId: anchor._id,
+      projectId: anchor.projectId,
+      version: (latest?.version ?? 0) + 1,
       status: "draft",
       data,
+      combined: "combinedProjectId" in key ? true : undefined,
     });
     return { id, replacedDraft: false };
   }
-  const id = await freezeAndInsertDraft(ctx, day._id, data, note);
+  const id = await freezeAndInsertDraft(ctx, key, data, note, anchor._id);
   return { id, replacedDraft: true };
 }
 
@@ -346,50 +325,57 @@ export const ensure = mutation({
     const { org, day } = await requireShootDay(ctx, args.shootDayId);
     const existing = await getDraft(ctx, args.shootDayId);
     if (existing) return existing._id;
-
-    return await ctx.db.insert("callSheets", {
-      orgId: org._id,
-      shootDayId: args.shootDayId,
-      projectId: day.projectId,
-      version: 1,
-      status: "draft",
-      data: await buildFromProject(ctx, org, day),
-    });
+    const { id } = await writeGenerated(
+      ctx,
+      org,
+      { shootDayId: day._id },
+      day,
+      await buildFromProject(ctx, org, day),
+      ""
+    );
+    return id;
   },
 });
 
 /**
- * Lay the production out onto a call sheet, now, from what it holds today.
+ * Lay the production out onto one day's call sheet, now, from what it holds
+ * today.
  *
  * A draft that is already open is kept as a version rather than overwritten:
  * regenerating after adding three crew members should not cost the note
- * somebody typed into the old one.
+ * somebody typed into the old one. Always a one-day sheet: combining dates is
+ * the combined sheet's job, and does not touch this one.
  */
 export const generateFromProject = mutation({
   args: { shootDayId: v.id("shootDays") },
   handler: async (ctx, args): Promise<{ id: Id<"callSheets">; replacedDraft: boolean }> => {
     const { org, day } = await requireShootDay(ctx, args.shootDayId);
-    // A combined sheet regenerates as a combined sheet: the dates on it were
-    // chosen, and refreshing the crew should not quietly drop them.
-    const extras = await daysAlreadyCombined(ctx, day, await getDraft(ctx, day._id));
-    const data = await buildFromProject(ctx, org, day, extras);
-    return await writeGenerated(ctx, org, day, data, "Regenerated from the production");
+    const data = await buildFromProject(ctx, org, day);
+    return await writeGenerated(
+      ctx,
+      org,
+      { shootDayId: day._id },
+      day,
+      data,
+      "Regenerated from the production"
+    );
   },
 });
 
 /**
- * One call sheet for several dates.
+ * One call sheet for several dates: the production's combined sheet.
  *
- * It lives on the earliest of them, so its versions, recipients, checks and
- * PDF work exactly as a one-day sheet's do. The other dates keep their own
- * sheets; this one simply prints them all.
+ * It is a document of its own, beside each date's own sheet, and there is one
+ * per production — generating it again with different dates makes a new
+ * version of the same sheet. It is filed under its earliest date so it can be
+ * sent and checked like any other.
  */
 export const generateCombined = mutation({
   args: { shootDayIds: v.array(v.id("shootDays")) },
   handler: async (
     ctx,
     args
-  ): Promise<{ id: Id<"callSheets">; shootDayId: Id<"shootDays">; replacedDraft: boolean }> => {
+  ): Promise<{ id: Id<"callSheets">; projectId: Id<"projects">; replacedDraft: boolean }> => {
     const { org } = await requireOrg(ctx);
     const unique = [...new Set(args.shootDayIds)];
     if (unique.length < 2) throw new Error("Pick at least two dates to combine");
@@ -411,37 +397,40 @@ export const generateCombined = mutation({
     const result = await writeGenerated(
       ctx,
       org,
+      { combinedProjectId: anchor.projectId },
       anchor,
       data,
-      `Combined with ${rest.length} more date${rest.length === 1 ? "" : "s"}`
+      `Regenerated for ${days.length} dates`
     );
-    return { ...result, shootDayId: anchor._id };
+    return { ...result, projectId: anchor.projectId };
   },
 });
 
 /**
- * Which dates on a production are printed on another date's combined sheet,
- * so the list of dates can say where to find them.
+ * The production's combined call sheet, summarised for the Call sheet
+ * section: which dates it covers and which version it is on. Null when none
+ * has been generated.
  */
 export const combinedForProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const project = await ctx.db.get(args.projectId);
-    if (!project || project.orgId !== org._id) return [];
-    const days = await ctx.db
-      .query("shootDays")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .take(200);
-    const out: { shootDayId: Id<"shootDays">; coversDayIds: Id<"shootDays">[] }[] = [];
-    for (const day of days) {
-      const draft = await getDraft(ctx, day._id);
-      const covers = (draft?.data.extraDays ?? [])
+    if (!project || project.orgId !== org._id) return null;
+    const [latest] = await sheetVersions(ctx, { combinedProjectId: args.projectId }, 1);
+    if (!latest) return null;
+    const shootDayIds = [
+      latest.shootDayId,
+      ...(latest.data.extraDays ?? [])
         .map((extra) => extra.shootDayId)
-        .filter((id): id is Id<"shootDays"> => id !== undefined);
-      if (covers.length > 0) out.push({ shootDayId: day._id, coversDayIds: covers });
-    }
-    return out;
+        .filter((id): id is Id<"shootDays"> => id !== undefined),
+    ];
+    return {
+      id: latest._id,
+      version: latest.version,
+      dates: [latest.data.date, ...(latest.data.extraDays ?? []).map((extra) => extra.date)],
+      shootDayIds,
+    };
   },
 });
 
@@ -453,24 +442,36 @@ export const getCurrent = query({
   },
 });
 
+export const getCurrentCombined = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const key = { combinedProjectId: args.projectId };
+    await requireSheetKey(ctx, key);
+    return await sheetDraft(ctx, key);
+  },
+});
+
+async function versionList(ctx: QueryCtx, key: SheetKey) {
+  await requireSheetKey(ctx, key);
+  const versions = await sheetVersions(ctx, key, 100);
+  // History list never needs full document bodies
+  return versions.map(({ _id, version, status, versionNote, _creationTime }) => ({
+    _id,
+    version,
+    status,
+    versionNote,
+    _creationTime,
+  }));
+}
+
 export const listVersions = query({
   args: { shootDayId: v.id("shootDays") },
-  handler: async (ctx, args) => {
-    await requireShootDay(ctx, args.shootDayId);
-    const versions = await ctx.db
-      .query("callSheets")
-      .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", args.shootDayId))
-      .order("desc")
-      .take(100);
-    // History list never needs full document bodies
-    return versions.map(({ _id, version, status, versionNote, _creationTime }) => ({
-      _id,
-      version,
-      status,
-      versionNote,
-      _creationTime,
-    }));
-  },
+  handler: async (ctx, args) => await versionList(ctx, { shootDayId: args.shootDayId }),
+});
+
+export const listCombinedVersions = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => await versionList(ctx, { combinedProjectId: args.projectId }),
 });
 
 export const saveDraft = mutation({
@@ -487,48 +488,65 @@ export const saveDraft = mutation({
 
 async function freezeAndInsertDraft(
   ctx: MutationCtx,
-  shootDayId: Id<"shootDays">,
+  key: SheetKey,
   data: CallSheetData,
-  note?: string
+  note?: string,
+  anchorDayId?: Id<"shootDays">
 ) {
-  const draft = await getDraft(ctx, shootDayId);
+  const draft = await sheetDraft(ctx, key);
   if (!draft) throw new Error("No draft to version");
   await ctx.db.patch(draft._id, { status: "snapshot", versionNote: note });
   return await ctx.db.insert("callSheets", {
     orgId: draft.orgId,
-    shootDayId,
+    shootDayId: anchorDayId ?? draft.shootDayId,
     projectId: draft.projectId,
     version: draft.version + 1,
     status: "draft",
     data,
+    combined: draft.combined,
   });
+}
+
+async function snapshot(ctx: MutationCtx, key: SheetKey, note: string | undefined) {
+  await requireSheetKey(ctx, key);
+  const draft = await sheetDraft(ctx, key);
+  if (!draft) throw new Error("No draft to version");
+  return await freezeAndInsertDraft(ctx, key, draft.data, note);
 }
 
 export const snapshotVersion = mutation({
   args: { shootDayId: v.id("shootDays"), note: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    await requireShootDay(ctx, args.shootDayId);
-    const draft = await getDraft(ctx, args.shootDayId);
-    if (!draft) throw new Error("No draft to version");
-    return await freezeAndInsertDraft(ctx, args.shootDayId, draft.data, args.note);
-  },
+  handler: async (ctx, args) => await snapshot(ctx, { shootDayId: args.shootDayId }, args.note),
 });
+
+export const snapshotCombined = mutation({
+  args: { projectId: v.id("projects"), note: v.optional(v.string()) },
+  handler: async (ctx, args) =>
+    await snapshot(ctx, { combinedProjectId: args.projectId }, args.note),
+});
+
+async function restore(ctx: MutationCtx, key: SheetKey, fromId: Id<"callSheets">) {
+  const { org } = await requireSheetKey(ctx, key);
+  const from = await ctx.db.get(fromId);
+  const belongs =
+    from !== null &&
+    from.orgId === org._id &&
+    ("combinedProjectId" in key
+      ? from.combined === true && from.projectId === key.combinedProjectId
+      : !from.combined && from.shootDayId === key.shootDayId);
+  if (!from || !belongs) throw new Error("Version not found");
+  return await freezeAndInsertDraft(ctx, key, from.data, `Restored from v${from.version}`, from.shootDayId);
+}
 
 export const restoreVersion = mutation({
   args: { shootDayId: v.id("shootDays"), fromId: v.id("callSheets") },
-  handler: async (ctx, args) => {
-    const { org } = await requireShootDay(ctx, args.shootDayId);
-    const from = await ctx.db.get(args.fromId);
-    if (!from || from.orgId !== org._id || from.shootDayId !== args.shootDayId) {
-      throw new Error("Version not found");
-    }
-    return await freezeAndInsertDraft(
-      ctx,
-      args.shootDayId,
-      from.data,
-      `Restored from v${from.version}`
-    );
-  },
+  handler: async (ctx, args) => await restore(ctx, { shootDayId: args.shootDayId }, args.fromId),
+});
+
+export const restoreCombined = mutation({
+  args: { projectId: v.id("projects"), fromId: v.id("callSheets") },
+  handler: async (ctx, args) =>
+    await restore(ctx, { combinedProjectId: args.projectId }, args.fromId),
 });
 
 export const getVersion = query({

@@ -1,32 +1,32 @@
 import { action, internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { requireOrg } from "../lib/auth";
+import { requireSheetKey, sheetRecipients, sheetVersions, type SheetKey } from "../lib/sheetKey";
 import { chatJson, truncateInput } from "../lib/llm";
 import { AI_MODEL } from "../lib/ai";
 import { CheckIssue, checkProposalValidator } from "../lib/agentProposals";
 import { Id } from "../_generated/dataModel";
 
 export const getSheetContext = internalQuery({
-  args: { shootDayId: v.id("shootDays") },
+  args: {
+    shootDayId: v.id("shootDays"),
+    // The production's combined sheet, rather than that day's own.
+    combinedProjectId: v.optional(v.id("projects")),
+  },
   handler: async (ctx, args) => {
-    const { org } = await requireOrg(ctx);
-    const day = await ctx.db.get(args.shootDayId);
-    if (!day || day.orgId !== org._id) throw new Error("Shoot day not found");
-    const sheet = await ctx.db
-      .query("callSheets")
-      .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", args.shootDayId))
-      .order("desc")
-      .first();
+    const key: SheetKey = args.combinedProjectId
+      ? { combinedProjectId: args.combinedProjectId }
+      : { shootDayId: args.shootDayId };
+    const { org, day } = await requireSheetKey(ctx, key);
+    const [sheet] = await sheetVersions(ctx, key, 1);
     if (!sheet) throw new Error("No call sheet for this shoot day yet");
-    const recipients = await ctx.db
-      .query("recipients")
-      .withIndex("by_shoot_day", (q) => q.eq("shootDayId", args.shootDayId))
-      .take(200);
+    const recipients = await sheetRecipients(ctx, key, 200);
     return {
       orgId: org._id,
+      // Filed under its earliest date, which is what the run is recorded against.
+      shootDayId: sheet.shootDayId,
       data: sheet.data,
-      weather: day.weather ?? null,
+      weather: day?.weather ?? null,
       recipientSummary: recipients.map((r) => ({ name: r.name, status: r.status })),
     };
   },
@@ -74,12 +74,13 @@ function validateIssues(raw: unknown): CheckIssue[] {
 }
 
 export const run = action({
-  args: { shootDayId: v.id("shootDays") },
+  args: { shootDayId: v.id("shootDays"), combinedProjectId: v.optional(v.id("projects")) },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
     const context = await ctx.runQuery(internal.agents.callSheetChecker.getSheetContext, {
       shootDayId: args.shootDayId,
+      combinedProjectId: args.combinedProjectId,
     });
     const today = new Date().toISOString().slice(0, 10);
 
@@ -103,7 +104,7 @@ Be specific and concise (one sentence per message). British English. If the shee
       internal.agents.callSheetChecker.insertRun,
       {
         orgId: context.orgId,
-        shootDayId: args.shootDayId,
+        shootDayId: context.shootDayId,
         input: truncateInput(user),
         proposal: { kind: "check", issues },
       }

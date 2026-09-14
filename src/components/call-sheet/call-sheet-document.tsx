@@ -298,6 +298,12 @@ export function CallSheetDocument({
                         <dd>{loc.parkingNotes}</dd>
                       </>
                     )}
+                    {loc.accessNotes && (
+                      <>
+                        <dt className="font-semibold">Access</dt>
+                        <dd className="whitespace-pre-line">{loc.accessNotes}</dd>
+                      </>
+                    )}
                     {loc.nearestTube && (
                       <>
                         <dt className="font-semibold">Nearest Tube</dt>
@@ -326,6 +332,12 @@ export function CallSheetDocument({
                       <>
                         <dt className="font-semibold">Nearest police</dt>
                         <dd>{loc.nearestPoliceStation}</dd>
+                      </>
+                    )}
+                    {loc.notes && (
+                      <>
+                        <dt className="font-semibold">Notes</dt>
+                        <dd className="whitespace-pre-line">{loc.notes}</dd>
                       </>
                     )}
                   </dl>

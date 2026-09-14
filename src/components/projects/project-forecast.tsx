@@ -1,76 +1,71 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
+import { dayForecastIsFresh } from "../../../convex/lib/weather";
 import { formatShootDate } from "@/lib/format-date";
-import { isStale } from "@/lib/forecast";
-
-type Forecast = {
-  date: string;
-  locationId: Id<"locations">;
-  fetchedAt: number;
-  reason?: string;
-  summary?: string;
-  tempMinC?: number;
-  tempMaxC?: number;
-  precipitationProbability?: number;
-  windMaxKph?: number;
-  sunrise?: string;
-  sunset?: string;
-};
 
 /**
- * Sunrise, sunset and the weather for the shoot, under the project title.
+ * Sunrise, sunset and the weather for every shoot day, under the project title.
  *
- * Renders whatever was last stored and refreshes in the background, so the
- * line does not flicker or block on the weather service. Nothing is shown
- * until there is both a shoot date and a located project — an empty strip
- * under every title would be worse than none.
+ * One line per date, each at that day's own location (or the production's),
+ * because a three-day shoot needs Tuesday's weather as much as Monday's.
+ * Renders whatever was last stored and refreshes stale days in the background,
+ * so the lines do not flicker or block on the weather service.
  */
 export function ProjectForecast({
   projectId,
-  forecast,
-  date,
-  locationId,
-  locationName,
+  projectLocationId,
+  projectLocationName,
 }: {
   projectId: Id<"projects">;
-  forecast: Forecast | undefined;
-  date: string | null;
-  locationId: Id<"locations"> | null;
-  locationName: string | null;
+  projectLocationId: Id<"locations"> | null;
+  projectLocationName: string | null;
 }) {
-  const refresh = useAction(api.projects.refreshForecast);
+  const days = useQuery(api.shootDays.listForProject, { projectId });
+  const refresh = useAction(api.shootDays.refreshWeatherForProject);
   const [checking, setChecking] = useState(false);
 
-  // One refresh per stale combination, not one per render: the effect reruns
-  // whenever the query updates, and the action's own write is such an update.
+  const rows = [...(days ?? [])]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((day) => {
+      const own = day.locations[0];
+      return {
+        day,
+        locationId: own?._id ?? projectLocationId,
+        locationName: own?.name ?? projectLocationName,
+      };
+    });
+  const anyLocation = rows.some((row) => row.locationId !== null);
+
+  // One background refresh per set of stale days, not one per render: the
+  // query updates whenever the action writes, which reruns this effect.
   const requested = useRef<string | null>(null);
   useEffect(() => {
-    if (!date || !locationId) return;
-    if (!isStale(forecast, date, locationId, Date.now())) return;
-    const key = `${projectId}:${date}:${locationId}`;
-    if (requested.current === key) return;
-    requested.current = key;
-    void refresh({ id: projectId }).catch(() => {
-      // Clear the guard so this can be tried again. Holding it meant one
-      // failed lookup left the line reading "Checking the forecast…" for
-      // good, with no way to ask it to try again.
+    const now = Date.now();
+    const staleKey = rows
+      .filter((row) => row.locationId && !dayForecastIsFresh(row.day, row.locationId, now))
+      .map((row) => `${row.day._id}:${row.locationId}`)
+      .join(",");
+    if (!staleKey || requested.current === staleKey) return;
+    requested.current = staleKey;
+    void refresh({ projectId }).catch(() => {
+      // Let it be asked again rather than leaving the lines checking for good.
       requested.current = null;
     });
-  }, [projectId, forecast, date, locationId, refresh]);
+    // `rows` is rebuilt every render; `days` is what it is made from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, days, projectLocationId, refresh]);
 
-  /** Asks again now, whatever the cache thinks. */
+  /** Asks again now for every day, whatever was stored. */
   async function refreshNow() {
     setChecking(true);
     try {
-      requested.current = null;
-      const result = await refresh({ id: projectId });
-      if (result.ok) toast.success(result.reason ?? "Forecast updated.");
-      else toast.error(result.reason ?? "Could not check the forecast.");
+      await refresh({ projectId, force: true });
+      toast.success("Weather updated for every shoot day.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not check the forecast.");
     } finally {
@@ -78,81 +73,66 @@ export function ProjectForecast({
     }
   }
 
-  if (!date) return null;
-  if (!locationId) {
+  if (days === undefined || rows.length === 0) return null;
+  if (!anyLocation) {
     return (
       <p className="px-2 text-xs text-muted-foreground">
-        Add a location to this project to see sunrise, sunset and the weather for the shoot.
+        Add a location to this project to see sunrise, sunset and the weather for each shoot day.
       </p>
     );
   }
-  // Stale or missing. The lookup below runs on its own; this is what shows
-  // while it does, and it says which day is being asked about so the line
-  // does not read as empty.
-  if (!forecast || forecast.date !== date) {
-    return (
-      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">{formatShootDate(date)}</span>
-        {locationName && <span className="truncate">{locationName}</span>}
-        <span>Checking the forecast…</span>
-        <button
-          type="button"
-          onClick={() => void refreshNow()}
-          disabled={checking}
-          className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
-        >
-          {checking ? "Checking…" : "Check now"}
-        </button>
-      </p>
-    );
-  }
-
-  const temperature =
-    forecast.tempMinC !== undefined && forecast.tempMaxC !== undefined
-      ? `${Math.round(forecast.tempMinC)}–${Math.round(forecast.tempMaxC)}°C`
-      : null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 text-xs text-muted-foreground">
-      <span className="font-medium text-foreground">{formatShootDate(date)}</span>
-      {locationName && <span className="truncate">{locationName}</span>}
-
-      {forecast.sunrise && forecast.sunset && (
-        <span>
-          Sunrise {forecast.sunrise} · Sunset {forecast.sunset}
-        </span>
-      )}
-
-      {forecast.summary && (
-        <span className="text-foreground">
-          {forecast.summary}
-          {temperature && ` · ${temperature}`}
-        </span>
-      )}
-
-      {forecast.precipitationProbability !== undefined &&
-        forecast.precipitationProbability > 0 && (
-          <span>{Math.round(forecast.precipitationProbability)}% rain</span>
-        )}
-
-      {forecast.windMaxKph !== undefined && forecast.windMaxKph >= 30 && (
-        // Worth flagging rather than burying: it is the number that decides
-        // whether a jib or a 12x12 goes up.
-        <span className="text-amber-700 dark:text-amber-400">
-          Wind {Math.round(forecast.windMaxKph)} km/h
-        </span>
-      )}
-
-      {forecast.reason && <span>{forecast.reason}</span>}
-
+    <div className="space-y-0.5 px-2 text-xs text-muted-foreground">
+      {rows.map(({ day, locationId, locationName }) => {
+        const weather = day.weather;
+        const checked = day.forecastCheckedAt !== undefined && day.forecastLocationId === (locationId ?? undefined);
+        return (
+          <div key={day._id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <span className="font-medium text-foreground">{formatShootDate(day.date)}</span>
+            {locationName && <span className="truncate">{locationName}</span>}
+            {!locationId ? (
+              <span>No location for this day</span>
+            ) : !checked ? (
+              <span>Checking the forecast…</span>
+            ) : (
+              <>
+                {day.sun && (
+                  <span>
+                    Sunrise {day.sun.sunrise} · Sunset {day.sun.sunset}
+                  </span>
+                )}
+                {weather && (
+                  <span className="text-foreground">
+                    {weather.summary} · {Math.round(weather.tempMinC)}–
+                    {Math.round(weather.tempMaxC)}°C
+                  </span>
+                )}
+                {weather?.precipitationProbability !== undefined &&
+                  weather.precipitationProbability > 0 && (
+                    <span>{Math.round(weather.precipitationProbability)}% rain</span>
+                  )}
+                {weather?.windMaxKph !== undefined && weather.windMaxKph >= 30 && (
+                  // Flagged rather than buried: it decides whether a jib or a
+                  // 12x12 goes up.
+                  <span className="text-amber-700 dark:text-amber-400">
+                    Wind {Math.round(weather.windMaxKph)} km/h
+                  </span>
+                )}
+                {day.forecastReason && <span>{day.forecastReason}</span>}
+              </>
+            )}
+          </div>
+        );
+      })}
       <button
         type="button"
         onClick={() => void refreshNow()}
         disabled={checking}
-        title="Check the forecast again now"
+        title="Check the forecast again now for every shoot day"
         className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
       >
-        {checking ? "Checking…" : "Refresh"}
+        {checking ? "Checking…" : "Refresh weather"}
       </button>
     </div>
   );

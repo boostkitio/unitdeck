@@ -38,12 +38,14 @@ export const locationEntryValidator = v.object({
   lng: v.optional(v.number()),
   plusCode: v.optional(v.string()),
   parkingNotes: v.optional(v.string()),
+  accessNotes: v.optional(v.string()),
   nearestHospital: v.optional(v.string()),
   satNav: v.optional(v.string()),
   publicTransport: v.optional(v.string()),
   nearestTube: v.optional(v.string()),
   nearestRail: v.optional(v.string()),
   nearestPoliceStation: v.optional(v.string()),
+  notes: v.optional(v.string()),
 });
 
 export const accommodationValidator = v.object({

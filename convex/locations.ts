@@ -6,6 +6,7 @@ import { chatJson } from "./lib/llm";
 import { AI_MODEL_FAST } from "./lib/ai";
 import { geocodeAddress } from "./lib/geocode";
 import { plusCodeFor } from "./lib/plusCode";
+import { syncLocationOntoDrafts } from "./lib/sheetLocations";
 
 const locationFields = {
   name: v.string(),
@@ -119,6 +120,9 @@ export const update = mutation({
     if (addressChanged && !coordsProvided) {
       await ctx.db.patch(id, { lat: undefined, lng: undefined });
     }
+    // Whatever was corrected here shows on the call sheets being drafted.
+    const saved = await ctx.db.get(id);
+    if (saved) await syncLocationOntoDrafts(ctx, saved);
     return null;
   },
 });
@@ -153,6 +157,8 @@ export const saveCoordinates = internalMutation({
     const location = await ctx.db.get(args.id);
     if (!location || location.orgId !== org._id) throw new Error("Location not found");
     await ctx.db.patch(args.id, { lat: args.lat, lng: args.lng });
+    const saved = await ctx.db.get(args.id);
+    if (saved) await syncLocationOntoDrafts(ctx, saved);
     return null;
   },
 });
@@ -222,7 +228,11 @@ export const saveEnrichment = internalMutation({
       patch.lng = args.lng;
     }
 
-    if (Object.keys(patch).length > 0) await ctx.db.patch(args.id, patch);
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(args.id, patch);
+      const saved = await ctx.db.get(args.id);
+      if (saved) await syncLocationOntoDrafts(ctx, saved);
+    }
     return null;
   },
 });

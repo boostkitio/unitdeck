@@ -102,3 +102,32 @@ export async function fetchTimezone(lat: number, lng: number): Promise<string | 
   const json = (await res.json()) as { timezone?: string };
   return json.timezone;
 }
+
+/** A forecast goes off quickly; sun times and "too far ahead" do not. */
+export const FORECAST_FRESH_MS = 3 * 60 * 60 * 1000;
+export const FORECAST_FRESH_MS_WITHOUT_WEATHER = 24 * 60 * 60 * 1000;
+
+/** Roughly how far Open-Meteo forecasts. Past this, only the sun is known. */
+export const FORECAST_HORIZON_DAYS = 16;
+
+/**
+ * Whether a shoot day's stored forecast still answers for where it is now.
+ * Shared by the refresh, which skips fresh days, and the page, which decides
+ * whether to ask for one.
+ */
+export function dayForecastIsFresh(
+  day: {
+    forecastCheckedAt?: number;
+    forecastLocationId?: string;
+    forecastReason?: string;
+    weather?: unknown;
+  },
+  locationId: string | null,
+  now: number
+): boolean {
+  if (day.forecastCheckedAt === undefined) return false;
+  if ((day.forecastLocationId ?? null) !== locationId) return false;
+  const window =
+    day.weather === undefined ? FORECAST_FRESH_MS_WITHOUT_WEATHER : FORECAST_FRESH_MS;
+  return now - day.forecastCheckedAt <= window;
+}

@@ -491,13 +491,22 @@ test("several dates combine onto one sheet, kept on the earliest", async () => {
     return { dayB, dayC, studio, farm };
   });
 
+  // Day 1 already has a sheet of its own, with a note on it.
+  const dayOneDraft = await asA.mutation(api.callSheets.ensure, { shootDayId: ids.dayA });
+  const dayOne = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  await asA.mutation(api.callSheets.saveDraft, {
+    id: dayOneDraft,
+    data: { ...dayOne!.data, safetyNotes: "Day one only" },
+  });
+
   // Picked out of order: the sheet still runs first date to last.
   const result = await asA.mutation(api.callSheets.generateCombined, {
     shootDayIds: [dayB, ids.dayA, dayC],
   });
-  expect(result.shootDayId).toBe(ids.dayA);
+  expect(result.projectId).toBe(ids.projectA);
 
-  const sheet = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  const sheet = await asA.query(api.callSheets.getCurrentCombined, { projectId: ids.projectA });
+  expect(sheet?.combined).toBe(true);
   const data = sheet!.data;
   expect(data.date).toBe("2026-06-20");
   expect(data.generalCallTime).toBe("08:00");
@@ -513,14 +522,101 @@ test("several dates combine onto one sheet, kept on the earliest", async () => {
     .map((s) => s.id);
   expect(new Set(scheduleIds).size).toBe(scheduleIds.length);
 
-  const combined = await asA.query(api.callSheets.combinedForProject, { projectId: ids.projectA });
-  expect(combined).toEqual([{ shootDayId: ids.dayA, coversDayIds: [dayC, dayB] }]);
+  // Day 1's own sheet is untouched: still a one-day sheet, note and all.
+  const stillDayOne = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  expect(stillDayOne?._id).toBe(dayOneDraft);
+  expect(stillDayOne?.data.extraDays).toBeUndefined();
+  expect(stillDayOne?.data.safetyNotes).toBe("Day one only");
+  const dayOneVersions = await asA.query(api.callSheets.listVersions, { shootDayId: ids.dayA });
+  expect(dayOneVersions).toHaveLength(1);
 
-  // Regenerating the sheet keeps the dates that were combined onto it.
+  expect(await asA.query(api.callSheets.combinedForProject, { projectId: ids.projectA })).toEqual({
+    id: sheet!._id,
+    version: 1,
+    dates: ["2026-06-20", "2026-06-21", "2026-06-22"],
+    shootDayIds: [ids.dayA, dayC, dayB],
+  });
+
+  // Regenerating a day's sheet does not touch the combined one, and changing
+  // the combined sheet's dates is a new version of the same sheet.
   await asA.mutation(api.callSheets.generateFromProject, { shootDayId: ids.dayA });
-  const again = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
-  expect(again?.version).toBe(2);
-  expect(again?.data.extraDays?.map((d) => d.shootDayId)).toEqual([dayC, dayB]);
+  await asA.mutation(api.callSheets.generateCombined, { shootDayIds: [dayC, dayB] });
+  const changed = await asA.query(api.callSheets.getCurrentCombined, { projectId: ids.projectA });
+  expect(changed?.version).toBe(2);
+  expect(changed?.shootDayId).toBe(dayC);
+  expect(changed?.data.date).toBe("2026-06-21");
+  const combinedVersions = await asA.query(api.callSheets.listCombinedVersions, {
+    projectId: ids.projectA,
+  });
+  expect(combinedVersions.map((v) => v.version)).toEqual([2, 1]);
+  const dayOneAfter = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  expect(dayOneAfter?.combined).toBeUndefined();
+  expect(dayOneAfter?.data.extraDays).toBeUndefined();
+
+  // Restoring works within the combined sheet, and a day's version cannot be
+  // restored into it.
+  await asA.mutation(api.callSheets.restoreCombined, {
+    projectId: ids.projectA,
+    fromId: combinedVersions[1]._id,
+  });
+  const restored = await asA.query(api.callSheets.getCurrentCombined, { projectId: ids.projectA });
+  expect(restored?.data.extraDays).toHaveLength(2);
+  expect(restored?.shootDayId).toBe(ids.dayA);
+  await expect(
+    asA.mutation(api.callSheets.restoreCombined, {
+      projectId: ids.projectA,
+      fromId: dayOneDraft,
+    })
+  ).rejects.toThrow("Version not found");
+});
+
+test("the combined sheet is sent to its own recipients, and their link opens it", async () => {
+  const { t, ids, asA } = await setup();
+  // Links lapse a week after the shoot, so these dates have to stay ahead.
+  const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  const dayB = await t.run(async (ctx) => {
+    await ctx.db.patch(ids.dayA, { date: inDays(2) });
+    return await ctx.db.insert("shootDays", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      date: inDays(3),
+      locationIds: [],
+    });
+  });
+  const SAM = { name: "Sam", role: "DP", email: "sam@example.test", callTime: "08:00" };
+  const JO = { name: "Jo", role: "Sound", email: "jo@example.test", callTime: "08:00" };
+
+  await asA.mutation(api.callSheets.ensure, { shootDayId: ids.dayA });
+  await asA.mutation(api.distribution.send, { shootDayId: ids.dayA, recipients: [SAM] });
+  await asA.mutation(api.callSheets.generateCombined, { shootDayIds: [ids.dayA, dayB] });
+  const sentId = await asA.mutation(api.distribution.sendCombined, {
+    projectId: ids.projectA,
+    recipients: [SAM, JO],
+  });
+
+  const dayList = await asA.query(api.distribution.listForShootDay, { shootDayId: ids.dayA });
+  const combinedList = await asA.query(api.distribution.listForCombined, { projectId: ids.projectA });
+  expect(dayList.map((r) => r.email)).toEqual(["sam@example.test"]);
+  expect(combinedList.map((r) => r.email).sort()).toEqual(["jo@example.test", "sam@example.test"]);
+  // Sam is on both, with a separate link for each.
+  expect(combinedList.find((r) => r.email === SAM.email)?.token).not.toBe(dayList[0].token);
+
+  const sent = await asA.query(api.callSheets.getVersion, { id: sentId });
+  expect(sent?.status).toBe("sent");
+  expect(sent?.combined).toBe(true);
+  const afterSend = await asA.query(api.callSheets.getCurrentCombined, { projectId: ids.projectA });
+  expect(afterSend?.combined).toBe(true);
+  expect(afterSend?.version).toBe(2);
+  // Day 1's own sheet was sent once and is on its next draft, not the combined one.
+  const dayDraft = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  expect(dayDraft?.version).toBe(2);
+  expect(dayDraft?.data.extraDays).toBeUndefined();
+
+  const jo = combinedList.find((r) => r.email === JO.email)!;
+  const page = await t.query(api.setMode.getByToken, { token: jo.token });
+  expect(page && !page.expired && page.data.extraDays?.map((d) => d.date)).toEqual([inDays(3)]);
+  const samDay = await t.query(api.setMode.getByToken, { token: dayList[0].token });
+  expect(samDay && !samDay.expired && samDay.data.extraDays).toBeUndefined();
 });
 
 test("combining needs two dates on the same production", async () => {
@@ -636,4 +732,80 @@ test("crew and talent come onto the sheet in the order the production arranges t
   );
   const talent = data.contactSections?.find((s) => s.title === "Talent");
   expect(talent?.rows.map((r) => r.role)).toEqual(["Lead A", "Lead B"]);
+});
+
+test("a location edited after a sheet was drafted shows on the drafts, not on what was sent", async () => {
+  const { t, ids, asA } = await setup();
+  const { studio, dayB } = await t.run(async (ctx) => {
+    const studio = await ctx.db.insert("locations", {
+      orgId: ids.orgA,
+      name: "Shoreditch studio",
+      address: "1 Curtain Road, London",
+      parkingNotes: "Street parking",
+    });
+    await ctx.db.patch(ids.projectA, { locationId: studio });
+    const dayB = await ctx.db.insert("shootDays", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      date: "2026-06-21",
+      locationIds: [],
+    });
+    return { studio, dayB };
+  });
+
+  await asA.mutation(api.callSheets.generateFromProject, { shootDayId: ids.dayA });
+  await asA.mutation(api.callSheets.generateCombined, { shootDayIds: [ids.dayA, dayB] });
+  const sentId = await asA.mutation(api.distribution.send, {
+    shootDayId: ids.dayA,
+    recipients: [{ name: "Sam", role: "DP", email: "sam@example.test", callTime: "08:00" }],
+  });
+
+  await asA.mutation(api.locations.update, {
+    id: studio,
+    parkingNotes: "NCP on Great Eastern Street",
+    accessNotes: "Side door, buzz Unit 4",
+    nearestRail: "Shoreditch High Street, 4 min walk",
+  });
+
+  const day = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+  expect(day?.data.locations[0]).toMatchObject({
+    locationId: studio,
+    parkingNotes: "NCP on Great Eastern Street",
+    accessNotes: "Side door, buzz Unit 4",
+    nearestRail: "Shoreditch High Street, 4 min walk",
+  });
+  const combined = await asA.query(api.callSheets.getCurrentCombined, { projectId: ids.projectA });
+  expect(combined?.data.locations[0].parkingNotes).toBe("NCP on Great Eastern Street");
+  expect(combined?.data.extraDays?.[0].locations[0].accessNotes).toBe("Side door, buzz Unit 4");
+
+  // What went out stays as it went out.
+  const sent = await asA.query(api.callSheets.getVersion, { id: sentId });
+  expect(sent?.data.locations[0].parkingNotes).toBe("Street parking");
+});
+
+test("each date on a combined sheet carries its own day's weather", async () => {
+  const { t, ids, asA } = await setup();
+  const dayB = await t.run(async (ctx) => {
+    await ctx.db.patch(ids.dayA, {
+      weather: { fetchedAt: 1, summary: "Clear", tempMinC: 10, tempMaxC: 18 },
+      sun: { sunrise: "04:43", sunset: "21:21" },
+    });
+    return await ctx.db.insert("shootDays", {
+      orgId: ids.orgA,
+      projectId: ids.projectA,
+      date: "2026-06-21",
+      locationIds: [],
+      weather: { fetchedAt: 1, summary: "Light rain", tempMinC: 9.6, tempMaxC: 14.2 },
+      sun: { sunrise: "04:44", sunset: "21:21" },
+    });
+  });
+
+  await asA.mutation(api.callSheets.generateCombined, { shootDayIds: [ids.dayA, dayB] });
+  const data = (await asA.query(api.callSheets.getCurrentCombined, { projectId: ids.projectA }))!
+    .data;
+  expect(data.weatherSummary).toBe("Clear, 10–18°C");
+  expect(data.extraDays?.[0]).toMatchObject({
+    weatherSummary: "Light rain, 10–14°C",
+    sunrise: "04:44",
+  });
 });

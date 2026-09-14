@@ -1,6 +1,7 @@
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
+import { recipientSheetKey, sheetVersions } from "./lib/sheetKey";
 
 const EXPIRY_DAYS_AFTER_SHOOT = 7;
 
@@ -11,23 +12,32 @@ async function recipientByToken(ctx: QueryCtx | MutationCtx, token: string) {
     .unique();
 }
 
-function isExpired(shootDate: string): boolean {
-  const [y, m, d] = shootDate.split("-").map(Number);
+function isExpired(lastShootDate: string): boolean {
+  const [y, m, d] = lastShootDate.split("-").map(Number);
   if (!y || !m || !d) return true;
   const cutoff = Date.UTC(y, m - 1, d) + (EXPIRY_DAYS_AFTER_SHOOT + 1) * 24 * 60 * 60 * 1000;
   return Date.now() > cutoff;
 }
 
-async function latestSentSheet(
-  ctx: QueryCtx | MutationCtx,
-  shootDayId: Doc<"recipients">["shootDayId"]
-) {
-  const versions = await ctx.db
-    .query("callSheets")
-    .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", shootDayId))
-    .order("desc")
-    .take(20);
+async function latestSentSheet(ctx: QueryCtx | MutationCtx, recipient: Doc<"recipients">) {
+  const versions = await sheetVersions(ctx, recipientSheetKey(recipient), 20);
   return versions.find((s) => s.status === "sent") ?? null;
+}
+
+/**
+ * The last date the link is for. A combined sheet runs to its final date,
+ * so its link must not lapse a week after the first.
+ */
+async function lastShootDate(
+  ctx: QueryCtx | MutationCtx,
+  recipient: Doc<"recipients">,
+  sheet: Doc<"callSheets"> | null
+): Promise<string | null> {
+  if (recipient.combinedProjectId && sheet) {
+    return sheet.data.extraDays?.at(-1)?.date ?? sheet.data.date;
+  }
+  const day = await ctx.db.get(recipient.shootDayId);
+  return day?.date ?? null;
 }
 
 /**
@@ -39,10 +49,10 @@ export const getByToken = query({
   handler: async (ctx, args) => {
     const recipient = await recipientByToken(ctx, args.token);
     if (!recipient) return null;
-    const day = await ctx.db.get(recipient.shootDayId);
-    if (!day) return null;
-    if (isExpired(day.date)) return { expired: true as const };
-    const sheet = await latestSentSheet(ctx, recipient.shootDayId);
+    const sheet = await latestSentSheet(ctx, recipient);
+    const last = await lastShootDate(ctx, recipient, sheet);
+    if (!last) return null;
+    if (isExpired(last)) return { expired: true as const };
     if (!sheet) return null;
     return {
       expired: false as const,
@@ -63,8 +73,9 @@ export const getByToken = query({
 async function liveRecipient(ctx: MutationCtx, token: string) {
   const recipient = await recipientByToken(ctx, token);
   if (!recipient) throw new Error("Unknown link");
-  const day = await ctx.db.get(recipient.shootDayId);
-  if (!day || isExpired(day.date)) throw new Error("This link has expired");
+  const sheet = recipient.combinedProjectId ? await latestSentSheet(ctx, recipient) : null;
+  const last = await lastShootDate(ctx, recipient, sheet);
+  if (!last || isExpired(last)) throw new Error("This link has expired");
   return recipient;
 }
 
