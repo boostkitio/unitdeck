@@ -36,6 +36,14 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
+      # workflow_dispatch can be pointed at any branch. Production must only
+      # ever receive main.
+      - name: Refuse anything other than main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::This workflow deploys production and only runs from main."
+          exit 1
+
       - name: Set up Node
         uses: actions/setup-node@v5
         with:
