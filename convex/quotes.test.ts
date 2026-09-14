@@ -1208,3 +1208,63 @@ test("a second copy of a standard line counts as a stray", async () => {
   expect(after.total).toBe(279);
   expect(after.duplicated).toEqual([]);
 });
+
+test("duplicating a quote copies its lines and figures into a new draft of its own", async () => {
+  const { t, ids, asA, asCharlie } = await setup();
+  const original = await asA.mutation(api.quotes.create, {
+    projectId: ids.project,
+    title: "Veeam launch",
+  });
+  await asA.mutation(api.quotes.addLine, {
+    quoteId: original,
+    category: "production",
+    name: "Director",
+    unit: "day",
+    pax: 1,
+    unitAmount: 2,
+    costPence: p(500),
+  });
+  await asA.mutation(api.quotes.update, { id: original, status: "sent", discountPence: p(50) });
+  await asA.mutation(api.quotes.setCategoryTotal, {
+    quoteId: original,
+    category: "production",
+    totalPence: p(1500),
+  });
+
+  const copyId = await asCharlie.mutation(api.quotes.duplicate, { id: original });
+  expect(copyId).not.toBe(original);
+
+  const [source, copy] = await t.run(async (ctx) => [
+    (await ctx.db.get(original))!,
+    (await ctx.db.get(copyId))!,
+  ]);
+  expect(copy).toMatchObject({
+    title: "Veeam launch (copy)",
+    status: "draft",
+    clientId: source.clientId,
+    discountPence: p(50),
+    profitBp: source.profitBp,
+    createdBy: "user_charlie",
+    ownerId: "user_charlie",
+  });
+  // A copy is for another job, and has not been sent to anyone.
+  expect(copy.projectId).toBeUndefined();
+  expect(copy.issuedAt).toBeUndefined();
+  expect(copy.number).not.toBe(source.number);
+
+  const [before, after] = await Promise.all([
+    asA.query(api.quotes.get, { id: original }),
+    asA.query(api.quotes.get, { id: copyId }),
+  ]);
+  expect(after!.totals).toEqual(before!.totals);
+
+  // The original is untouched.
+  expect(source.status).toBe("sent");
+  expect(source.projectId).toBe(ids.project);
+});
+
+test("another org cannot duplicate your quote", async () => {
+  const { asA, asB } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "Private" });
+  await expect(asB.mutation(api.quotes.duplicate, { id })).rejects.toThrow();
+});

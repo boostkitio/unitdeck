@@ -64,6 +64,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   const addCrew = useMutation(api.quotes.addCrewFromProject);
   const addKit = useMutation(api.quotes.addKitFromProject);
   const newVersion = useMutation(api.quotes.newVersion);
+  const duplicate = useMutation(api.quotes.duplicate);
   const setArchived = useMutation(api.quotes.setArchived);
   const rebuildLines = useMutation(api.quotes.rebuildLines);
   const saveName = useCallback(
@@ -207,6 +208,21 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             }
           >
             New version
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            title="Starts a new quote from this one — same lines, figures and terms, with a reference of its own and not on any production."
+            onClick={() =>
+              void run(
+                duplicate({ id: quoteId }).then((id) => router.push(`/quotes/${id}`)),
+                "Could not duplicate it.",
+                "Duplicated — this is the copy."
+              )
+            }
+          >
+            Duplicate
           </Button>
           {/* Red, the same as archiving a production or a location. Deleting is
               not offered here at all: it lives beside the archived quote on the

@@ -3,9 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useOrganization } from "@clerk/nextjs";
+import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
+import { Id } from "../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -54,6 +56,21 @@ export default function QuotesPage() {
   const archived = useQuery(api.quotes.list, organization ? { archivedOnly: true } : "skip");
   const [search, setSearch] = useState("");
   const [starting, setStarting] = useState(false);
+  const duplicate = useMutation(api.quotes.duplicate);
+  const [duplicating, setDuplicating] = useState<Id<"quotes"> | null>(null);
+
+  async function handleDuplicate(id: Id<"quotes">) {
+    setDuplicating(id);
+    try {
+      const copyId = await duplicate({ id });
+      toast.success("Duplicated — this is the copy.");
+      router.push(`/quotes/${copyId}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not duplicate it.");
+    } finally {
+      setDuplicating(null);
+    }
+  }
 
   const shown = (quotes ?? []).filter((q) =>
     matchesSearch(search, [
@@ -121,6 +138,7 @@ export default function QuotesPage() {
                     <TableCell className="font-medium">Status</TableCell>
                     <TableCell className="text-right font-medium">Net</TableCell>
                     <TableCell className="text-right font-medium">Gross</TableCell>
+                    <TableCell className="w-0" />
                     {/* Deleting is offered only here, against an archived quote:
                         the quote itself can only be archived. */}
                     {showArchived && <TableCell className="w-0" />}
@@ -168,6 +186,19 @@ export default function QuotesPage() {
                       <TableCell className="text-right tabular-nums text-muted-foreground">
                         {formatPence(quote.totals.grossTotal)}
                       </TableCell>
+                      <TableCell className="w-0 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={duplicating !== null}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDuplicate(quote._id);
+                          }}
+                        >
+                          {duplicating === quote._id ? "Copying…" : "Duplicate"}
+                        </Button>
+                      </TableCell>
                       {showArchived && (
                         <TableCell className="w-0 text-right">
                           <DeleteQuoteDialog
@@ -181,7 +212,7 @@ export default function QuotesPage() {
                   {shown.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={showArchived ? 7 : 6}
+                        colSpan={showArchived ? 8 : 7}
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nothing matches “{search}”.

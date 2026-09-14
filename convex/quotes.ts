@@ -899,70 +899,109 @@ export const newVersion = mutation({
       number = await nextNumber(ctx, org._id, quote.title ?? quote.clientName ?? null);
     }
 
-    // Written out field by field rather than spread from the original: the
-    // three timestamps say when *that* quote went out, and a copy of them on a
-    // draft would be a lie the document tells about itself.
-    const copyId = await ctx.db.insert("quotes", {
-      orgId: quote.orgId,
-      projectId: quote.projectId,
-      title: quote.title,
-      number,
-      status: "draft",
-      quoteType: quote.quoteType,
-      clientId: quote.clientId,
-      clientName: quote.clientName,
-      clientContact: quote.clientContact,
-      createdBy: quote.createdBy,
-      ownerId: quote.ownerId,
-      producerName: quote.producerName,
-      producerEmail: quote.producerEmail,
-      producerPhone: quote.producerPhone,
-      deliverables: quote.deliverables,
-      caveats: quote.caveats,
-      contingencyBp: quote.contingencyBp,
-      profitBp: quote.profitBp,
-      insuranceBp: quote.insuranceBp,
-      vatBp: quote.vatBp,
-      roundToPence: quote.roundToPence,
-      discountPence: quote.discountPence,
-    });
-
-    for (const line of await ctx.db
-      .query("quoteLines")
-      .withIndex("by_quote", (q) => q.eq("quoteId", args.id))
-      .collect()) {
-      await ctx.db.insert("quoteLines", {
-        orgId: line.orgId,
-        quoteId: copyId,
-        category: line.category,
-        section: line.section,
-        name: line.name,
-        notes: line.notes,
-        clientNotes: line.clientNotes,
-        unit: line.unit,
-        pax: line.pax,
-        unitAmount: line.unitAmount,
-        costPence: line.costPence,
-        ratePence: line.ratePence,
-        rateOverridden: line.rateOverridden,
-        sortOrder: line.sortOrder,
-      });
-    }
-    for (const o of await ctx.db
-      .query("quoteCategoryOverrides")
-      .withIndex("by_quote", (q) => q.eq("quoteId", args.id))
-      .collect()) {
-      await ctx.db.insert("quoteCategoryOverrides", {
-        orgId: o.orgId,
-        quoteId: copyId,
-        category: o.category,
-        totalPence: o.totalPence,
-      });
-    }
-
-    return copyId;
+    return await copyQuote(ctx, quote, { number });
   },
 });
+
+/**
+ * A copy of a quote to start another from — the same lines, figures and
+ * terms, as a new quote of its own.
+ *
+ * Unlike a new version it is not a revision of the original: it takes a fresh
+ * reference for today, is owned by whoever made it, and is left off any
+ * production, since the usual reason to copy a quote is a similar job.
+ */
+export const duplicate = mutation({
+  args: { id: v.id("quotes") },
+  handler: async (ctx, args) => {
+    const { identity } = await requireOrg(ctx);
+    const { org, quote } = await loadQuote(ctx, args.id);
+    const number = await nextNumber(
+      ctx,
+      org._id,
+      quote.clientName ?? quote.title ?? null
+    );
+    const base = quote.title?.trim() || quote.number;
+    return await copyQuote(ctx, quote, {
+      number,
+      title: `${base} (copy)`,
+      projectId: undefined,
+      createdBy: identity.subject,
+      ownerId: identity.subject,
+    });
+  },
+});
+
+/** Writes a draft copy of a quote, its lines and its hand-set totals. */
+async function copyQuote(
+  ctx: MutationCtx,
+  quote: Doc<"quotes">,
+  changes: Pick<Doc<"quotes">, "number"> &
+    Partial<Pick<Doc<"quotes">, "title" | "projectId" | "createdBy" | "ownerId">>
+): Promise<Id<"quotes">> {
+  // Written out field by field rather than spread from the original: the
+  // three timestamps say when *that* quote went out, and a copy of them on a
+  // draft would be a lie the document tells about itself.
+  const copyId = await ctx.db.insert("quotes", {
+    orgId: quote.orgId,
+    projectId: "projectId" in changes ? changes.projectId : quote.projectId,
+    title: "title" in changes ? changes.title : quote.title,
+    number: changes.number,
+    status: "draft",
+    quoteType: quote.quoteType,
+    clientId: quote.clientId,
+    clientName: quote.clientName,
+    clientContact: quote.clientContact,
+    createdBy: changes.createdBy ?? quote.createdBy,
+    ownerId: changes.ownerId ?? quote.ownerId,
+    producerName: quote.producerName,
+    producerEmail: quote.producerEmail,
+    producerPhone: quote.producerPhone,
+    deliverables: quote.deliverables,
+    caveats: quote.caveats,
+    contingencyBp: quote.contingencyBp,
+    profitBp: quote.profitBp,
+    insuranceBp: quote.insuranceBp,
+    vatBp: quote.vatBp,
+    roundToPence: quote.roundToPence,
+    discountPence: quote.discountPence,
+  });
+
+  for (const line of await ctx.db
+    .query("quoteLines")
+    .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
+    .collect()) {
+    await ctx.db.insert("quoteLines", {
+      orgId: line.orgId,
+      quoteId: copyId,
+      category: line.category,
+      section: line.section,
+      name: line.name,
+      notes: line.notes,
+      clientNotes: line.clientNotes,
+      unit: line.unit,
+      pax: line.pax,
+      unitAmount: line.unitAmount,
+      costPence: line.costPence,
+      ratePence: line.ratePence,
+      rateOverridden: line.rateOverridden,
+      sortOrder: line.sortOrder,
+    });
+  }
+  for (const o of await ctx.db
+    .query("quoteCategoryOverrides")
+    .withIndex("by_quote", (q) => q.eq("quoteId", quote._id))
+    .collect()) {
+    await ctx.db.insert("quoteCategoryOverrides", {
+      orgId: o.orgId,
+      quoteId: copyId,
+      category: o.category,
+      totalPence: o.totalPence,
+    });
+  }
+
+  return copyId;
+}
 
 /**
  * Sets a category's total by hand, to land the quote on a round figure.
