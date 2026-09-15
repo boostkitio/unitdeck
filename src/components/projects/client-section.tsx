@@ -83,38 +83,6 @@ export function ProjectClientSection({
   const removeFromShoot = useMutation(api.projectClients.remove);
   const setContactNotes = useMutation(api.projectClients.setNotes);
   const setAttendance = useMutation(api.projectClients.setAttendance);
-  const people = useQuery(api.people.list, { kind: "crew" });
-  const createPerson = useMutation(api.people.create);
-  const [savingToPeople, setSavingToPeople] = useState<number | null>(null);
-
-  /**
-   * Whether somebody is already in People, by email or else by name. A client
-   * contact lives in the client's book, not in People, until somebody asks.
-   */
-  function inPeople(contact: IndexedContact): boolean {
-    const email = contact.email?.trim().toLowerCase();
-    const name = contact.name.trim().toLowerCase();
-    return (people ?? []).some((person) =>
-      email ? person.email?.trim().toLowerCase() === email : person.name.trim().toLowerCase() === name,
-    );
-  }
-
-  async function handleAddToPeople(contact: IndexedContact) {
-    setSavingToPeople(contact.index);
-    try {
-      await createPerson({
-        name: contact.name,
-        role: contact.role?.trim() || `Client, ${client?.name ?? "client"}`,
-        email: contact.email?.trim() || undefined,
-        phone: contact.phone?.trim() || undefined,
-      });
-      toast.success(`${contact.name} added to your People list.`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not add them.");
-    } finally {
-      setSavingToPeople(null);
-    }
-  }
   const { sort, toggle } = useTableSort<ContactSortKey>({ key: "name", dir: "asc" });
 
   const [editing, setEditing] = useState<IndexedContact | null>(null);
@@ -280,17 +248,6 @@ export function ProjectClientSection({
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {people !== undefined && !inPeople(contact) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={savingToPeople !== null}
-                            title={`Save ${contact.name} to your People list as well as ${client.name}'s contacts`}
-                            onClick={() => void handleAddToPeople(contact)}
-                          >
-                            {savingToPeople === contact.index ? "Adding…" : "Add to People"}
-                          </Button>
-                        )}
                         <Button variant="ghost" size="sm" onClick={() => setEditing(contact)}>
                           Edit
                         </Button>
@@ -309,8 +266,8 @@ export function ProjectClientSection({
             </Table>
             <p className="mt-3 text-xs text-muted-foreground">
               Remove takes somebody off this production only — they stay in{" "}
-              {client.name}&rsquo;s contacts. They are not added to People unless you choose Add
-              to People. Edit changes them everywhere; the whole book is on your{" "}
+              {client.name}&rsquo;s contacts. Edit changes them everywhere; the whole book
+              is on your{" "}
               <Link href="/clients" className="underline underline-offset-2">
                 clients
               </Link>{" "}

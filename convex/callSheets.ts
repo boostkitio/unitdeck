@@ -185,10 +185,9 @@ async function buildFromProject(
   const named = (row: Doc<"projectCrew">) => {
     const person = row.personId ? people.get(String(row.personId)) : undefined;
     return {
-      // Somebody on this production only carries their details on the booking.
-      person: person ?? (row.name ? { phone: row.phone, email: row.email } : undefined),
-      name: person?.name ?? (row.name?.trim() || "TO BOOK"),
-      role: row.role?.trim() || person?.role || (row.kind === "talent" ? "Talent" : "Crew"),
+      person,
+      name: person?.name ?? "TO BOOK",
+      role: row.role?.trim() || person?.role || "Crew",
     };
   };
 

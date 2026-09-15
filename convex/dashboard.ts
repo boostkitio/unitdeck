@@ -145,17 +145,13 @@ export const attention = query({
 
     // Names for the people who have yet to confirm — a line saying who it is
     // can be acted on; one saying "2 of 5" cannot.
-    const names = new Map<Id<"projectCrew">, string>();
+    const names = new Map<Id<"people">, string>();
     for (const rows of crewByProject.values()) {
       for (const row of rows) {
-        if (row.status === "confirmed") continue;
-        if (row.personId === undefined) {
-          // Somebody on this production only is named on the booking.
-          if (row.name?.trim()) names.set(row._id, row.name.trim());
-          continue;
-        }
+        if (row.personId === undefined || row.status === "confirmed") continue;
+        if (names.has(row.personId)) continue;
         const person = await ctx.db.get(row.personId);
-        names.set(row._id, person?.name ?? "Somebody");
+        names.set(row.personId, person?.name ?? "Somebody");
       }
     }
 
@@ -274,7 +270,7 @@ export const attention = query({
         mine.push({ ...base, kind: "no_crew", label: "No crew on this project yet" });
       } else {
         for (const row of crew) {
-          if (row.personId === undefined && !row.name?.trim()) {
+          if (row.personId === undefined) {
             mine.push({
               ...base,
               kind: "unfilled_role",
@@ -282,7 +278,7 @@ export const attention = query({
             });
           } else if (row.status !== "confirmed") {
             // Bookings predating the status field read as pencilled.
-            const name = names.get(row._id) ?? "Somebody";
+            const name = names.get(row.personId) ?? "Somebody";
             const role = row.role?.trim();
             mine.push({
               ...base,

@@ -1332,7 +1332,7 @@ export const addCrewFromProject = mutation({
     for (const booking of bookings) {
       const person = booking.personId ? await ctx.db.get(booking.personId) : null;
       const role = (booking.role ?? person?.role ?? "").trim();
-      if (role.length === 0 && !person && !booking.name) continue;
+      if (role.length === 0 && !person) continue;
 
       const match = card.find(
         (item) => !item.archived && item.name.toLowerCase() === role.toLowerCase()

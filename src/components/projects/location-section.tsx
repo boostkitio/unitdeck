@@ -209,27 +209,19 @@ export function LocationSection({
                   {location.nearestStation}
                 </p>
               )}
-              <div className="space-y-1">
-                {missing.length > 0 && (
+              {missing.length > 0 && (
+                <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">
                     Not filled in yet: {missing.join(", ")}.
                   </p>
-                )}
-                {/* Always offered: a station can be filled in and still not be
-                    the nearest, which is worse than a blank. */}
-                <Button
+                  <Button
                     size="sm"
                     variant="secondary"
                     disabled={looking}
-                    title="Measures the nearest A&E, police station, Tube and National Rail station from the map, replacing what is here."
                     onClick={async () => {
                       setLooking(true);
                       try {
-                        const result = await enrichLocation({ id: location._id, replace: true });
-                        if (result.problem) {
-                          toast.info(result.problem);
-                          return;
-                        }
+                        const result = await enrichLocation({ id: location._id });
                         const filled = [
                           result.nearestHospital && "nearest A&E",
                           result.nearestPoliceStation && "police station",
@@ -238,9 +230,9 @@ export function LocationSection({
                           result.plusCode && "Plus Code",
                         ].filter(Boolean);
                         if (filled.length > 0) {
-                          toast.success(`Measured from the map: ${filled.join(", ")}.`);
+                          toast.success(`Filled in ${filled.join(", ")}.`);
                         } else {
-                          toast.info("Nothing found on the map near that address.");
+                          toast.info("Could not fill anything in from that address.");
                         }
                       } catch (err) {
                         toast.error(
@@ -251,9 +243,10 @@ export function LocationSection({
                       }
                     }}
                   >
-                    {looking ? "Measuring…" : "Find nearest again"}
+                    {looking ? "Filling in…" : "Try again"}
                   </Button>
-              </div>
+                </div>
+              )}
               {query && (
                 <a
                   href={mapLink(query)}
@@ -347,6 +340,8 @@ function LocationPickerDialog({
   // Off by default: most addresses are used once, and every one of them
   // saved was silting up the list everyone picks from.
   const [saveForFuture, setSaveForFuture] = useState(false);
+  const [nearestHospital, setNearestHospital] = useState<string | undefined>();
+  const [nearestPoliceStation, setNearestPoliceStation] = useState<string | undefined>();
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   // Address lookup, the same one the locations page calls "Smart find".
@@ -371,6 +366,8 @@ function LocationPickerDialog({
   function applySuggestion(suggestion: AddressSuggestion) {
     setName(suggestion.name);
     setAddress(suggestion.address);
+    setNearestHospital(suggestion.nearestHospital);
+    setNearestPoliceStation(suggestion.nearestPoliceStation);
     setCoords(
       suggestion.lat !== undefined && suggestion.lng !== undefined
         ? { lat: suggestion.lat, lng: suggestion.lng }
@@ -418,8 +415,8 @@ function LocationPickerDialog({
         address,
         parkingNotes: parkingNotes.trim() || undefined,
         projectOnly: saveForFuture ? undefined : true,
-        // The suggestion's nearest A&E and police are left out on purpose:
-        // they are the model's guess, and the lookup below measures them.
+        nearestHospital,
+        nearestPoliceStation,
         lat: coords?.lat,
         lng: coords?.lng,
       });

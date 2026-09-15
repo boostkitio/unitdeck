@@ -249,33 +249,6 @@ function LocationDialog({
   const [lat, setLat] = useState<number | undefined>(location?.lat);
   const [lng, setLng] = useState<number | undefined>(location?.lng);
   const [busy, setBusy] = useState(false);
-  const [measuring, setMeasuring] = useState(false);
-
-  /**
-   * Measures the nearest A&E, police station and stations again and puts them
-   * in the boxes, replacing what is there. For a saved location only: it is
-   * measured from the saved address and coordinates.
-   */
-  async function findNearestAgain() {
-    if (!location) return;
-    setMeasuring(true);
-    try {
-      const r = await enrichLocation({ id: location._id, replace: true });
-      if (r.problem) {
-        toast.info(r.problem);
-        return;
-      }
-      setNearestHospital(r.nearestHospital ?? "");
-      setNearestPoliceStation(r.nearestPoliceStation ?? "");
-      setNearestTube(r.nearestTube ?? "");
-      setNearestRail(r.nearestRail ?? "");
-      toast.success("Nearest A&E, police station and stations measured from the map.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not look them up.");
-    } finally {
-      setMeasuring(false);
-    }
-  }
 
   // Smart find state
   const [smartQuery, setSmartQuery] = useState("");
@@ -300,8 +273,8 @@ function LocationDialog({
   function applySuggestion(s: AddressSuggestion) {
     if (!name.trim() || name === location?.name) setName(s.name);
     setAddress(s.address);
-    // The suggestion's nearest A&E and police are the model's guess. They are
-    // left for the map lookup on save, which measures them instead.
+    if (s.nearestHospital) setNearestHospital(s.nearestHospital);
+    if (s.nearestPoliceStation) setNearestPoliceStation(s.nearestPoliceStation);
     // The model's coordinates are only a rough estimate (often the town centre),
     // so discard them: the map geocodes the address via Google, and precise
     // lat/lng are resolved by the OpenStreetMap lookup on save.
@@ -355,9 +328,7 @@ function LocationDialog({
             r.plusCode && "Plus Code",
           ].filter(Boolean);
           // Say so either way: a silent no-op looks identical to a failure.
-          if (r.problem) {
-            toast.info(r.problem);
-          } else if (filled.length > 0) {
+          if (filled.length > 0) {
             toast.success(`Filled in ${filled.join(", ")}.`);
           } else {
             toast.info("Could not fill anything in from that address.");
@@ -607,23 +578,6 @@ function LocationDialog({
               />
             </div>
           </div>
-          {location && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={measuring}
-                onClick={() => void findNearestAgain()}
-              >
-                {measuring ? "Measuring…" : "Find nearest again"}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Replaces the A&amp;E, police station and stations with the nearest on the map to
-                the saved address.
-              </p>
-            </div>
-          )}
         </div>
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           {location ? (
