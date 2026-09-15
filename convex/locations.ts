@@ -6,6 +6,7 @@ import { chatJson } from "./lib/llm";
 import { AI_MODEL_FAST } from "./lib/ai";
 import { geocodeAddress } from "./lib/geocode";
 import { plusCodeFor } from "./lib/plusCode";
+import { findNearby, type Nearby } from "./lib/nearby";
 import { syncLocationOntoDrafts } from "./lib/sheetLocations";
 
 const locationFields = {
@@ -197,32 +198,35 @@ export const saveEnrichment = internalMutation({
     plusCode: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
+    // Replace the nearest-things with what was just measured, rather than
+    // only filling blanks. Only ever set when somebody asked for it.
+    replaceNearest: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const { org } = await requireOrg(ctx);
     const location = await ctx.db.get(args.id);
     if (!location || location.orgId !== org._id) throw new Error("Location not found");
 
-    // Never overwrite something a human typed: only fill what is blank.
     const patch: Record<string, unknown> = {};
-    const fill = (
-      key:
-        | "nearestHospital"
-        | "nearestPoliceStation"
-        | "nearestStation"
-        | "nearestTube"
-        | "nearestRail"
-        | "plusCode"
-    ) => {
-      const value = args[key];
-      if (value && !location[key]?.trim()) patch[key] = value;
-    };
-    fill("nearestHospital");
-    fill("nearestPoliceStation");
-    fill("nearestStation");
-    fill("nearestTube");
-    fill("nearestRail");
-    fill("plusCode");
+    const nearest = [
+      "nearestHospital",
+      "nearestPoliceStation",
+      "nearestStation",
+      "nearestTube",
+      "nearestRail",
+    ] as const;
+    if (args.replaceNearest) {
+      // Asked for outright: what the map says now, blanks included, since a
+      // station that is not the nearest should not stay on the sheet.
+      for (const key of nearest) patch[key] = args[key];
+    } else {
+      // Never overwrite something a human typed: only fill what is blank.
+      for (const key of nearest) {
+        const value = args[key];
+        if (value && !location[key]?.trim()) patch[key] = value;
+      }
+    }
+    if (args.plusCode && !location.plusCode?.trim()) patch.plusCode = args.plusCode;
     if (args.lat !== undefined && args.lng !== undefined && location.lat === undefined) {
       patch.lat = args.lat;
       patch.lng = args.lng;
@@ -239,13 +243,15 @@ export const saveEnrichment = internalMutation({
 
 /**
  * Fills in everything derivable from a location's address: coordinates, the
- * nearest A&E and police station, the nearest Tube and National Rail stations,
- * and the Plus Code. Runs automatically when a location is saved.
+ * nearest A&E, police station, Tube and National Rail station, and the Plus
+ * Code. Runs automatically when a location is saved, filling only blanks.
  *
- * Only blank fields are written, so anything typed by hand survives.
+ * `replace` measures again and replaces the nearest-things, for when what is
+ * there is wrong. They are measured from the map (see lib/nearby.ts), not
+ * guessed from the address.
  */
 export const enrichLocation = action({
-  args: { id: v.id("locations") },
+  args: { id: v.id("locations"), replace: v.optional(v.boolean()) },
   handler: async (
     ctx,
     args
@@ -256,88 +262,48 @@ export const enrichLocation = action({
     nearestTube?: string;
     nearestRail?: string;
     plusCode?: string;
+    /** Why nothing could be measured, when nothing could. */
+    problem?: string;
   }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
     const location = await ctx.runQuery(internal.locations.getForGeocode, { id: args.id });
     if (!location) throw new Error("Location not found");
-    if (location.address.trim().length === 0) return {};
+    if (location.address.trim().length === 0) {
+      return { problem: "This location has no address to look up." };
+    }
 
-    // Coordinates first: the Plus Code is derived from them.
+    // Coordinates first: everything else is measured from them.
     let coords =
       location.lat !== undefined && location.lng !== undefined
         ? { lat: location.lat, lng: location.lng }
         : null;
     if (!coords) coords = await geocodeAddress(location.address).catch(() => null);
+    if (!coords) {
+      return { problem: `Could not place “${location.address.trim()}” on the map.` };
+    }
 
-    const system = `You are a UK location assistant for a film and TV production management tool.
-Given a UK address, name the nearest NHS A&E or major hospital, the nearest police station, the nearest London Underground-style station, and the nearest National Rail station.
-
-Reply with ONLY a JSON object in exactly this shape, no prose, no code fences:
-{
-  "nearestHospital": "Name of nearest A&E or hospital, or null",
-  "nearestPoliceStation": "Name of nearest police station, or null",
-  "nearestTube": "Nearest London Underground, Overground, DLR or Elizabeth line station with line and walking time, or null",
-  "nearestRail": "Nearest National Rail station with walking or driving time, or null"
-}
-
-Rules:
-- Give commonly used names, e.g. "Wexham Park Hospital", "Slough Police Station".
-- "nearestTube" is only for London's Transport for London network: the Underground,
-  Overground, DLR or Elizabeth line, e.g. "White City (Central line), 6 min walk".
-  Outside Greater London, or when no such station is within about 30 minutes' walk,
-  return null.
-- "nearestRail" MUST be a National Rail station (a mainline station served by train
-  operating companies, not a Tube-only station), with approximate walking time, or
-  driving time when it is too far to walk, e.g. "Slough, 12 min walk" or
-  "Tunbridge Wells, 10 min drive". Give one for every UK address you can place.
-- A station served by both, such as "Stratford", may be the answer to both.
-- Never answer with a generic phrase like "good transport links" — return null instead.
-- Use null when you are not confident. Never invent a name.`;
-
-    const raw = await chatJson({
-      system,
-      user: `${location.name}\n${location.address}`,
-      model: AI_MODEL_FAST,
-    }).catch(() => ({}) as unknown);
-
-    const obj = raw as Record<string, unknown>;
-    const text = (value: unknown): string | undefined =>
-      typeof value === "string" && value.trim() !== "" && value.trim().toLowerCase() !== "null"
-        ? value.trim()
-        : undefined;
-
-    const nearestHospital = text(obj?.nearestHospital);
-    const nearestPoliceStation = text(obj?.nearestPoliceStation);
-    const nearestTube = text(obj?.nearestTube);
-    const nearestRail = text(obj?.nearestRail);
-    // Still filled for anything that reads the single field: the Tube in
-    // London, where that is how people travel in, the railway elsewhere.
-    const nearestStation = nearestTube ?? nearestRail;
-
+    let nearby: Nearby;
+    try {
+      nearby = await findNearby(coords.lat, coords.lng);
+    } catch {
+      return { problem: "Could not reach the map data just now. Try again in a minute." };
+    }
+    const nearestStation = nearby.nearestTube ?? nearby.nearestRail;
     // Arithmetic, not a lookup: this cannot fail once there are coordinates.
-    const plusCode = coords ? plusCodeFor(coords.lat, coords.lng, location.address) : undefined;
+    const plusCode = plusCodeFor(coords.lat, coords.lng, location.address);
 
     await ctx.runMutation(internal.locations.saveEnrichment, {
       id: args.id,
-      nearestHospital,
-      nearestPoliceStation,
+      ...nearby,
       nearestStation,
-      nearestTube,
-      nearestRail,
       plusCode,
-      lat: coords?.lat,
-      lng: coords?.lng,
+      lat: coords.lat,
+      lng: coords.lng,
+      replaceNearest: args.replace,
     });
 
-    return {
-      nearestHospital,
-      nearestPoliceStation,
-      nearestStation,
-      nearestTube,
-      nearestRail,
-      plusCode,
-    };
+    return { ...nearby, nearestStation, plusCode };
   },
 });
 
