@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TalentReleaseDocument } from "@/components/documents/talent-release-document";
+import { FitToWidth } from "@/components/call-sheet/fit-to-width";
+import { PagedPreview } from "@/components/documents/paged-preview";
 
 export default function SignDocumentPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -145,7 +147,11 @@ export default function SignDocumentPage({ params }: { params: Promise<{ token: 
       <p className="mt-0.5 text-sm text-muted-foreground">{result.data.productionTitle}</p>
 
       <div className="mt-4 max-h-[65vh] overflow-auto rounded-xl border border-border bg-neutral-800/40 p-3">
-        <TalentReleaseDocument data={result.data} />
+        <FitToWidth>
+          <PagedPreview>
+            <TalentReleaseDocument data={result.data} />
+          </PagedPreview>
+        </FitToWidth>
       </div>
 
       {error && (
