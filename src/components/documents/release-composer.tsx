@@ -17,8 +17,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TalentReleaseDocument } from "./talent-release-document";
-import { FitToWidth } from "@/components/call-sheet/fit-to-width";
-import { PagedPreview } from "./paged-preview";
 import { SendReleaseButton, StatusBadge } from "./document-status";
 
 type SaveState = "saved" | "saving" | "error";
@@ -125,11 +123,9 @@ function Composer({ doc, onClose }: { doc: Doc<"documents">; onClose: () => void
           <ComposerFields data={data} editable={editable} onChange={set} />
         </div>
         <div className="max-h-[58vh] overflow-y-auto rounded-md border border-border bg-muted p-4">
-          <FitToWidth>
-            <PagedPreview>
-              <TalentReleaseDocument data={data} signature={signature} />
-            </PagedPreview>
-          </FitToWidth>
+          <div className="origin-top scale-[0.55] shadow-xl">
+            <TalentReleaseDocument data={data} signature={signature} />
+          </div>
         </div>
       </div>
 

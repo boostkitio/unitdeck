@@ -10,8 +10,6 @@ import type {
   ScheduleBlock,
 } from "../../../convex/lib/callSheetData";
 import { CallSheetDocument } from "@/components/call-sheet/call-sheet-document";
-import { FitToWidth } from "@/components/call-sheet/fit-to-width";
-import { PagedPreview } from "@/components/documents/paged-preview";
 import { WaitlistForm } from "./waitlist-form";
 
 let uid = 0;
@@ -470,8 +468,8 @@ export function CallSheetMaker() {
       {/* Live preview */}
       <h3 className="mt-8 text-sm font-semibold">Live preview</h3>
       <div className="mt-3 overflow-x-auto rounded-lg border border-neutral-200 bg-neutral-100 p-4">
-        <FitToWidth>
-          <PagedPreview>
+        <div className="origin-top-left scale-[0.85]" style={{ width: 794, height: "auto" }}>
+          <div className="shadow-lg">
             <CallSheetDocument
               data={{
                 ...data,
@@ -479,8 +477,8 @@ export function CallSheetMaker() {
                 productionCompany: data.productionCompany || "Your company",
               }}
             />
-          </PagedPreview>
-        </FitToWidth>
+          </div>
+        </div>
       </div>
 
       {/* Gate + download */}

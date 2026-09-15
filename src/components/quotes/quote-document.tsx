@@ -67,10 +67,13 @@ export function QuoteDocument({
     <article
       // A4, like every other document this app makes: 210mm across with its
       // own 14mm margin, running to as many pages as it needs.
-      className="mx-auto w-[210mm] min-h-[297mm] bg-white px-[14mm] py-[16mm] text-[10pt] text-neutral-900 print:min-h-0 print:w-auto print:p-0"
-      // Marks the document for the paged preview, which lays it out on real
-      // A4 pages and takes over the page margins (see PagedPreview).
-      data-document
+      className="mx-auto w-[210mm] min-h-[297mm] bg-white px-[14mm] py-[16mm] text-[10pt] text-neutral-900 print:min-h-0 print:w-auto print:bg-none! print:p-0"
+      style={{
+        // Where each A4 page ends. The document is 210mm wide with the same
+        // margins the page box uses, so these rules fall where the PDF breaks.
+        backgroundImage:
+          "repeating-linear-gradient(to bottom, transparent 0 296.5mm, rgb(212 212 216) 296.5mm 297mm)",
+      }}
     >
       <header className="flex items-start justify-between gap-6 border-b-2 border-neutral-900 pb-3">
         <div>

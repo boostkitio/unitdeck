@@ -24,8 +24,6 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TalentReleaseDocument } from "./talent-release-document";
-import { FitToWidth } from "@/components/call-sheet/fit-to-width";
-import { PagedPreview } from "./paged-preview";
 import { ReleaseComposer } from "./release-composer";
 import { StatusBadge, SendReleaseButton } from "./document-status";
 import { Input } from "@/components/ui/input";
@@ -201,8 +199,7 @@ function PreviewDialog({ doc, onClose }: { doc: Doc<"documents">; onClose: () =>
           </div>
         </DialogHeader>
         <div className="max-h-[70vh] overflow-y-auto rounded-md border border-border bg-muted p-6">
-          <FitToWidth>
-            <PagedPreview>
+          <div className="origin-top scale-[0.7] shadow-xl">
             <TalentReleaseDocument
               data={doc.data}
               signature={
@@ -215,8 +212,7 @@ function PreviewDialog({ doc, onClose }: { doc: Doc<"documents">; onClose: () =>
                   : undefined
               }
             />
-            </PagedPreview>
-          </FitToWidth>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

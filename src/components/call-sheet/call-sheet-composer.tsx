@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CallSheetDocument } from "@/components/call-sheet/call-sheet-document";
 import { FitToWidth } from "@/components/call-sheet/fit-to-width";
-import { PagedPreview } from "@/components/documents/paged-preview";
 import { ComposerForm } from "@/components/call-sheet/composer-form";
 import { SendDialog, RecipientStrip } from "@/components/call-sheet/send-dialog";
 import { CheckDialog } from "@/components/agents/check-dialog";
@@ -253,9 +252,9 @@ export function CallSheetComposer({
         </div>
         <div className="hidden min-w-0 flex-1 overflow-y-auto bg-muted p-6 md:block">
           <FitToWidth>
-            <PagedPreview>
+            <div className="shadow-xl">
               <CallSheetDocument data={data} versionLabel={`v${draft.version} draft`} />
-            </PagedPreview>
+            </div>
           </FitToWidth>
         </div>
       </div>
