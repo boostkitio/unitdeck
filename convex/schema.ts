@@ -406,6 +406,12 @@ export default defineSchema({
     // Absent means the role is booked but nobody is in it yet — a reminder to
     // find someone. `role` is then required, since nothing else names the row.
     personId: v.optional(v.id("people")),
+    // Somebody on this production only, kept off the People and Talent lists:
+    // their details live on the booking instead. Set only when `personId` is
+    // absent; a booking with a name and no person is booked, not unfilled.
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
     // Role on this production. Absent means "use the person's default role".
     role: v.optional(v.string()),
     notes: v.optional(v.string()),

@@ -20,6 +20,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { QuoteDocument } from "@/components/quotes/quote-document";
+import { FitToWidth } from "@/components/call-sheet/fit-to-width";
+import { PagedPreview } from "@/components/documents/paged-preview";
 
 /**
  * The client's copy, on screen.
@@ -121,7 +123,11 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      <QuoteDocument data={data} ownerName={ownerName} ownerEmail={ownerEmail} />
+      <FitToWidth>
+        <PagedPreview>
+          <QuoteDocument data={data} ownerName={ownerName} ownerEmail={ownerEmail} />
+        </PagedPreview>
+      </FitToWidth>
     </div>
   );
 }

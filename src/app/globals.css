@@ -192,3 +192,58 @@
     break-after: avoid;
   }
 }
+
+/*
+ * Document previews, laid out on real pages by Paged.js (PagedPreview).
+ *
+ * The document is rendered once out of sight and flowed onto A4 sheets, shown
+ * one under another with a gap like a PDF viewer. On a page the margins are
+ * the page's, so the document's own screen padding and width come off.
+ */
+.paged-preview-source {
+  position: absolute;
+  left: -100000px;
+  top: 0;
+  width: 210mm;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.paged-preview .pagedjs_pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.paged-preview .pagedjs_page {
+  background: #fff;
+  box-shadow:
+    0 10px 25px -5px rgb(0 0 0 / 0.15),
+    0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+/*
+ * A section the documents mark keep-together can be taller than a page — a
+ * long crew list. Chromium's PDF renderer lets that one break where it falls;
+ * Paged.js moves it whole to the next page and leaves the first nearly blank.
+ * So in the preview only rows, list items and headings are kept together,
+ * which is where the PDF actually breaks.
+ */
+.pagedjs_pages .break-inside-avoid {
+  break-inside: auto;
+}
+
+.pagedjs_page [data-document] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+@media print {
+  .paged-preview-source {
+    display: none;
+  }
+}
