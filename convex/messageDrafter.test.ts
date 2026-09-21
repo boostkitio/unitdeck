@@ -38,6 +38,9 @@ async function setup() {
       { name: "Alex", role: "DP", email: "alex@example.test", callTime: "07:00" },
     ],
   });
+  // The scheduled send now runs in tests. Let it record "sent" before anyone
+  // confirms, or that write lands later and undoes the confirmation.
+  await t.finishAllScheduledFunctions(() => {});
   const runId = await t.run(async (ctx) =>
     ctx.db.insert("agentRuns", {
       orgId: ids.orgA,
