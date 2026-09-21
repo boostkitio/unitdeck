@@ -177,7 +177,9 @@ function SendDialog({
         fileId: storageId,
         fileName,
       });
-      toast.success(`Sent to ${to.trim()}.`);
+      // Queued, not delivered. The quote is marked sent only after the email
+      // goes out, so this must not say that it already has.
+      toast.success(`Sending to ${to.trim()}.`);
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send it.");

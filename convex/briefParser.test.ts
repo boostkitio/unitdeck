@@ -41,6 +41,8 @@ test("approve creates client, project and shoot days, and stamps the run", async
   const project = await asA.query(api.projects.get, { id: projectId });
   expect(project?.name).toBe("Acme brand film (edited)"); // edited value wins
   expect(project?.clientName).toBe("Acme");
+  expect(project?.ownerId).toBe("user_a");
+  expect(project?.jobNumber).toBe("0001");
   const days = await asA.query(api.shootDays.listForProject, { projectId });
   expect(days).toHaveLength(2);
   const run = await t.run(async (ctx) => ctx.db.get(ids.runId));

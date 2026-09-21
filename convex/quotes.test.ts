@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { RATE_CARD_SEED } from "./lib/rateCardSeed";
 
@@ -357,6 +357,7 @@ test("deleting a quote takes its lines and overrides with it", async () => {
     category: "pre",
     totalPence: p(600),
   });
+  await asA.mutation(api.quotes.setArchived, { id: quoteId, archived: true });
   await asA.mutation(api.quotes.remove, { id: quoteId });
 
   const left = await t.run(async (ctx) => ({
@@ -1150,13 +1151,30 @@ test("a call sheet's render token cannot be used to read a quote", async () => {
   expect(await asA.query(api.callSheets.getByRenderToken, { token })).toBeNull();
 });
 
-test("sending the quote to the client marks it sent, once", async () => {
+test("a quote that is not archived cannot be deleted", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "Still in use" });
+  await expect(asA.mutation(api.quotes.remove, { id })).rejects.toThrow(/archive/i);
+  expect(await asA.query(api.quotes.get, { id })).not.toBeNull();
+});
+
+test("sending the quote marks it sent only after the email goes out", async () => {
   const { asA, ids, t } = await setup();
   const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
   const fileId = await t.run(async (ctx) => await ctx.storage.store(new Blob(["pdf"])));
 
   await asA.mutation(api.quotes.sendToClient, {
     id,
+    to: "client@example.test",
+    fileId,
+    fileName: "quote.pdf",
+  });
+  // Queued, not delivered.
+  expect((await asA.query(api.quotes.get, { id }))!.quote.status).toBe("draft");
+
+  await t.action(internal.quotes.deliverToClient, {
+    quoteId: id,
+    orgName: "Klaxon",
     to: "client@example.test",
     fileId,
     fileName: "quote.pdf",
@@ -1168,13 +1186,47 @@ test("sending the quote to the client marks it sent, once", async () => {
   expect(issued).toBeDefined();
 
   // Sent again — the date it first went out is the date it went out.
+  const again = await t.run(async (ctx) => await ctx.storage.store(new Blob(["pdf"])));
+  await t.action(internal.quotes.deliverToClient, {
+    quoteId: id,
+    orgName: "Klaxon",
+    to: "client@example.test",
+    fileId: again,
+    fileName: "quote.pdf",
+  });
+  expect((await asA.query(api.quotes.get, { id }))!.quote.issuedAt).toBe(issued);
+});
+
+test("a failed delivery does not mark the quote sent", async () => {
+  const { asA, ids, t } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const fileId = await t.run(async (ctx) => await ctx.storage.store(new Blob(["pdf"])));
   await asA.mutation(api.quotes.sendToClient, {
     id,
     to: "client@example.test",
     fileId,
     fileName: "quote.pdf",
   });
-  expect((await asA.query(api.quotes.get, { id }))!.quote.issuedAt).toBe(issued);
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+  try {
+    await expect(
+      t.action(internal.quotes.deliverToClient, {
+        quoteId: id,
+        orgName: "Klaxon",
+        to: "client@example.test",
+        fileId,
+        fileName: "quote.pdf",
+      })
+    ).rejects.toThrow(/Resend 500/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const quote = (await asA.query(api.quotes.get, { id }))!.quote;
+  expect(quote.status).toBe("draft");
+  expect(quote.issuedAt).toBeUndefined();
 });
 
 test("a quote is not sent to something that is not an address", async () => {
