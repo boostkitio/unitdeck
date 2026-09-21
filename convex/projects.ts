@@ -268,6 +268,62 @@ export const create = mutation({
   },
 });
 
+/**
+ * Starts a production from a quote that is not on one yet.
+ *
+ * The name, the client and the deliverables come across. The lines stay on
+ * the quote: filing it against the new job is what makes the enquiry a
+ * production. Calling this again returns that production, but only while
+ * the row is still there. Deleting a production does not clear the quote,
+ * so a leftover id is dropped and a new production is started.
+ */
+export const createFromQuote = mutation({
+  args: { quoteId: v.id("quotes") },
+  returns: v.id("projects"),
+  handler: async (ctx, args) => {
+    const { identity, org } = await requireOrg(ctx);
+    const quote = await ctx.db.get(args.quoteId);
+    if (!quote || quote.orgId !== org._id) throw new Error("Quote not found");
+
+    // Already filed, and the production is still here. A second call must
+    // not open a second one. A projectId left behind after the production
+    // was deleted — or pointing at another account — is not a conversion.
+    if (quote.projectId) {
+      const existing = await ctx.db.get(quote.projectId);
+      if (existing && existing.orgId === org._id) return existing._id;
+      await ctx.db.patch(args.quoteId, { projectId: undefined });
+    }
+
+    if (quote.archived) {
+      throw new Error("Restore this quote before making a production from it");
+    }
+
+    const name = quote.title?.trim() || quote.number.trim();
+    if (name.length === 0) throw new Error("Project name is required");
+
+    // Only a client that still belongs here. A missing or foreign record is
+    // left off, the same as starting a job with no client named.
+    let clientId: Id<"clients"> | undefined;
+    if (quote.clientId) {
+      const client = await ctx.db.get(quote.clientId);
+      if (client && client.orgId === org._id) clientId = client._id;
+    }
+
+    const brief = quote.deliverables?.trim();
+    const projectId = await ctx.db.insert("projects", {
+      orgId: org._id,
+      name,
+      clientId,
+      ownerId: identity.subject,
+      jobNumber: await nextJobNumber(ctx, org._id),
+      status: "not_booked",
+      briefSummary: brief || undefined,
+    });
+    await ctx.db.patch(args.quoteId, { projectId });
+    return projectId;
+  },
+});
+
 export const update = mutation({
   args: {
     id: v.id("projects"),

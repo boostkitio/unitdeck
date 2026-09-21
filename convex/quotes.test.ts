@@ -521,6 +521,149 @@ test("pulling in crew or kit asks for a production first", async () => {
   ).rejects.toThrow(/on a production first/i);
 });
 
+test("a quote becomes a production, named from the quote", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "Spring brand film" });
+  const projectId = await asA.mutation(api.projects.createFromQuote, { quoteId: id });
+
+  const project = await asA.query(api.projects.get, { id: projectId });
+  expect(project!.name).toBe("Spring brand film");
+  expect(project!.orgId).toBe(ids.org);
+  expect(project!.ownerId).toBe("user_a");
+  expect(project!.status).toBe("not_booked");
+  expect(project!.jobNumber).toBe("0001");
+  expect(project!.clientId).toBeUndefined();
+  expect(project!.briefSummary).toBeUndefined();
+
+  const loaded = await asA.query(api.quotes.get, { id });
+  expect(loaded!.quote.projectId).toBe(projectId);
+  expect(loaded!.project).toEqual({
+    _id: projectId,
+    name: "Spring brand film",
+    jobNumber: "0001",
+  });
+
+  // No title of its own: the house reference is the production's name.
+  const bare = await asA.mutation(api.quotes.create, {});
+  const bareId = await asA.mutation(api.projects.createFromQuote, { quoteId: bare });
+  const bareQuote = await asA.query(api.quotes.get, { id: bare });
+  const bareProject = await asA.query(api.projects.get, { id: bareId });
+  expect(bareProject!.name).toBe(bareQuote!.quote.number);
+  expect(bareProject!._id).not.toBe(projectId);
+});
+
+test("the production takes the quote's client", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, {
+    title: "For Alan",
+    clientId: ids.client,
+  });
+  const projectId = await asA.mutation(api.projects.createFromQuote, { quoteId: id });
+  const project = await asA.query(api.projects.get, { id: projectId });
+  expect(project!.clientId).toBe(ids.client);
+  expect(project!.clientName).toBe("Alan");
+});
+
+test("the production's brief is the quote's deliverables", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "With a brief" });
+  await asA.mutation(api.quotes.update, {
+    id,
+    deliverables: "Three episodes, interview and b-roll.",
+  });
+  const projectId = await asA.mutation(api.projects.createFromQuote, { quoteId: id });
+  const project = await asA.query(api.projects.get, { id: projectId });
+  expect(project!.briefSummary).toBe("Three episodes, interview and b-roll.");
+});
+
+test("another account cannot make a production from your quote", async () => {
+  const { asA, asB } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "Mine" });
+  await expect(asB.mutation(api.projects.createFromQuote, { quoteId: id })).rejects.toThrow(
+    /not found/i
+  );
+  expect((await asA.query(api.quotes.get, { id }))!.quote.projectId).toBeUndefined();
+  expect(await asB.query(api.projects.list, {})).toEqual([]);
+});
+
+test("a quote already on a production does not start a second one", async () => {
+  const { ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, {
+    title: "Already filed",
+    projectId: ids.project,
+  });
+  const before = await asA.query(api.projects.list, {});
+  const returned = await asA.mutation(api.projects.createFromQuote, { quoteId: id });
+  expect(returned).toBe(ids.project);
+  expect((await asA.query(api.quotes.get, { id }))!.quote.projectId).toBe(ids.project);
+  const after = await asA.query(api.projects.list, {});
+  expect(after.map((p) => p._id).sort()).toEqual(before.map((p) => p._id).sort());
+});
+
+// Deleting a production leaves the quote pointing at an id that is gone.
+// That is not "already converted": the quote is on no production at all.
+test("a quote pointing at a deleted production starts a new one", async () => {
+  const { t, ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, {
+    title: "Left behind",
+    projectId: ids.project,
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.delete(ids.project);
+  });
+
+  const projectId = await asA.mutation(api.projects.createFromQuote, { quoteId: id });
+  expect(projectId).not.toBe(ids.project);
+
+  const project = await asA.query(api.projects.get, { id: projectId });
+  expect(project!.name).toBe("Left behind");
+  expect(project!.orgId).toBe(ids.org);
+  expect(project!.status).toBe("not_booked");
+
+  const loaded = await asA.query(api.quotes.get, { id });
+  expect(loaded!.quote.projectId).toBe(projectId);
+  expect(loaded!.project?._id).toBe(projectId);
+
+  // The new production is the one a second call must keep.
+  expect(await asA.mutation(api.projects.createFromQuote, { quoteId: id })).toBe(projectId);
+});
+
+test("a quote filed against another account's production starts one here instead", async () => {
+  const { t, ids, asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "Misfiled" });
+  const theirs = await t.run(async (ctx) => {
+    const org = await ctx.db
+      .query("organisations")
+      .filter((q) => q.eq(q.field("clerkOrgId"), "org_b"))
+      .unique();
+    const projectId = await ctx.db.insert("projects", {
+      orgId: org!._id,
+      name: "Theirs",
+      status: "confirmed",
+    });
+    await ctx.db.patch(id, { projectId });
+    return projectId;
+  });
+
+  const projectId = await asA.mutation(api.projects.createFromQuote, { quoteId: id });
+  expect(projectId).not.toBe(theirs);
+  const project = await asA.query(api.projects.get, { id: projectId });
+  expect(project!.orgId).toBe(ids.org);
+  expect(project!.name).toBe("Misfiled");
+  expect((await asA.query(api.quotes.get, { id }))!.quote.projectId).toBe(projectId);
+});
+
+test("an archived quote cannot start a production", async () => {
+  const { asA } = await setup();
+  const id = await asA.mutation(api.quotes.create, { title: "Put away" });
+  await asA.mutation(api.quotes.setArchived, { id, archived: true });
+  await expect(asA.mutation(api.projects.createFromQuote, { quoteId: id })).rejects.toThrow(
+    /restore/i
+  );
+  expect((await asA.query(api.quotes.get, { id }))!.quote.projectId).toBeUndefined();
+  expect(await asA.query(api.projects.list, {})).toHaveLength(1);
+});
+
 test("a quote cannot be filed against another account's production", async () => {
   const { t, asA, asB } = await setup();
   const theirProject = await t.run(async (ctx) => {

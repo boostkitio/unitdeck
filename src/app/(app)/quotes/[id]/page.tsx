@@ -67,6 +67,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
   const duplicate = useMutation(api.quotes.duplicate);
   const setArchived = useMutation(api.quotes.setArchived);
   const rebuildLines = useMutation(api.quotes.rebuildLines);
+  const createFromQuote = useMutation(api.projects.createFromQuote);
   const saveName = useCallback(
     async (value: string) => {
       await update({ id: quoteId, title: value });
@@ -135,10 +136,27 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
               <Link href={`/projects/${data.project._id}`} className="hover:underline">
                 {data.project.name}
               </Link>
-            ) : (
-              // Not an error: a quote is usually written before there is a job
-              // to hang it on. It is put on one from the production itself.
+            ) : quote.archived ? (
+              // An archived quote is kept, not turned into a job.
               "Not on a production yet"
+            ) : (
+              // A quote is usually written before there is a job. Creating
+              // the production here files this quote against it.
+              <Button
+                variant="secondary"
+                size="xs"
+                className="align-middle"
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    createFromQuote({ quoteId }),
+                    "Could not create the project.",
+                    "Project created."
+                  )
+                }
+              >
+                Create project
+              </Button>
             )}
             {quote.clientName ? ` · ${quote.clientName}` : ""}
           </p>
@@ -298,8 +316,9 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             </Button>
             {!data.project && (
               <p className="text-xs text-muted-foreground">
-                Put this quote on a production — from that production&apos;s Quotes section —
-                to pull its crew and kit in.
+                {quote.archived
+                  ? "Restore this quote to make a production from it."
+                  : "Create the production above to pull its crew and kit in. You can also file this quote against a production that already exists, from that production's Quotes section."}
               </p>
             )}
           </div>
