@@ -108,7 +108,7 @@ function headlineShootDate(dates: string[], today: string): string | null {
  * digits: the highest of those, plus one. A company using its own scheme
  * simply types over what it is given.
  */
-async function nextJobNumber(ctx: MutationCtx, orgId: Id<"organisations">): Promise<string> {
+export async function nextJobNumber(ctx: MutationCtx, orgId: Id<"organisations">): Promise<string> {
   const projects = await ctx.db
     .query("projects")
     .withIndex("by_org", (q) => q.eq("orgId", orgId))
@@ -268,6 +268,62 @@ export const create = mutation({
   },
 });
 
+/**
+ * Starts a production from a quote that is not on one yet.
+ *
+ * The name, the client and the deliverables come across. The lines stay on
+ * the quote: filing it against the new job is what makes the enquiry a
+ * production. Calling this again returns that production, but only while
+ * the row is still there. Deleting a production does not clear the quote,
+ * so a leftover id is dropped and a new production is started.
+ */
+export const createFromQuote = mutation({
+  args: { quoteId: v.id("quotes") },
+  returns: v.id("projects"),
+  handler: async (ctx, args) => {
+    const { identity, org } = await requireOrg(ctx);
+    const quote = await ctx.db.get(args.quoteId);
+    if (!quote || quote.orgId !== org._id) throw new Error("Quote not found");
+
+    // Already filed, and the production is still here. A second call must
+    // not open a second one. A projectId left behind after the production
+    // was deleted — or pointing at another account — is not a conversion.
+    if (quote.projectId) {
+      const existing = await ctx.db.get(quote.projectId);
+      if (existing && existing.orgId === org._id) return existing._id;
+      await ctx.db.patch(args.quoteId, { projectId: undefined });
+    }
+
+    if (quote.archived) {
+      throw new Error("Restore this quote before making a production from it");
+    }
+
+    const name = quote.title?.trim() || quote.number.trim();
+    if (name.length === 0) throw new Error("Project name is required");
+
+    // Only a client that still belongs here. A missing or foreign record is
+    // left off, the same as starting a job with no client named.
+    let clientId: Id<"clients"> | undefined;
+    if (quote.clientId) {
+      const client = await ctx.db.get(quote.clientId);
+      if (client && client.orgId === org._id) clientId = client._id;
+    }
+
+    const brief = quote.deliverables?.trim();
+    const projectId = await ctx.db.insert("projects", {
+      orgId: org._id,
+      name,
+      clientId,
+      ownerId: identity.subject,
+      jobNumber: await nextJobNumber(ctx, org._id),
+      status: "not_booked",
+      briefSummary: brief || undefined,
+    });
+    await ctx.db.patch(args.quoteId, { projectId });
+    return projectId;
+  },
+});
+
 export const update = mutation({
   args: {
     id: v.id("projects"),
@@ -403,6 +459,11 @@ export const legacyStatusCount = query({
  * Rows that exist only as part of the project go with it. Shared records —
  * people, clients, locations, inventory — are left completely alone: they
  * belong to the company, not to this job.
+ *
+ * A quote is the exception. It often existed before the production, and
+ * deleting the job must not delete the price that was offered. It is taken
+ * off the production, the same as `quotes.setProject` with `projectId: null`,
+ * and goes back to the unattached list.
  */
 export const remove = mutation({
   args: { id: v.id("projects") },
@@ -415,6 +476,120 @@ export const remove = mutation({
     }
 
     let deleted = 0;
+
+    const quotes = await ctx.db
+      .query("quotes")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(200);
+    for (const quote of quotes) {
+      await ctx.db.patch(quote._id, { projectId: undefined });
+    }
+
+    const sheets = await ctx.db
+      .query("callSheets")
+      .withIndex("by_project_and_combined_and_version", (q) => q.eq("projectId", args.id))
+      .take(200);
+    for (const sheet of sheets) {
+      const sends = await ctx.db
+        .query("sends")
+        .withIndex("by_call_sheet", (q) => q.eq("callSheetId", sheet._id))
+        .take(500);
+      for (const send of sends) {
+        await ctx.db.delete(send._id);
+        deleted++;
+      }
+      await ctx.db.delete(sheet._id);
+      deleted++;
+    }
+
+    const days = await ctx.db
+      .query("shootDays")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(500);
+
+    for (const day of days) {
+      const recipients = await ctx.db
+        .query("recipients")
+        .withIndex("by_shoot_day", (q) => q.eq("shootDayId", day._id))
+        .take(500);
+      for (const recipient of recipients) {
+        const sends = await ctx.db
+          .query("sends")
+          .withIndex("by_recipient", (q) => q.eq("recipientId", recipient._id))
+          .take(50);
+        for (const send of sends) {
+          await ctx.db.delete(send._id);
+          deleted++;
+        }
+        await ctx.db.delete(recipient._id);
+        deleted++;
+      }
+    }
+
+    // A combined sheet's recipients are also keyed by the production, in case
+    // one was not reached through its shoot day.
+    const combinedRecipients = await ctx.db
+      .query("recipients")
+      .withIndex("by_combined_project", (q) => q.eq("combinedProjectId", args.id))
+      .take(500);
+    for (const recipient of combinedRecipients) {
+      const sends = await ctx.db
+        .query("sends")
+        .withIndex("by_recipient", (q) => q.eq("recipientId", recipient._id))
+        .take(50);
+      for (const send of sends) {
+        await ctx.db.delete(send._id);
+        deleted++;
+      }
+      await ctx.db.delete(recipient._id);
+      deleted++;
+    }
+
+    const schedule = await ctx.db
+      .query("scheduleItems")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(1000);
+    for (const row of schedule) {
+      await ctx.db.delete(row._id);
+      deleted++;
+    }
+
+    const stays = await ctx.db
+      .query("accommodation")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(200);
+    for (const row of stays) {
+      await ctx.db.delete(row._id);
+      deleted++;
+    }
+
+    const clientBookings = await ctx.db
+      .query("projectClients")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(200);
+    for (const row of clientBookings) {
+      await ctx.db.delete(row._id);
+      deleted++;
+    }
+
+    const calendar = await ctx.db
+      .query("calendarEvents")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(1000);
+    for (const row of calendar) {
+      await ctx.db.delete(row._id);
+      deleted++;
+    }
+
+    const documents = await ctx.db
+      .query("documents")
+      .withIndex("by_project", (q) => q.eq("projectId", args.id))
+      .take(200);
+    for (const doc of documents) {
+      if (doc.signedPdfFileId) await ctx.storage.delete(doc.signedPdfFileId);
+      await ctx.db.delete(doc._id);
+      deleted++;
+    }
 
     const crew = await ctx.db
       .query("projectCrew")
@@ -443,10 +618,6 @@ export const remove = mutation({
       deleted++;
     }
 
-    const days = await ctx.db
-      .query("shootDays")
-      .withIndex("by_project", (q) => q.eq("projectId", args.id))
-      .take(500);
     for (const row of days) {
       await ctx.db.delete(row._id);
       deleted++;
