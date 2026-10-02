@@ -76,13 +76,10 @@ export function CallSheetDocument({
     });
 
   return (
-    <div className="mx-auto w-[210mm] min-h-[297mm] bg-white px-[14mm] py-[16mm] font-sans text-[10pt] leading-snug text-neutral-900 print:min-h-0 print:w-auto print:bg-none! print:p-0"
-      style={{
-        // Where each A4 page ends. The document is 210mm wide with the same
-        // margins the page box uses, so these rules fall where the PDF breaks.
-        backgroundImage:
-          "repeating-linear-gradient(to bottom, transparent 0 296.5mm, rgb(212 212 216) 296.5mm 297mm)",
-      }}
+    <div className="mx-auto w-[210mm] min-h-[297mm] bg-white px-[14mm] py-[16mm] font-sans text-[10pt] leading-snug text-neutral-900 print:min-h-0 print:w-auto print:p-0"
+      // Marks the document for the paged preview, which lays it out on real
+      // A4 pages and takes over the page margins (see PagedPreview).
+      data-document
     >
       {data.confidential && (
         <p className="mb-3 text-center text-[8pt] font-bold uppercase tracking-wide text-red-600">
@@ -298,6 +295,24 @@ export function CallSheetDocument({
                         <dd>{loc.parkingNotes}</dd>
                       </>
                     )}
+                    {loc.accessNotes && (
+                      <>
+                        <dt className="font-semibold">Access</dt>
+                        <dd className="whitespace-pre-line">{loc.accessNotes}</dd>
+                      </>
+                    )}
+                    {loc.nearestTube && (
+                      <>
+                        <dt className="font-semibold">Nearest Tube</dt>
+                        <dd>{loc.nearestTube}</dd>
+                      </>
+                    )}
+                    {loc.nearestRail && (
+                      <>
+                        <dt className="font-semibold">Nearest rail</dt>
+                        <dd>{loc.nearestRail}</dd>
+                      </>
+                    )}
                     {loc.publicTransport && (
                       <>
                         <dt className="font-semibold">Transport</dt>
@@ -314,6 +329,12 @@ export function CallSheetDocument({
                       <>
                         <dt className="font-semibold">Nearest police</dt>
                         <dd>{loc.nearestPoliceStation}</dd>
+                      </>
+                    )}
+                    {loc.notes && (
+                      <>
+                        <dt className="font-semibold">Notes</dt>
+                        <dd className="whitespace-pre-line">{loc.notes}</dd>
                       </>
                     )}
                   </dl>

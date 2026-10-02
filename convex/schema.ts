@@ -406,6 +406,12 @@ export default defineSchema({
     // Absent means the role is booked but nobody is in it yet — a reminder to
     // find someone. `role` is then required, since nothing else names the row.
     personId: v.optional(v.id("people")),
+    // Somebody on this production only, kept off the People and Talent lists:
+    // their details live on the booking instead. Set only when `personId` is
+    // absent; a booking with a name and no person is booked, not unfilled.
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
     // Role on this production. Absent means "use the person's default role".
     role: v.optional(v.string()),
     notes: v.optional(v.string()),
@@ -549,6 +555,12 @@ export default defineSchema({
     // The nearest tube/rail station, named on its own rather than buried in a
     // paragraph — it is the single thing crew look for when travelling in.
     nearestStation: v.optional(v.string()),
+    // The two a crew member travelling in actually asks for, kept apart: the
+    // nearest Tube (Underground, Overground, DLR or Elizabeth line) and the
+    // nearest National Rail station. `nearestStation` was one answer for both
+    // and is still read where these are blank.
+    nearestTube: v.optional(v.string()),
+    nearestRail: v.optional(v.string()),
     // IANA zone for the coordinates, learned from the weather service. Kept so
     // sun times can be shown in local time for a date beyond the forecast.
     timezone: v.optional(v.string()),
@@ -569,6 +581,12 @@ export default defineSchema({
     locationIds: v.array(v.id("locations")),
     weather: v.optional(weatherSnapshotValidator),
     sun: v.optional(v.object({ sunrise: v.string(), sunset: v.string() })),
+    // When this day's forecast was last looked for, where for, and why there is
+    // no weather when there is none (too far ahead, nowhere to place it). Kept
+    // per day so every date on a production has its own, not just the next.
+    forecastCheckedAt: v.optional(v.number()),
+    forecastLocationId: v.optional(v.id("locations")),
+    forecastReason: v.optional(v.string()),
     wrapNotes: v.optional(v.string()),
     // Overnight accommodation for this day. Per day rather than per
     // production: a job that moves changes hotel, and the crew reading
@@ -642,9 +660,15 @@ export default defineSchema({
     data: callSheetDataValidator,
     pdfFileId: v.optional(v.id("_storage")),
     versionNote: v.optional(v.string()),
+    // A production's combined sheet, covering several of its dates, rather
+    // than one day's own. Its `shootDayId` is the earliest date it covers, so
+    // it can be sent like any other; reads by shoot day leave it out (see
+    // convex/lib/sheetKey.ts). Absent on every one-day sheet.
+    combined: v.optional(v.boolean()),
   })
     .index("by_org", ["orgId"])
-    .index("by_shoot_day_and_version", ["shootDayId", "version"]),
+    .index("by_shoot_day_and_version", ["shootDayId", "version"])
+    .index("by_project_and_combined_and_version", ["projectId", "combined", "version"]),
 
   renderTokens: defineTable({
     // One of the two: what this short-lived link renders. Optional rather
@@ -682,8 +706,12 @@ export default defineSchema({
     checkInAt: v.optional(v.number()),
     safetyAckAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
+    // Set when this person was sent a production's combined call sheet rather
+    // than one day's. `shootDayId` is then that sheet's earliest date.
+    combinedProjectId: v.optional(v.id("projects")),
   })
     .index("by_org", ["orgId"])
+    .index("by_combined_project", ["combinedProjectId"])
     .index("by_shoot_day", ["shootDayId"])
     .index("by_token", ["token"]),
 

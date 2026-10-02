@@ -2,7 +2,14 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
-import { fetchDailyForecast } from "./lib/weather";
+import {
+  dayForecastIsFresh,
+  fetchDailyForecast,
+  fetchTimezone,
+  FORECAST_HORIZON_DAYS,
+} from "./lib/weather";
+import { formatInZone, sunTimes } from "./lib/sun";
+import { geocodePlace } from "./lib/geocode";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -340,5 +347,228 @@ export const refreshWeather = action({
       sunrise: forecast.sunrise,
       sunset: forecast.sunset,
     };
+  },
+});
+
+/**
+ * Every shoot day on a production, with the place its weather is for: the
+ * day's own first location, or the production's when the day has none — the
+ * same place its call sheet prints.
+ */
+export const getForProjectWeather = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const { org, project } = await requireProject(ctx, args.projectId);
+    const days = (
+      await ctx.db
+        .query("shootDays")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .take(100)
+    ).filter((d) => d.orgId === org._id);
+    const projectLocation = project.locationId ? await ctx.db.get(project.locationId) : null;
+    const out: { day: Doc<"shootDays">; location: Doc<"locations"> | null }[] = [];
+    for (const day of days) {
+      const own = day.locationIds.length > 0 ? await ctx.db.get(day.locationIds[0]) : null;
+      out.push({ day, location: own ?? projectLocation });
+    }
+    return out.sort((a, b) => a.day.date.localeCompare(b.day.date));
+  },
+});
+
+export const saveDayForecast = internalMutation({
+  args: {
+    id: v.id("shootDays"),
+    locationId: v.optional(v.id("locations")),
+    reason: v.optional(v.string()),
+    weather: v.optional(
+      v.object({
+        fetchedAt: v.number(),
+        summary: v.string(),
+        tempMinC: v.number(),
+        tempMaxC: v.number(),
+        precipitationProbability: v.optional(v.number()),
+        windMaxKph: v.optional(v.number()),
+      })
+    ),
+    sun: v.optional(v.object({ sunrise: v.string(), sunset: v.string() })),
+  },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const day = await ctx.db.get(args.id);
+    if (!day || day.orgId !== org._id) return null;
+    await ctx.db.patch(args.id, {
+      forecastCheckedAt: Date.now(),
+      forecastLocationId: args.locationId,
+      forecastReason: args.reason,
+      // Replaced rather than kept: a forecast from before a location changed
+      // is the weather somewhere else.
+      weather: args.weather,
+      sun: args.sun ?? day.sun,
+    });
+    return null;
+  },
+});
+
+/** Whole days between today and a "YYYY-MM-DD" date; negative for the past. */
+function daysAhead(date: string): number {
+  const target = Date.parse(`${date}T00:00:00Z`);
+  const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+  if (!isFinite(target)) return 0;
+  return Math.round((target - today) / 86_400_000);
+}
+
+type DayForecast = {
+  shootDayId: Id<"shootDays">;
+  date: string;
+  weatherSummary?: string;
+  sunrise?: string;
+  sunset?: string;
+  reason?: string;
+};
+
+/**
+ * The weather and sun times for every shoot day on a production, each at its
+ * own location.
+ *
+ * Days checked recently are left alone unless `force` is set, so opening the
+ * page does not ask the weather service about a ten-day shoot every time.
+ * Beyond the forecast window the sun times are still worked out, since a call
+ * time months ahead is set by them.
+ */
+export const refreshWeatherForProject = action({
+  args: { projectId: v.id("projects"), force: v.optional(v.boolean()) },
+  handler: async (ctx, args): Promise<{ days: DayForecast[] }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const targets = await ctx.runQuery(internal.shootDays.getForProjectWeather, {
+      projectId: args.projectId,
+    });
+
+    // Each place is looked up once, however many days are shot there.
+    const placed = new Map<string, { lat: number; lng: number; approximate: string | null } | null>();
+    async function place(location: Doc<"locations">) {
+      if (placed.has(location._id)) return placed.get(location._id)!;
+      let result: { lat: number; lng: number; approximate: string | null } | null = null;
+      if (location.lat !== undefined && location.lng !== undefined) {
+        result = { lat: location.lat, lng: location.lng, approximate: null };
+      } else if (location.address.trim()) {
+        const found = await geocodePlace(location.address).catch(() => null);
+        if (found) {
+          result = { lat: found.lat, lng: found.lng, approximate: found.precise ? null : found.matched };
+          if (found.precise) {
+            await ctx.runMutation(internal.locations.saveCoordinates, {
+              id: location._id,
+              lat: found.lat,
+              lng: found.lng,
+            });
+          }
+        }
+      }
+      placed.set(location._id, result);
+      return result;
+    }
+
+    const now = Date.now();
+    const out: DayForecast[] = [];
+    for (const { day, location } of targets) {
+      const summaryOf = (w: NonNullable<Doc<"shootDays">["weather"]>) =>
+        `${w.summary}, ${Math.round(w.tempMinC)}–${Math.round(w.tempMaxC)}°C`;
+      if (!args.force && dayForecastIsFresh(day, location?._id ?? null, now)) {
+        out.push({
+          shootDayId: day._id,
+          date: day.date,
+          weatherSummary: day.weather ? summaryOf(day.weather) : undefined,
+          sunrise: day.sun?.sunrise,
+          sunset: day.sun?.sunset,
+          reason: day.forecastReason,
+        });
+        continue;
+      }
+
+      if (!location) {
+        const reason = "No location for this day";
+        await ctx.runMutation(internal.shootDays.saveDayForecast, { id: day._id, reason });
+        out.push({ shootDayId: day._id, date: day.date, reason });
+        continue;
+      }
+      const point = await place(location);
+      if (!point) {
+        const reason = location.address.trim()
+          ? `Could not place “${location.address.trim()}” on the map`
+          : "This location has no address to look up";
+        await ctx.runMutation(internal.shootDays.saveDayForecast, {
+          id: day._id,
+          locationId: location._id,
+          reason,
+        });
+        out.push({ shootDayId: day._id, date: day.date, reason });
+        continue;
+      }
+
+      const ahead = daysAhead(day.date);
+      const forecast =
+        ahead <= FORECAST_HORIZON_DAYS
+          ? await fetchDailyForecast(point.lat, point.lng, day.date).catch(() => null)
+          : null;
+      if (forecast) {
+        const weather = {
+          fetchedAt: Date.now(),
+          summary: forecast.summary,
+          tempMinC: forecast.tempMinC,
+          tempMaxC: forecast.tempMaxC,
+          precipitationProbability: forecast.precipitationProbability,
+          windMaxKph: forecast.windMaxKph,
+        };
+        const reason = point.approximate ? `Weather for ${point.approximate}` : undefined;
+        await ctx.runMutation(internal.shootDays.saveDayForecast, {
+          id: day._id,
+          locationId: location._id,
+          weather,
+          sun: { sunrise: forecast.sunrise, sunset: forecast.sunset },
+          reason,
+        });
+        out.push({
+          shootDayId: day._id,
+          date: day.date,
+          weatherSummary: summaryOf(weather),
+          sunrise: forecast.sunrise,
+          sunset: forecast.sunset,
+          reason,
+        });
+        continue;
+      }
+
+      // Too far ahead, in the past, or the service did not answer: the sun
+      // still rises, so work it out in the location's own time.
+      const timezone =
+        location.timezone ?? (await fetchTimezone(point.lat, point.lng).catch(() => undefined));
+      const times = sunTimes(day.date, point.lat, point.lng);
+      const sun = times
+        ? {
+            sunrise: formatInZone(times.sunriseMs, timezone),
+            sunset: formatInZone(times.sunsetMs, timezone),
+          }
+        : undefined;
+      const reason =
+        ahead > FORECAST_HORIZON_DAYS
+          ? "Too far ahead for a forecast"
+          : ahead < 0
+            ? "No forecast for a past date"
+            : "Could not reach the weather service — sun times only";
+      await ctx.runMutation(internal.shootDays.saveDayForecast, {
+        id: day._id,
+        locationId: location._id,
+        sun,
+        reason,
+      });
+      out.push({
+        shootDayId: day._id,
+        date: day.date,
+        sunrise: sun?.sunrise,
+        sunset: sun?.sunset,
+        reason,
+      });
+    }
+    return { days: out };
   },
 });

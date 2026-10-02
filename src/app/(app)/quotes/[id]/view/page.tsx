@@ -20,6 +20,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { QuoteDocument } from "@/components/quotes/quote-document";
+import { FitToWidth } from "@/components/call-sheet/fit-to-width";
+import { PagedPreview } from "@/components/documents/paged-preview";
 
 /**
  * The client's copy, on screen.
@@ -121,7 +123,11 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      <QuoteDocument data={data} ownerName={ownerName} ownerEmail={ownerEmail} />
+      <FitToWidth>
+        <PagedPreview>
+          <QuoteDocument data={data} ownerName={ownerName} ownerEmail={ownerEmail} />
+        </PagedPreview>
+      </FitToWidth>
     </div>
   );
 }
@@ -171,7 +177,9 @@ function SendDialog({
         fileId: storageId,
         fileName,
       });
-      toast.success(`Sent to ${to.trim()}.`);
+      // Queued, not delivered. The quote is marked sent only after the email
+      // goes out, so this must not say that it already has.
+      toast.success(`Sending to ${to.trim()}.`);
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send it.");

@@ -1,7 +1,19 @@
-import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
+import { Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
-import { requireOrg } from "./lib/auth";
+import {
+  requireSheetKey,
+  sheetRecipients,
+  sheetVersions,
+  type SheetKey,
+} from "./lib/sheetKey";
 import { callSheetEmail, fromLine, sendEmail } from "./lib/email";
 import { senderOf } from "./lib/sender";
 import { Id } from "./_generated/dataModel";
@@ -16,110 +28,124 @@ function newToken(): string {
 export const listForShootDay = query({
   args: { shootDayId: v.id("shootDays") },
   handler: async (ctx, args) => {
-    const { org } = await requireOrg(ctx);
-    const day = await ctx.db.get(args.shootDayId);
-    if (!day || day.orgId !== org._id) throw new Error("Shoot day not found");
-    return await ctx.db
-      .query("recipients")
-      .withIndex("by_shoot_day", (q) => q.eq("shootDayId", args.shootDayId))
-      .take(200);
+    const key = { shootDayId: args.shootDayId };
+    await requireSheetKey(ctx, key);
+    return await sheetRecipients(ctx, key, 200);
   },
 });
 
-export const send = mutation({
-  args: {
-    shootDayId: v.id("shootDays"),
-    recipients: v.array(
-      v.object({
-        name: v.string(),
-        role: v.string(),
-        email: v.string(),
-        callTime: v.string(),
-        personId: v.optional(v.id("people")),
-      })
-    ),
-  },
+/** Who the production's combined call sheet has been sent to. */
+export const listForCombined = query({
+  args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const { org } = await requireOrg(ctx);
-    const day = await ctx.db.get(args.shootDayId);
-    if (!day || day.orgId !== org._id) throw new Error("Shoot day not found");
-    if (args.recipients.length === 0) throw new Error("At least one recipient is required");
-    for (const r of args.recipients) {
-      if (!EMAIL_RE.test(r.email)) throw new Error(`Invalid email: ${r.email}`);
-      if (r.name.trim() === "") throw new Error("Recipient name is required");
-    }
-
-    // Freeze the draft as the sent version, open the next draft
-    const versions = await ctx.db
-      .query("callSheets")
-      .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", args.shootDayId))
-      .order("desc")
-      .take(50);
-    const draft = versions[0];
-    if (!draft || draft.status !== "draft") throw new Error("No draft to send");
-    // "Updated" only when crew have already received a version of this sheet
-    const isUpdate = versions.some((s) => s.status === "sent");
-    await ctx.db.patch(draft._id, { status: "sent", versionNote: "Sent to crew" });
-    await ctx.db.insert("callSheets", {
-      orgId: org._id,
-      shootDayId: args.shootDayId,
-      projectId: draft.projectId,
-      version: draft.version + 1,
-      status: "draft",
-      data: draft.data,
-    });
-
-    // Upsert recipients by (shootDay, email); tokens survive re-sends
-    const existing = await ctx.db
-      .query("recipients")
-      .withIndex("by_shoot_day", (q) => q.eq("shootDayId", args.shootDayId))
-      .take(200);
-    const sendIds: Id<"sends">[] = [];
-    for (const r of args.recipients) {
-      const email = r.email.trim().toLowerCase();
-      const found = existing.find((e) => e.email === email);
-      let recipientId: Id<"recipients">;
-      if (found) {
-        await ctx.db.patch(found._id, {
-          name: r.name.trim(),
-          role: r.role.trim(),
-          callTime: r.callTime,
-          personId: r.personId,
-          status: "pending",
-          lastError: undefined,
-        });
-        recipientId = found._id;
-      } else {
-        recipientId = await ctx.db.insert("recipients", {
-          orgId: org._id,
-          shootDayId: args.shootDayId,
-          personId: r.personId,
-          name: r.name.trim(),
-          role: r.role.trim(),
-          email,
-          callTime: r.callTime,
-          token: newToken(),
-          status: "pending",
-        });
-      }
-      sendIds.push(
-        await ctx.db.insert("sends", {
-          orgId: org._id,
-          recipientId,
-          callSheetId: draft._id,
-          channel: "email",
-          status: "pending",
-        })
-      );
-    }
-
-    await ctx.scheduler.runAfter(0, internal.distribution.deliverEmails, {
-      sendIds,
-      isUpdate,
-      ...(await senderOf(ctx)),
-    });
-    return draft._id;
+    const key = { combinedProjectId: args.projectId };
+    await requireSheetKey(ctx, key);
+    return await sheetRecipients(ctx, key, 200);
   },
+});
+
+const recipientsValidator = v.array(
+  v.object({
+    name: v.string(),
+    role: v.string(),
+    email: v.string(),
+    callTime: v.string(),
+    personId: v.optional(v.id("people")),
+  })
+);
+
+async function sendSheet(
+  ctx: MutationCtx,
+  key: SheetKey,
+  recipients: Infer<typeof recipientsValidator>
+) {
+  const { org } = await requireSheetKey(ctx, key);
+  if (recipients.length === 0) throw new Error("At least one recipient is required");
+  for (const r of recipients) {
+    if (!EMAIL_RE.test(r.email)) throw new Error(`Invalid email: ${r.email}`);
+    if (r.name.trim() === "") throw new Error("Recipient name is required");
+  }
+
+  // Freeze the draft as the sent version, open the next draft
+  const versions = await sheetVersions(ctx, key, 50);
+  const draft = versions[0];
+  if (!draft || draft.status !== "draft") throw new Error("No draft to send");
+  // "Updated" only when crew have already received a version of this sheet
+  const isUpdate = versions.some((s) => s.status === "sent");
+  await ctx.db.patch(draft._id, { status: "sent", versionNote: "Sent to crew" });
+  await ctx.db.insert("callSheets", {
+    orgId: org._id,
+    shootDayId: draft.shootDayId,
+    projectId: draft.projectId,
+    version: draft.version + 1,
+    status: "draft",
+    data: draft.data,
+    combined: draft.combined,
+  });
+
+  const combinedProjectId = "combinedProjectId" in key ? key.combinedProjectId : undefined;
+  // Upsert recipients by (sheet, email); tokens survive re-sends
+  const existing = await sheetRecipients(ctx, key, 200);
+  const sendIds: Id<"sends">[] = [];
+  for (const r of recipients) {
+    const email = r.email.trim().toLowerCase();
+    const found = existing.find((e) => e.email === email);
+    let recipientId: Id<"recipients">;
+    if (found) {
+      await ctx.db.patch(found._id, {
+        name: r.name.trim(),
+        role: r.role.trim(),
+        callTime: r.callTime,
+        personId: r.personId,
+        status: "pending",
+        lastError: undefined,
+        // A combined sheet's earliest date can move when it is regenerated.
+        shootDayId: draft.shootDayId,
+      });
+      recipientId = found._id;
+    } else {
+      recipientId = await ctx.db.insert("recipients", {
+        orgId: org._id,
+        shootDayId: draft.shootDayId,
+        combinedProjectId,
+        personId: r.personId,
+        name: r.name.trim(),
+        role: r.role.trim(),
+        email,
+        callTime: r.callTime,
+        token: newToken(),
+        status: "pending",
+      });
+    }
+    sendIds.push(
+      await ctx.db.insert("sends", {
+        orgId: org._id,
+        recipientId,
+        callSheetId: draft._id,
+        channel: "email",
+        status: "pending",
+      })
+    );
+  }
+
+  await ctx.scheduler.runAfter(0, internal.distribution.deliverEmails, {
+    sendIds,
+    isUpdate,
+    ...(await senderOf(ctx)),
+  });
+  return draft._id;
+}
+
+export const send = mutation({
+  args: { shootDayId: v.id("shootDays"), recipients: recipientsValidator },
+  handler: async (ctx, args) =>
+    await sendSheet(ctx, { shootDayId: args.shootDayId }, args.recipients),
+});
+
+export const sendCombined = mutation({
+  args: { projectId: v.id("projects"), recipients: recipientsValidator },
+  handler: async (ctx, args) =>
+    await sendSheet(ctx, { combinedProjectId: args.projectId }, args.recipients),
 });
 
 export const getSendPayload = internalQuery({

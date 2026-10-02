@@ -6,6 +6,7 @@ import { chatJson, truncateInput } from "../lib/llm";
 import { AI_MODEL } from "../lib/ai";
 import { BriefProposal, briefProposalValidator } from "../lib/agentProposals";
 import { Id } from "../_generated/dataModel";
+import { nextJobNumber } from "../projects";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -143,6 +144,10 @@ export const approve = mutation({
       name: args.projectName.trim(),
       status: "not_booked",
       briefSummary: args.briefSummary,
+      // Same as starting a project by hand: whoever approved the brief owns
+      // it, and it takes the next job number.
+      ownerId: identity.subject,
+      jobNumber: await nextJobNumber(ctx, org._id),
     });
     for (const d of args.shootDays) {
       await ctx.db.insert("shootDays", {

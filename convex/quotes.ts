@@ -1,5 +1,6 @@
 import {
   internalAction,
+  internalMutation,
   internalQuery,
   mutation,
   query,
@@ -626,6 +627,11 @@ export const remove = mutation({
     const { org } = await requireOrg(ctx);
     const quote = await ctx.db.get(args.id);
     if (!quote || quote.orgId !== org._id) throw new Error("Quote not found");
+    // The list only offers this beside an archived quote. The same rule here,
+    // so a live quote cannot be removed by calling the mutation directly.
+    if (quote.archived !== true) {
+      throw new Error("Archive the quote before deleting it");
+    }
     for (const line of await ctx.db.query("quoteLines").withIndex("by_quote", (q) => q.eq("quoteId", args.id)).collect()) {
       await ctx.db.delete(line._id);
     }
@@ -1196,8 +1202,9 @@ export const generateAttachmentUploadUrl = mutation({
  * Emails the quote to the client with the PDF attached.
  *
  * The PDF is made in the browser and uploaded first, so there is one renderer
- * and what the client opens is what was on screen. Sending marks the quote as
- * sent, because that is what has happened.
+ * and what the client opens is what was on screen. Queuing the email does not
+ * mark the quote sent: that happens in `deliverToClient` only after Resend
+ * accepts it. A failure leaves the quote as it was.
  */
 export const sendToClient = mutation({
   args: {
@@ -1229,9 +1236,19 @@ export const sendToClient = mutation({
       fromName: sender.senderName ?? quote.producerName ?? undefined,
       fromEmail: sender.senderEmail ?? quote.producerEmail ?? undefined,
     });
+    return null;
+  },
+});
 
-    await ctx.db.patch(args.id, {
+/** Marks a quote sent once the email has actually gone out. */
+export const markSent = internalMutation({
+  args: { quoteId: v.id("quotes") },
+  handler: async (ctx, args) => {
+    const quote = await ctx.db.get(args.quoteId);
+    if (!quote) return null;
+    await ctx.db.patch(args.quoteId, {
       status: "sent",
+      // The first time it went out. A later resend does not move the date.
       issuedAt: quote.issuedAt ?? Date.now(),
     });
     return null;
@@ -1275,6 +1292,8 @@ export const deliverToClient = internalAction({
       attachments: [{ filename: args.fileName, content: attachment }],
     });
     if (!result.ok) throw new Error(result.error);
+
+    await ctx.runMutation(internal.quotes.markSent, { quoteId: args.quoteId });
 
     // The upload was a courier, not a record: the quote is the record, and it
     // can be rendered again whenever anybody wants it.
@@ -1332,7 +1351,7 @@ export const addCrewFromProject = mutation({
     for (const booking of bookings) {
       const person = booking.personId ? await ctx.db.get(booking.personId) : null;
       const role = (booking.role ?? person?.role ?? "").trim();
-      if (role.length === 0 && !person) continue;
+      if (role.length === 0 && !person && !booking.name) continue;
 
       const match = card.find(
         (item) => !item.archived && item.name.toLowerCase() === role.toLowerCase()

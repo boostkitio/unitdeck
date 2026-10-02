@@ -16,9 +16,12 @@ const SEVERITY_STYLES: Record<CheckIssue["severity"], string> = {
 
 export function CheckDialog({
   dayId,
+  combinedProjectId,
   onClose,
 }: {
   dayId: Id<"shootDays">;
+  /** Check the production's combined sheet rather than that day's own. */
+  combinedProjectId?: Id<"projects">;
   onClose: () => void;
 }) {
   const check = useAction(api.agents.callSheetChecker.run);
@@ -27,7 +30,7 @@ export function CheckDialog({
 
   useEffect(() => {
     let cancelled = false;
-    check({ shootDayId: dayId })
+    check({ shootDayId: dayId, combinedProjectId })
       .then((r) => {
         if (!cancelled) setIssues(r.issues);
       })
@@ -38,7 +41,7 @@ export function CheckDialog({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dayId]);
+  }, [dayId, combinedProjectId]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>

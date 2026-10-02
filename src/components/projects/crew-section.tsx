@@ -84,10 +84,8 @@ export function CrewSection({
   const [releaseId, setReleaseId] = useState<Id<"documents"> | null>(null);
   const [makingRelease, setMakingRelease] = useState<Id<"people"> | null>(null);
 
-  const unfilled = (crew ?? []).filter((m) => m.personId === null).length;
-  const outstanding = (crew ?? []).filter(
-    (m) => m.personId !== null && m.status !== "confirmed",
-  ).length;
+  const unfilled = (crew ?? []).filter((m) => !m.booked).length;
+  const outstanding = (crew ?? []).filter((m) => m.booked && m.status !== "confirmed").length;
   const { sort, toggle } = useTableSort<CrewSortKey>({ key: "order", dir: "asc" });
   const sortedCrew = useMemo(() => sortRows(crew ?? [], sort, crewSortValue), [crew, sort]);
   const reorderCrew = useMutation(api.projectCrew.reorder);
@@ -178,6 +176,17 @@ export function CrewSection({
   }
 
   const removeCrew = useMutation(api.projectCrew.remove);
+  const saveToPeople = useMutation(api.projectCrew.saveToPeople);
+  const listName = kind === "talent" ? "Talent" : "People";
+
+  async function handleSaveToPeople(member: ProjectCrewMember) {
+    try {
+      await saveToPeople({ id: member._id });
+      toast.success(`${member.name} added to your ${listName} list.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add them.");
+    }
+  }
   const updateCrew = useMutation(api.projectCrew.update);
   const ensureRelease = useMutation(api.documents.ensureForPerson);
   // Only the talent card needs releases, so only it asks for them.
@@ -335,7 +344,7 @@ export function CrewSection({
                   </TableCell>
                   <TableCell className="text-muted-foreground">{member.role}</TableCell>
                   <TableCell>
-                    {member.personId === null ? (
+                    {!member.booked ? (
                       // Nothing to confirm until somebody is in the role.
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-950/60 dark:text-red-300">
                         To book
@@ -372,9 +381,20 @@ export function CrewSection({
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      {member.personId === null && (
+                      {!member.booked && (
                         <Button variant="ghost" size="sm" onClick={() => setFilling(member)}>
                           Book someone
+                        </Button>
+                      )}
+                      {/* On this production only, so far: offered, not assumed. */}
+                      {member.booked && !member.inPeople && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title={`Save ${member.name} to your ${listName} list, to book them on other productions`}
+                          onClick={() => void handleSaveToPeople(member)}
+                        >
+                          Add to {listName}
                         </Button>
                       )}
                       {kind === "talent" && member.personId !== null && (
@@ -410,11 +430,12 @@ export function CrewSection({
         )}
         {crew !== undefined && crew.length > 0 && (
           <p className="mt-1 text-xs text-muted-foreground">
-            Contact details come from your{" "}
-            <Link href="/people" className="underline underline-offset-2">
-              people
+            Details for anyone in your{" "}
+            <Link href={kind === "talent" ? "/talent" : "/people"} className="underline underline-offset-2">
+              {listName}
             </Link>{" "}
-            list — edit them there to update every production at once.
+            list come from there, and Edit changes them on every production. Anyone added for
+            this production only stays off that list until you add them.
           </p>
         )}
       </CardContent>
@@ -430,6 +451,10 @@ export function CrewSection({
       {editing && (
         <EditCrewDialog
           member={editing}
+          onSaveToPeople={() => {
+            void handleSaveToPeople(editing);
+            setEditing(null);
+          }}
           onBook={() => {
             // Straight from editing the role into booking it, without
             // deleting the role and starting again.
@@ -591,6 +616,10 @@ function AddCrewDialog({
   const [role, setRole] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  // Crew are usually rebooked, so they are saved by default; talent and
+  // one-off contributors usually are not, so they stay on this job unless
+  // asked for.
+  const [saveToList, setSaveToList] = useState(initialKind === "crew");
 
   // Role-only slot.
   const [openRole, setOpenRole] = useState("");
@@ -619,14 +648,29 @@ function AddCrewDialog({
     }
     setSaving(true);
     try {
-      const personId = await createPerson({
-        name,
-        role,
-        email: email.trim() || undefined,
-        phone: phone.trim() || undefined,
-      });
-      await addCrew({ projectId, personId, kind });
-      toast.success(`${name.trim()} added to your people list and this project.`);
+      const listName = kind === "talent" ? "Talent" : "People";
+      if (saveToList) {
+        const personId = await createPerson({
+          name,
+          role,
+          // Into the list they belong to: talent into Talent, not People.
+          kind,
+          email: email.trim() || undefined,
+          phone: phone.trim() || undefined,
+        });
+        await addCrew({ projectId, personId, kind });
+        toast.success(`${name.trim()} added to your ${listName} list and this project.`);
+      } else {
+        await addCrew({
+          projectId,
+          kind,
+          name,
+          role,
+          email: email.trim() || undefined,
+          phone: phone.trim() || undefined,
+        });
+        toast.success(`${name.trim()} added to this project.`);
+      }
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add them.");
@@ -736,9 +780,21 @@ function AddCrewDialog({
                 />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Saved to your people list too, so they are reusable on other productions.
-            </p>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-primary"
+                checked={saveToList}
+                onChange={(e) => setSaveToList(e.target.checked)}
+              />
+              <span>
+                Also add to your {kind === "talent" ? "Talent" : "People"} list
+                <span className="block text-xs text-muted-foreground">
+                  Leave this off for somebody on this production only. You can add them to the
+                  list later from the project.
+                </span>
+              </span>
+            </label>
           </div>
         )}
 
@@ -835,20 +891,32 @@ function FillRoleDialog({
 function EditCrewDialog({
   member,
   onBook,
+  onSaveToPeople,
   onClose,
 }: {
   member: ProjectCrewMember;
   /** Offered when the role has nobody in it yet. */
   onBook: () => void;
+  /** Offered for somebody on this production only. */
+  onSaveToPeople: () => void;
   onClose: () => void;
 }) {
   const updateCrew = useMutation(api.projectCrew.update);
   const [role, setRole] = useState(member.role);
   const [notes, setNotes] = useState(member.notes ?? "");
   const [kind, setKind] = useState<"crew" | "talent">(member.kind);
+  // Somebody on this production only: their details are the booking's own.
+  const oneOff = member.booked && !member.inPeople;
+  const [name, setName] = useState(member.name ?? "");
+  const [email, setEmail] = useState(member.email ?? "");
+  const [phone, setPhone] = useState(member.phone ?? "");
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
+    if (oneOff && name.trim().length === 0) {
+      toast.error("They need a name.");
+      return;
+    }
     setSaving(true);
     try {
       await updateCrew({
@@ -857,6 +925,7 @@ function EditCrewDialog({
         role: role.trim() || null,
         notes: notes.trim() || null,
         kind,
+        ...(oneOff ? { name: name.trim(), email: email.trim() || null, phone: phone.trim() || null } : {}),
       });
       toast.success("Saved.");
       onClose();
@@ -867,15 +936,43 @@ function EditCrewDialog({
     }
   }
 
+  const listName = member.kind === "talent" ? "Talent" : "People";
+
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           {/* An unfilled role has no name to show, so it is titled by the
               role it is waiting on. */}
           <DialogTitle>{member.name ?? member.role ?? "Role"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            On this production
+          </p>
+          {oneOff && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="edit-crew-name">Name</Label>
+                <Input id="edit-crew-name" value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-crew-email">Email</Label>
+                  <Input
+                    id="edit-crew-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-crew-phone">Phone</Label>
+                  <Input id="edit-crew-phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                </div>
+              </div>
+            </>
+          )}
           <div className="space-y-2">
             <Label htmlFor="edit-crew-role">Role on this project</Label>
             <Input
@@ -913,22 +1010,23 @@ function EditCrewDialog({
               rows={3}
             />
           </div>
-          {member.personId === null ? (
+          {!member.booked ? (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/40 p-3">
               <p className="text-sm text-muted-foreground">Nobody is in this role yet.</p>
               <Button variant="secondary" size="sm" onClick={onBook}>
                 Book someone
               </Button>
             </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Name, email and phone live on their{" "}
-              <Link href="/people" className="underline underline-offset-2">
-                people
-              </Link>{" "}
-              record.
-            </p>
-          )}
+          ) : oneOff ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/40 p-3">
+              <p className="text-sm text-muted-foreground">
+                On this production only — not in your {listName} list.
+              </p>
+              <Button variant="secondary" size="sm" onClick={onSaveToPeople}>
+                Add to {listName}
+              </Button>
+            </div>
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
@@ -938,8 +1036,150 @@ function EditCrewDialog({
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
+
+        {member.personId !== null && (
+          <PersonRecordEditor personId={member.personId} listName={listName} />
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Their People (or Talent) record, edited from the production.
+ *
+ * Saved on its own, apart from the booking: this is the record every
+ * production reads, so a new phone number or a dietary need written here is
+ * there on the next job too.
+ */
+function PersonRecordEditor({
+  personId,
+  listName,
+}: {
+  personId: Id<"people">;
+  listName: string;
+}) {
+  const person = useQuery(api.people.get, { id: personId });
+  if (person === undefined) return <Skeleton className="h-40 w-full" />;
+  if (person === null) return null;
+  // Remounted when the record loads, so the boxes start from what is stored.
+  return <PersonRecordForm key={person._id} person={person} listName={listName} />;
+}
+
+function PersonRecordForm({
+  person,
+  listName,
+}: {
+  person: NonNullable<typeof api.people.get._returnType>;
+  listName: string;
+}) {
+  const updatePerson = useMutation(api.people.update);
+  const [name, setName] = useState(person.name);
+  const [role, setRole] = useState(person.role);
+  const [email, setEmail] = useState(person.email ?? "");
+  const [phone, setPhone] = useState(person.phone ?? "");
+  const [dayRate, setDayRate] = useState(person.dayRate !== undefined ? String(person.dayRate) : "");
+  const [dietary, setDietary] = useState(person.dietary ?? "");
+  const [notes, setNotes] = useState(person.notes ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!name.trim() || !role.trim()) {
+      toast.error("A name and a usual role are needed.");
+      return;
+    }
+    const rate = dayRate.trim().replace(/[£,]/g, "");
+    const parsedRate = rate === "" ? null : Number(rate);
+    if (parsedRate !== null && (!Number.isFinite(parsedRate) || parsedRate < 0)) {
+      toast.error("Day rate must be a number of zero or more.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await updatePerson({
+        id: person._id,
+        name,
+        role,
+        email: email.trim(),
+        phone: phone.trim(),
+        dayRate: parsedRate,
+        dietary: dietary.trim(),
+        notes: notes.trim(),
+      });
+      toast.success(`Saved to ${person.name}'s ${listName} record.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-4 border-t border-border pt-4">
+      <div>
+        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          In your {listName} list
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Changes here update {person.name} on every production.
+        </p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="person-record-name">Name</Label>
+          <Input id="person-record-name" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="person-record-role">Usual role</Label>
+          <Input id="person-record-role" value={role} onChange={(e) => setRole(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="person-record-email">Email</Label>
+          <Input
+            id="person-record-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="person-record-phone">Phone</Label>
+          <Input id="person-record-phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="person-record-rate">Day rate</Label>
+          <Input
+            id="person-record-rate"
+            inputMode="decimal"
+            placeholder="£"
+            value={dayRate}
+            onChange={(e) => setDayRate(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="person-record-dietary">Dietary</Label>
+          <Input
+            id="person-record-dietary"
+            value={dietary}
+            onChange={(e) => setDietary(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="person-record-notes">Notes</Label>
+        <Textarea
+          id="person-record-notes"
+          rows={2}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
+      <div className="flex justify-end">
+        <Button variant="secondary" onClick={() => void save()} disabled={saving}>
+          {saving ? "Saving…" : `Save to ${listName}`}
+        </Button>
+      </div>
+    </div>
   );
 }
 

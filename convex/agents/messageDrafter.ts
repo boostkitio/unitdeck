@@ -8,6 +8,7 @@ import {
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { requireOrg } from "../lib/auth";
+import { sheetRecipients, sheetVersions } from "../lib/sheetKey";
 import { chatJson, truncateInput } from "../lib/llm";
 import { AI_MODEL } from "../lib/ai";
 import { escapeHtml, formatEmailDate, sendEmail } from "../lib/email";
@@ -21,17 +22,11 @@ async function chaseContext(ctx: QueryCtx | MutationCtx, shootDayId: Id<"shootDa
   const { org } = await requireOrg(ctx);
   const day = await ctx.db.get(shootDayId);
   if (!day || day.orgId !== org._id) throw new Error("Shoot day not found");
-  const sheets = await ctx.db
-    .query("callSheets")
-    .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", shootDayId))
-    .order("desc")
-    .take(20);
+  // This day's own sheet and the people it went to, not a combined sheet's.
+  const sheets = await sheetVersions(ctx, { shootDayId }, 20);
   const sent = sheets.find((s) => s.status === "sent");
   if (!sent) throw new Error("Send the call sheet first, then chase confirmations");
-  const recipients = await ctx.db
-    .query("recipients")
-    .withIndex("by_shoot_day", (q) => q.eq("shootDayId", shootDayId))
-    .take(200);
+  const recipients = await sheetRecipients(ctx, { shootDayId }, 200);
   const unconfirmed = recipients.filter((r) => UNCONFIRMED.has(r.status));
   return { org, day, sent, unconfirmed };
 }

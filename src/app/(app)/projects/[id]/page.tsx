@@ -217,10 +217,8 @@ function ProjectEditor({
           </p>
           <ProjectForecast
             projectId={project._id}
-            forecast={project.forecast}
-            date={project.forecastDate}
-            locationId={project.forecastLocationId}
-            locationName={project.location?.name ?? null}
+            projectLocationId={project.location?._id ?? null}
+            projectLocationName={project.location?.name ?? null}
           />
         </div>
         <ShootDatesEditor projectId={project._id} />

@@ -118,6 +118,8 @@ export default function LocationsPage() {
               l.nearestHospital,
               l.nearestPoliceStation,
               l.nearestStation,
+              l.nearestTube,
+              l.nearestRail,
               l.plusCode,
               l.satNav,
               l.notes,
@@ -239,13 +241,41 @@ function LocationDialog({
   const [accessNotes, setAccessNotes] = useState(location?.accessNotes ?? "");
   const [nearestHospital, setNearestHospital] = useState(location?.nearestHospital ?? "");
   const [satNav, setSatNav] = useState(location?.satNav ?? "");
-  const [nearestStation, setNearestStation] = useState(location?.nearestStation ?? "");
+  const [nearestTube, setNearestTube] = useState(location?.nearestTube ?? "");
+  const [nearestRail, setNearestRail] = useState(location?.nearestRail ?? "");
   const [nearestPoliceStation, setNearestPoliceStation] = useState(
     location?.nearestPoliceStation ?? ""
   );
   const [lat, setLat] = useState<number | undefined>(location?.lat);
   const [lng, setLng] = useState<number | undefined>(location?.lng);
   const [busy, setBusy] = useState(false);
+  const [measuring, setMeasuring] = useState(false);
+
+  /**
+   * Measures the nearest A&E, police station and stations again and puts them
+   * in the boxes, replacing what is there. For a saved location only: it is
+   * measured from the saved address and coordinates.
+   */
+  async function findNearestAgain() {
+    if (!location) return;
+    setMeasuring(true);
+    try {
+      const r = await enrichLocation({ id: location._id, replace: true });
+      if (r.problem) {
+        toast.info(r.problem);
+        return;
+      }
+      setNearestHospital(r.nearestHospital ?? "");
+      setNearestPoliceStation(r.nearestPoliceStation ?? "");
+      setNearestTube(r.nearestTube ?? "");
+      setNearestRail(r.nearestRail ?? "");
+      toast.success("Nearest A&E, police station and stations measured from the map.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not look them up.");
+    } finally {
+      setMeasuring(false);
+    }
+  }
 
   // Smart find state
   const [smartQuery, setSmartQuery] = useState("");
@@ -270,8 +300,8 @@ function LocationDialog({
   function applySuggestion(s: AddressSuggestion) {
     if (!name.trim() || name === location?.name) setName(s.name);
     setAddress(s.address);
-    if (s.nearestHospital) setNearestHospital(s.nearestHospital);
-    if (s.nearestPoliceStation) setNearestPoliceStation(s.nearestPoliceStation);
+    // The suggestion's nearest A&E and police are the model's guess. They are
+    // left for the map lookup on save, which measures them instead.
     // The model's coordinates are only a rough estimate (often the town centre),
     // so discard them: the map geocodes the address via Google, and precise
     // lat/lng are resolved by the OpenStreetMap lookup on save.
@@ -296,7 +326,9 @@ function LocationDialog({
         accessNotes: accessNotes || undefined,
         nearestHospital: nearestHospital || undefined,
         satNav: satNav || undefined,
-        nearestStation: nearestStation || undefined,
+        // Blank rather than absent, so clearing a wrong station clears it.
+        nearestTube: nearestTube.trim(),
+        nearestRail: nearestRail.trim(),
         nearestPoliceStation: nearestPoliceStation || undefined,
         lat,
         lng,
@@ -318,11 +350,14 @@ function LocationDialog({
           const filled = [
             r.nearestHospital && "nearest A&E",
             r.nearestPoliceStation && "police station",
-            r.nearestStation && "nearest station",
+            r.nearestTube && "nearest Tube",
+            r.nearestRail && "nearest National Rail station",
             r.plusCode && "Plus Code",
           ].filter(Boolean);
           // Say so either way: a silent no-op looks identical to a failure.
-          if (filled.length > 0) {
+          if (r.problem) {
+            toast.info(r.problem);
+          } else if (filled.length > 0) {
             toast.success(`Filled in ${filled.join(", ")}.`);
           } else {
             toast.info("Could not fill anything in from that address.");
@@ -552,15 +587,43 @@ function LocationDialog({
               />
             </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="loc-station">Nearest station</Label>
-            <Input
-              id="loc-station"
-              value={nearestStation}
-              onChange={(e) => setNearestStation(e.target.value)}
-              placeholder="White City (Central line), 6 min walk"
-            />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="loc-tube">Nearest Tube</Label>
+              <Input
+                id="loc-tube"
+                value={nearestTube}
+                onChange={(e) => setNearestTube(e.target.value)}
+                placeholder="White City (Central line), 6 min walk"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="loc-rail">Nearest National Rail station</Label>
+              <Input
+                id="loc-rail"
+                value={nearestRail}
+                onChange={(e) => setNearestRail(e.target.value)}
+                placeholder="Shepherd's Bush, 12 min walk"
+              />
+            </div>
           </div>
+          {location && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={measuring}
+                onClick={() => void findNearestAgain()}
+              >
+                {measuring ? "Measuring…" : "Find nearest again"}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Replaces the A&amp;E, police station and stations with the nearest on the map to
+                the saved address.
+              </p>
+            </div>
+          )}
         </div>
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           {location ? (

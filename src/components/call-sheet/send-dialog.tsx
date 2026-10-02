@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
-import { Id } from "../../../convex/_generated/dataModel";
 import type { CallSheetData } from "../../../convex/lib/callSheetData";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,17 +14,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ChaseDialog } from "@/components/agents/chase-dialog";
+import type { SheetTarget } from "@/components/call-sheet/call-sheet-composer";
 
 export function SendDialog({
-  dayId,
+  target,
   data,
   onClose,
 }: {
-  dayId: Id<"shootDays">;
+  target: SheetTarget;
   data: CallSheetData;
   onClose: () => void;
 }) {
-  const send = useMutation(api.distribution.send);
+  const sendDay = useMutation(api.distribution.send);
+  const sendCombined = useMutation(api.distribution.sendCombined);
   const sendable = data.crew.filter((c) => c.email && c.email.includes("@"));
   const missingEmail = data.crew.filter((c) => !c.email || !c.email.includes("@"));
   const [selected, setSelected] = useState<Set<string>>(new Set(sendable.map((c) => c.id)));
@@ -84,18 +85,20 @@ export function SendDialog({
             onClick={async () => {
               setBusy(true);
               try {
-                await send({
-                  shootDayId: dayId,
-                  recipients: sendable
-                    .filter((c) => selected.has(c.id))
-                    .map((c) => ({
-                      name: c.name,
-                      role: c.role,
-                      email: c.email!,
-                      callTime: c.callTime,
-                      personId: c.personId,
-                    })),
-                });
+                const recipients = sendable
+                  .filter((c) => selected.has(c.id))
+                  .map((c) => ({
+                    name: c.name,
+                    role: c.role,
+                    email: c.email!,
+                    callTime: c.callTime,
+                    personId: c.personId,
+                  }));
+                if (target.kind === "day") {
+                  await sendDay({ shootDayId: target.dayId, recipients });
+                } else {
+                  await sendCombined({ projectId: target.projectId, recipients });
+                }
                 toast.success(
                   `Call sheet sent to ${selected.size} ${selected.size === 1 ? "person" : "people"}.`
                 );
@@ -142,8 +145,16 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   },
 };
 
-export function RecipientStrip({ dayId }: { dayId: Id<"shootDays"> }) {
-  const recipients = useQuery(api.distribution.listForShootDay, { shootDayId: dayId });
+export function RecipientStrip({ target }: { target: SheetTarget }) {
+  const dayRecipients = useQuery(
+    api.distribution.listForShootDay,
+    target.kind === "day" ? { shootDayId: target.dayId } : "skip",
+  );
+  const combinedRecipients = useQuery(
+    api.distribution.listForCombined,
+    target.kind === "combined" ? { projectId: target.projectId } : "skip",
+  );
+  const recipients = target.kind === "day" ? dayRecipients : combinedRecipients;
   const [chaseOpen, setChaseOpen] = useState(false);
   if (!recipients || recipients.length === 0) return null;
   const unconfirmed = recipients.filter((r) =>
@@ -167,7 +178,9 @@ export function RecipientStrip({ dayId }: { dayId: Id<"shootDays"> }) {
           </span>
         );
       })}
-      {unconfirmed > 0 && (
+      {/* Chasing drafts a message about one day, so it is offered on a day's
+          own sheet. */}
+      {unconfirmed > 0 && target.kind === "day" && (
         <button
           className="ml-auto text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
           onClick={() => setChaseOpen(true)}
@@ -175,7 +188,9 @@ export function RecipientStrip({ dayId }: { dayId: Id<"shootDays"> }) {
           Chase {unconfirmed} unconfirmed
         </button>
       )}
-      {chaseOpen && <ChaseDialog dayId={dayId} onClose={() => setChaseOpen(false)} />}
+      {chaseOpen && target.kind === "day" && (
+        <ChaseDialog dayId={target.dayId} onClose={() => setChaseOpen(false)} />
+      )}
     </div>
   );
 }

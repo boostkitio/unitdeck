@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    resolveAlias: {
+      // Paged.js's package points bundlers at its unbundled source, whose
+      // es5-ext dependency breaks under Turbopack ("contains.call is not a
+      // function"). Its own prebuilt ES module has that inlined and works.
+      pagedjs: "./node_modules/pagedjs/dist/paged.esm.js",
+    },
+  },
   // Keep Chromium's binary assets out of the bundler so the PDF route can
   // load them from node_modules at runtime on Vercel.
   serverExternalPackages: [

@@ -36,6 +36,8 @@ import type * as lib_geocode from "../lib/geocode.js";
 import type * as lib_llm from "../lib/llm.js";
 import type * as lib_personName from "../lib/personName.js";
 import type * as lib_sender from "../lib/sender.js";
+import type * as lib_sheetKey from "../lib/sheetKey.js";
+import type * as lib_sheetLocations from "../lib/sheetLocations.js";
 import type * as lib_plusCode from "../lib/plusCode.js";
 import type * as lib_quoteMath from "../lib/quoteMath.js";
 import type * as lib_rateCardOrder from "../lib/rateCardOrder.js";
@@ -96,6 +98,8 @@ declare const fullApi: ApiFromModules<{
   "lib/llm": typeof lib_llm;
   "lib/personName": typeof lib_personName;
   "lib/sender": typeof lib_sender;
+  "lib/sheetKey": typeof lib_sheetKey;
+  "lib/sheetLocations": typeof lib_sheetLocations;
   "lib/plusCode": typeof lib_plusCode;
   "lib/quoteMath": typeof lib_quoteMath;
   "lib/rateCardOrder": typeof lib_rateCardOrder;
