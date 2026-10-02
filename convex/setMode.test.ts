@@ -36,6 +36,9 @@ async function setupSent(date = NEAR_FUTURE) {
     recipients: [{ name: "Sam", role: "Sound", email: "sam@example.test", callTime: "07:30" }],
   });
   const recipients = await asA.query(api.distribution.listForShootDay, { shootDayId: ids.dayA });
+  // Let the scheduled send record "sent" before a test confirms or declines,
+  // or that write lands later and undoes the response.
+  await t.finishAllScheduledFunctions(() => {});
   return { t, ids, asA, token: recipients[0].token };
 }
 

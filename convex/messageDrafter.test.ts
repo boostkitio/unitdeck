@@ -38,6 +38,11 @@ async function setup() {
       { name: "Alex", role: "DP", email: "alex@example.test", callTime: "07:00" },
     ],
   });
+  // The send records "sent" from a scheduled function, which the test runner
+  // now runs. Let it finish before anyone confirms: landing afterwards it
+  // writes "sent" over the confirmation, and how soon it lands depends on the
+  // machine, which is how this passed locally and failed in CI.
+  await t.finishAllScheduledFunctions(() => {});
   const runId = await t.run(async (ctx) =>
     ctx.db.insert("agentRuns", {
       orgId: ids.orgA,
