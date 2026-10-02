@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatShootDate } from "@/lib/format-date";
+import { callSheetHref, combinedCallSheetHref, dayRef, wrapReportHref } from "@/lib/routes";
+import { useToday } from "@/components/ui/month-calendar";
 
 /**
  * Turn the production into call sheets.
@@ -46,7 +48,8 @@ export function CallSheetSection({
   const [working, setWorking] = useState<Id<"shootDays"> | "combined" | null>(null);
   const [picking, setPicking] = useState(false);
 
-  const combinedHref = `/projects/${projectRef}/call-sheets/combined`;
+  const combinedHref = combinedCallSheetHref(projectRef);
+  const today = useToday();
 
   /**
    * Brings every day's forecast up to date before a sheet is laid out, so the
@@ -67,7 +70,8 @@ export function CallSheetSection({
           ? "Call sheet regenerated — the previous draft is kept in its version history."
           : "Call sheet generated.",
       );
-      router.push(`/projects/${projectRef}/shoot-days/${dayId}/call-sheet`);
+      const day = (days ?? []).find((d) => d._id === dayId);
+      router.push(callSheetHref(projectRef, day ? dayRef(day, days ?? []) : dayId));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate it.");
     } finally {
@@ -122,12 +126,22 @@ export function CallSheetSection({
                       {day.label ?? `Day ${i + 1}`}
                     </span>
                   </span>
+                  {/* What happened on the day: who answered, who checked in,
+                      and the notes for post. Only once the day has come —
+                      there is nothing to report on a shoot still ahead. */}
+                  {today !== null && day.date <= today && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      render={<Link href={wrapReportHref(projectRef, dayRef(day, ordered))} />}
+                    >
+                      Wrap report
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="secondary"
-                    render={
-                      <Link href={`/projects/${projectRef}/shoot-days/${day._id}/call-sheet`} />
-                    }
+                    render={<Link href={callSheetHref(projectRef, dayRef(day, ordered))} />}
                   >
                     Open
                   </Button>

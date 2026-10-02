@@ -1,23 +1,22 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { itemKey } from "./lib/itemKey";
+import {
+  bookedElsewhere,
+  clashesFor,
+  kitDemand,
+  kitStock,
+  type KitClash,
+} from "./lib/kitClashes";
+import { sectionOf, type EquipmentSection } from "./lib/kitSection";
 import { Doc, Id } from "./_generated/dataModel";
 import { normaliseStatus } from "./lib/projectStatus";
 
 const statusValidator = v.union(v.literal("needed"), v.literal("confirmed"));
 const sectionValidator = v.union(v.literal("equipment"), v.literal("additional"));
 
-export type EquipmentSection = "equipment" | "additional";
-
-/**
- * Rows written before the list was split carry no section. They read as
- * "additional", which is the list they were already appearing in — nothing
- * moves out from under anyone.
- */
-function sectionOf(row: { section?: EquipmentSection }): EquipmentSection {
-  return row.section ?? "additional";
-}
+export type { EquipmentSection };
 
 /**
  * Kit for a project, oldest first so each list reads in entry order. The
@@ -238,32 +237,67 @@ export const remove = mutation({
   },
 });
 
-export type EquipmentClash = {
-  /** Normalised item name — what the clash is about. */
-  key: string;
-  item: string;
-  /** How many of it the company owns. */
-  stock: number;
-  /** How many this production wants. */
-  mine: number;
-  /** Lines on this production, so a clash can be cleared from here. */
-  rowIds: Id<"projectEquipment">[];
-  /**
-   * True when the very same piece of kit — the same inventory record — is
-   * booked on both. That is a clash whether or not there are others like it
-   * spare, because both productions are holding the same object.
-   */
-  sameUnit: boolean;
-  others: {
-    projectId: Id<"projects">;
-    projectName: string;
-    status: string;
-    /** How many that production wants. */
-    count: number;
-    /** The days both productions want it, which is what makes it a clash. */
-    dates: string[];
-  }[];
+export type EquipmentClash = Omit<KitClash, "others"> & {
+  others: (KitClash["others"][number] & { projectName: string; status: string })[];
 };
+
+/**
+ * Everything a clash is worked out from, read once: what the company owns,
+ * what every production wants of it, and which days each production is on.
+ *
+ * Archived productions are left out of the days, and so out of the count: a
+ * job that has been and gone is not competing for anything.
+ */
+async function kitPicture(ctx: QueryCtx, orgId: Id<"organisations">) {
+  const projects = await ctx.db
+    .query("projects")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .take(2000);
+  const live = new Map<Id<"projects">, Doc<"projects">>();
+  for (const project of projects) {
+    if (project.archived !== true && project.status !== "archived") live.set(project._id, project);
+  }
+
+  const shootDays = await ctx.db
+    .query("shootDays")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .take(4000);
+  const datesByProject = new Map<Id<"projects">, Set<string>>();
+  for (const day of shootDays) {
+    const dates = datesByProject.get(day.projectId);
+    if (dates) dates.add(day.date);
+    else datesByProject.set(day.projectId, new Set([day.date]));
+  }
+
+  const inventory = await ctx.db
+    .query("equipment")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .take(5000);
+  const stock = kitStock(inventory);
+
+  const lines = await ctx.db
+    .query("projectEquipment")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .take(8000);
+
+  return { live, datesByProject, stock, lines };
+}
+
+/**
+ * The days that count for one production's clashes: its own, whatever state
+ * it is in, against every other production still on the books.
+ */
+function competingDates(
+  projectId: Id<"projects">,
+  live: Map<Id<"projects">, Doc<"projects">>,
+  datesByProject: Map<Id<"projects">, Set<string>>
+) {
+  const competing = new Map<Id<"projects">, Set<string>>();
+  for (const [id, dates] of datesByProject) {
+    if (id === projectId || live.has(id)) competing.set(id, dates);
+  }
+  return competing;
+}
 
 /**
  * Kit this production wants that it cannot have, because the productions
@@ -276,13 +310,8 @@ export type EquipmentClash = {
  * It also called it a clash when two productions each took one of the two
  * tripods the company owns, which is not a clash at all.
  *
- * So: add up what every production sharing a day wants of a thing, compare it
- * with how many exist, and report the ones that do not go round. Kit with no
- * inventory record is a hire-in — there is no fixed number of those, so it
- * cannot run out.
- *
- * Archived productions are left out: a job that has been and gone is not
- * competing for anything.
+ * The counting itself is in convex/lib/kitClashes.ts, a day at a time, and is
+ * the same counting the dashboard does.
  */
 export const clashesForProject = query({
   args: { projectId: v.id("projects") },
@@ -291,149 +320,57 @@ export const clashesForProject = query({
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== org._id) return [];
 
-    // Shoot days for the whole org in one pass, grouped by production: a
-    // clash is a question about two productions' calendars at once.
-    const shootDays = await ctx.db
-      .query("shootDays")
-      .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .take(4000);
-    const datesByProject = new Map<string, Set<string>>();
-    for (const day of shootDays) {
-      const key = String(day.projectId);
-      const dates = datesByProject.get(key);
-      if (dates) dates.add(day.date);
-      else datesByProject.set(key, new Set([day.date]));
-    }
+    const { live, datesByProject, stock, lines } = await kitPicture(ctx, org._id);
+    const competing = competingDates(args.projectId, live, datesByProject);
+    const clashes = clashesFor(args.projectId, kitDemand(lines, stock), stock, competing);
 
-    const myDates = datesByProject.get(String(args.projectId));
-    if (!myDates || myDates.size === 0) return [];
+    return clashes.map((clash) => ({
+      ...clash,
+      others: clash.others.map((other) => {
+        const otherProject = live.get(other.projectId)!;
+        return {
+          ...other,
+          projectName: otherProject.name,
+          status: normaliseStatus(otherProject.status),
+        };
+      }),
+    }));
+  },
+});
 
-    // How many of each thing the company actually owns.
-    const inventory = await ctx.db
-      .query("equipment")
-      .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .take(5000);
-    const stock = new Map<string, { count: number; item: string }>();
-    for (const kit of inventory) {
-      if (kit.archived) continue;
-      const key = itemKey(kit.item);
-      const held = stock.get(key);
-      if (held) held.count++;
-      else stock.set(key, { count: 1, item: kit.item });
-    }
+export type EquipmentBooking = {
+  /** The exact piece of kit that is spoken for; absent when all of a thing is. */
+  equipmentId?: Id<"equipment">;
+  /** Normalised item name. */
+  key: string;
+  /** Who has it, for saying so. */
+  projectNames: string[];
+  /** The days of this production it is unavailable on, earliest first. */
+  dates: string[];
+};
 
-    const rows = await ctx.db
-      .query("projectEquipment")
-      .withIndex("by_org", (q) => q.eq("orgId", org._id))
-      .take(4000);
+/**
+ * What is already out on this production's dates, for the picker to say
+ * before a piece of kit is added rather than after: the exact units another
+ * production holds, and the things there are none left of.
+ */
+export const bookedElsewhereForProject = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args): Promise<EquipmentBooking[]> => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) return [];
 
-    // What this production wants, which lines ask for it, and which exact
-    // pieces of kit it has claimed.
-    const wanted = new Map<
-      string,
-      { count: number; rowIds: Id<"projectEquipment">[]; units: Set<string> }
-    >();
-    for (const row of rows) {
-      if (row.projectId !== args.projectId) continue;
-      const key = itemKey(row.item);
-      if (!stock.has(key)) continue; // Hired in: no fixed number to run out of.
-      const entry = wanted.get(key) ?? { count: 0, rowIds: [], units: new Set<string>() };
-      entry.count += row.quantity ?? 1;
-      entry.rowIds.push(row._id);
-      if (row.equipmentId) entry.units.add(String(row.equipmentId));
-      wanted.set(key, entry);
-    }
-    if (wanted.size === 0) return [];
+    const { live, datesByProject, stock, lines } = await kitPicture(ctx, org._id);
+    const competing = competingDates(args.projectId, live, datesByProject);
+    const bookings = bookedElsewhere(args.projectId, kitDemand(lines, stock), stock, competing);
 
-    // What everyone else shooting on one of our days wants of the same things.
-    const projectCache = new Map<string, Doc<"projects"> | null>();
-    const demandElsewhere = new Map<
-      string,
-      Map<
-        string,
-        {
-          projectName: string;
-          status: string;
-          count: number;
-          dates: string[];
-          units: Set<string>;
-        }
-      >
-    >();
-
-    for (const row of rows) {
-      if (row.projectId === args.projectId) continue;
-      const key = itemKey(row.item);
-      if (!wanted.has(key)) continue;
-
-      const other = datesByProject.get(String(row.projectId));
-      if (!other) continue;
-      const shared = [...myDates].filter((date) => other.has(date)).sort();
-      if (shared.length === 0) continue;
-
-      const projectKey = String(row.projectId);
-      if (!projectCache.has(projectKey)) {
-        projectCache.set(projectKey, await ctx.db.get(row.projectId));
-      }
-      const otherProject = projectCache.get(projectKey);
-      if (!otherProject || otherProject.archived === true) continue;
-
-      const byProject = demandElsewhere.get(key) ?? new Map();
-      const entry = byProject.get(projectKey) ?? {
-        projectName: otherProject.name,
-        status: normaliseStatus(otherProject.status),
-        count: 0,
-        dates: shared,
-        units: new Set<string>(),
-      };
-      entry.count += row.quantity ?? 1;
-      if (row.equipmentId) entry.units.add(String(row.equipmentId));
-      byProject.set(projectKey, entry);
-      demandElsewhere.set(key, byProject);
-    }
-
-    const clashes: EquipmentClash[] = [];
-    for (const [key, mine] of wanted) {
-      const byProject = demandElsewhere.get(key);
-      if (!byProject || byProject.size === 0) continue;
-
-      const held = stock.get(key)!;
-      const elsewhere = [...byProject.values()].reduce((sum, o) => sum + o.count, 0);
-
-      // Two ways this goes wrong, and they are not the same thing.
-      //
-      // The same physical item booked on both: whichever production takes it,
-      // the other has nothing, and owning five more like it does not help
-      // because neither production asked for those. Applying one package to
-      // two shoots does exactly this, to every piece of kit in it.
-      const sameUnit = [...byProject.values()].some((other) =>
-        [...other.units].some((unit) => mine.units.has(unit))
-      );
-
-      // Or simply more wanted than exists, however the lines were written.
-      const overflow = mine.count + elsewhere > held.count;
-
-      if (!sameUnit && !overflow) continue;
-
-      clashes.push({
-        key,
-        item: held.item,
-        stock: held.count,
-        mine: mine.count,
-        rowIds: mine.rowIds,
-        sameUnit,
-        others: [...byProject.entries()].map(([projectId, o]) => ({
-          projectId: projectId as Id<"projects">,
-          projectName: o.projectName,
-          status: o.status,
-          count: o.count,
-          dates: o.dates,
-        })),
-      });
-    }
-
-    clashes.sort((a, b) => a.item.localeCompare(b.item));
-    return clashes;
+    return bookings.map((booking) => ({
+      equipmentId: booking.equipmentId,
+      key: booking.key,
+      projectNames: booking.projectIds.map((id) => live.get(id)!.name).sort(),
+      dates: booking.dates,
+    }));
   },
 });
 

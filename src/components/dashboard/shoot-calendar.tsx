@@ -12,12 +12,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MonthCalendar, useToday, type DayState } from "@/components/ui/month-calendar";
 import { MONTH_NAMES, dateKey, daysInMonth, monthOf, type Month } from "@/lib/calendar";
 import { formatShootDate } from "@/lib/format-date";
+import { projectHref } from "@/lib/routes";
 
 function ShootEntry({ day }: { day: UpcomingShootDay }) {
   return (
     <li>
       <Link
-        href={`/projects/${day.projectId}/shoot-days/${day.shootDayId}/call-sheet`}
+        href={projectHref({ _id: day.projectId, jobNumber: day.projectJobNumber })}
         className="flex flex-col gap-0.5 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
       >
         <div className="flex items-baseline justify-between gap-2">

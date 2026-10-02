@@ -1,4 +1,5 @@
 import type { CallSheetData, CallTimeEntry, EquipmentRow } from "../../../convex/lib/callSheetData";
+import { isHiredIn } from "../../../convex/lib/kitSection";
 
 export function groupEquipmentBySupplier(
   rows: EquipmentRow[]
@@ -13,8 +14,14 @@ export function groupEquipmentBySupplier(
     }
     map.get(key)!.push(row);
   }
-  // Ungrouped items always render last.
-  order.sort((a, b) => (a === null ? 1 : 0) - (b === null ? 1 : 0));
+  // Ungrouped items render after the named groups, and hire-ins after
+  // everything: the sheet lists what the unit is bringing, then what has to
+  // be collected from somebody else. Ranked here rather than only when a
+  // sheet is generated, so it holds for a line added by hand and for a sheet
+  // drafted before the rule existed.
+  const rank = (supplier: string | null) =>
+    supplier === null ? 1 : isHiredIn(supplier) ? 2 : 0;
+  order.sort((a, b) => rank(a) - rank(b));
   return order.map((supplier) => ({ supplier, items: map.get(supplier)! }));
 }
 

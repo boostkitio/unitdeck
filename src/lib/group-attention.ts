@@ -3,6 +3,7 @@ import type { AttentionItem } from "../../convex/dashboard";
 export type AttentionGroup = {
   projectId: AttentionItem["projectId"];
   projectName: string;
+  projectJobNumber: string | null;
   items: AttentionItem[];
 };
 
@@ -28,6 +29,7 @@ export function groupAttentionByProject(items: AttentionItem[]): AttentionGroup[
       groups.set(key, {
         projectId: item.projectId,
         projectName: item.projectName,
+        projectJobNumber: item.projectJobNumber,
         items: [item],
       });
     }

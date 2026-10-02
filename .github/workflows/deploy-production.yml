@@ -24,8 +24,26 @@ permissions:
   contents: read
 
 jobs:
+  # The same checks pull requests get. They run here rather than in a separate
+  # workflow so the deploy can wait for them: a commit that fails lint, types
+  # or tests does not reach production.
+  checks:
+    name: Lint, typecheck and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+
   deploy:
     name: Build and deploy to production
+    needs: checks
     runs-on: ubuntu-latest
     env:
       # Identifiers, not credentials. These let the CLI resolve the project

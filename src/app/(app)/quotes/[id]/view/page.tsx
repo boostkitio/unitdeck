@@ -22,6 +22,8 @@ import {
 import { QuoteDocument } from "@/components/quotes/quote-document";
 import { FitToWidth } from "@/components/call-sheet/fit-to-width";
 import { PagedPreview } from "@/components/documents/paged-preview";
+import { quoteHref, quoteViewHref } from "@/lib/routes";
+import { useCanonicalPath, useHeld, usePinnedRef } from "@/lib/use-canonical-path";
 
 /**
  * The client's copy, on screen.
@@ -33,9 +35,12 @@ import { PagedPreview } from "@/components/documents/paged-preview";
  * look the same every time.
  */
 export default function QuoteViewPage({ params }: { params: Promise<{ id: string }> }) {
+  // The URL holds the quote's reference, or a document id on older links.
   const { id } = use(params);
-  const quoteId = id as Id<"quotes">;
-  const data = useQuery(api.quotes.get, { id: quoteId });
+  const { ref, pin } = usePinnedRef(id);
+  const data = useHeld(id, useQuery(api.quotes.getByRef, { ref }));
+  pin(data?.quote._id);
+  useCanonicalPath(data ? quoteViewHref(data.quote) : null);
   const { memberships } = useOrganization({ memberships: { infinite: true } });
   const members = memberships?.data ?? [];
   const [downloading, setDownloading] = useState(false);
@@ -53,6 +58,7 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
   }
 
   const { quote } = data;
+  const quoteId = quote._id;
 
   // The owner's own details. The name is resolved on the backend from what
   // they set in UnitDeck; the address comes off their login, which only the
@@ -102,7 +108,7 @@ export default function QuoteViewPage({ params }: { params: Promise<{ id: string
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" render={<Link href={`/quotes/${id}`} />}>
+        <Button variant="ghost" size="sm" render={<Link href={quoteHref(quote)} />}>
           ← Back to the quote
         </Button>
         <div className="flex flex-wrap gap-2">

@@ -3,11 +3,13 @@
 import { use } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
+import { useOrganization } from "@clerk/nextjs";
 import { api } from "../../../../../../convex/_generated/api";
-import { Id } from "../../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatShootDateRange } from "@/lib/format-date";
+import { kitListHref, projectHref } from "@/lib/routes";
+import { useCanonicalPath, useHeld, usePinnedRef } from "@/lib/use-canonical-path";
 
 /**
  * The kit list as a document rather than a spreadsheet.
@@ -19,11 +21,24 @@ import { formatShootDateRange } from "@/lib/format-date";
  */
 export default function KitListPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const data = useQuery(api.projectEquipment.kitList, {
-    projectId: id as Id<"projects">,
-  });
+  const { organization } = useOrganization();
+  // The URL holds a job number, or a document id on older links.
+  const { ref, pin } = usePinnedRef(id);
+  const project = useHeld(
+    id,
+    useQuery(api.projects.getByRef, organization ? { ref } : "skip"),
+  );
+  pin(project?._id);
+  const data = useQuery(
+    api.projectEquipment.kitList,
+    project ? { projectId: project._id } : "skip",
+  );
+  useCanonicalPath(project ? kitListHref(project) : null);
 
-  if (data === undefined) {
+  if (project === null) {
+    return <p className="p-6 text-sm text-muted-foreground">That production could not be found.</p>;
+  }
+  if (project === undefined || data === undefined) {
     return (
       <div className="space-y-3 p-6">
         <Skeleton className="h-8 w-64" />
@@ -50,7 +65,7 @@ export default function KitListPage({ params }: { params: Promise<{ id: string }
     <div>
       {/* Screen only: the page below is what prints. */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 print:hidden">
-        <Button variant="ghost" size="sm" render={<Link href={`/projects/${id}`} />}>
+        <Button variant="ghost" size="sm" render={<Link href={projectHref(project)} />}>
           ← Back to the production
         </Button>
         <Button size="sm" onClick={() => window.print()}>

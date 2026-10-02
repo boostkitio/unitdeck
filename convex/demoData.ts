@@ -23,12 +23,15 @@ export async function seedDemoDataForOrg(
       ...org?.settings,
       brandColor: org?.settings?.brandColor ?? "#11182F",
       confidentialByDefault: org?.settings?.confidentialByDefault ?? true,
+      // Plainly made up. These print on the account's call sheets, so a real
+      // company's registration and VAT numbers must never be what an account
+      // trying the sample data ends up sending out under its own name.
       invoicing: org?.settings?.invoicing ?? {
-        legalName: "Klaxon Studio Ltd",
-        companyNumber: "15712401",
-        vatNumber: "GB470025721",
-        invoiceEmail: "invoices@klaxon.studio",
-        receiptsNote: "Please keep and submit all receipts to Klaxon Studio.",
+        legalName: "Sample Productions Ltd",
+        companyNumber: "00000000",
+        vatNumber: "GB000000000",
+        invoiceEmail: "invoices@example.com",
+        receiptsNote: "Please keep and submit all receipts to the production office.",
       },
     },
   });
@@ -82,16 +85,16 @@ export async function seedDemoDataForOrg(
     title: DEMO_PROJECT,
     date: "2026-06-09",
     generalCallTime: "07:45",
-    productionCompany: "Klaxon Studio",
+    productionCompany: "Sample Productions",
     clientName: "RAPP (Barclays)",
     confidential: true,
     branding: { brandColor: "#11182F" },
     invoicing: {
-      legalName: "Klaxon Studio Ltd",
-      companyNumber: "15712401",
-      vatNumber: "GB470025721",
-      invoiceEmail: "invoices@klaxon.studio",
-      receiptsNote: "Please keep and submit all receipts to Klaxon Studio.",
+      legalName: "Sample Productions Ltd",
+      companyNumber: "00000000",
+      vatNumber: "GB000000000",
+      invoiceEmail: "invoices@example.com",
+      receiptsNote: "Please keep and submit all receipts to the production office.",
     },
     callTimes: [
       { id: "ct-crew", label: "Crew call", time: "07:45" },
@@ -168,12 +171,12 @@ export async function seedDemoDataForOrg(
       otherNotes: "PTCs, 2x camera setup, lapel + boom, 4x client IEMs. Time-of-day timecode, record on-camera sound.",
     },
     equipment: [
-      { id: "e1", supplier: "Klaxon Studio", item: "Sony FX9 (x2)" },
-      { id: "e2", supplier: "Klaxon Studio", item: "Sony FX6 or FX3" },
-      { id: "e3", supplier: "Klaxon Studio", item: "Sigma Cine Prime set: 14, 24, 25, 50, 85, 135mm" },
-      { id: "e4", supplier: "Klaxon Studio", item: "Prosup 2.9m slider" },
-      { id: "e5", supplier: "Klaxon Studio", item: "Aputure 600d + 150cm dome; 300d + 90cm dome" },
-      { id: "e6", supplier: "Klaxon Studio", item: "Blackmagic ATEM Pro, Atomos + ProHD client monitors" },
+      { id: "e1", supplier: "Sample Productions", item: "Sony FX9 (x2)" },
+      { id: "e2", supplier: "Sample Productions", item: "Sony FX6 or FX3" },
+      { id: "e3", supplier: "Sample Productions", item: "Sigma Cine Prime set: 14, 24, 25, 50, 85, 135mm" },
+      { id: "e4", supplier: "Sample Productions", item: "Prosup 2.9m slider" },
+      { id: "e5", supplier: "Sample Productions", item: "Aputure 600d + 150cm dome; 300d + 90cm dome" },
+      { id: "e6", supplier: "Sample Productions", item: "Blackmagic ATEM Pro, Atomos + ProHD client monitors" },
       { id: "e7", supplier: "Michael O'Donahue", item: "Sound kit: lapel + booms, 4x IEMs, 2x TC boxes" },
     ],
     notes:

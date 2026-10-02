@@ -1,6 +1,24 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Addresses that have moved. A shoot day used to be reached through
+  // /shoot-days/<document id>/…; it is now addressed by its date, under the
+  // page it belongs to. The new pages read an id as well as a date, so an old
+  // bookmark lands on the right day and the address then tidies itself.
+  async redirects() {
+    return [
+      {
+        source: "/projects/:project/shoot-days/:day/call-sheet",
+        destination: "/projects/:project/call-sheets/:day",
+        permanent: true,
+      },
+      {
+        source: "/projects/:project/shoot-days/:day/wrap",
+        destination: "/projects/:project/wrap/:day",
+        permanent: true,
+      },
+    ];
+  },
   turbopack: {
     resolveAlias: {
       // Paged.js's package points bundlers at its unbundled source, whose
@@ -23,6 +41,7 @@ const nextConfig: NextConfig = {
     "/api/call-sheets/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/tools/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/documents/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
+    "/api/quotes/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
     // pdfjs loads its font and character maps from disk at read time, and the
     // tracer cannot see a path it builds itself. Nor can it see the require()
     // pdfjs builds at runtime for @napi-rs/canvas — which is not optional:

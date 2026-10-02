@@ -31,7 +31,7 @@ test("seedDemo populates an enriched dataset for the caller's org", async () => 
   expect(counts.sheet.data.contactSections).toHaveLength(3);
   expect(counts.sheet.data.camera?.frameRate).toContain("25");
   expect(counts.sheet.data.confidential).toBe(true);
-  expect(counts.org.settings?.invoicing?.legalName).toBe("Klaxon Studio Ltd");
+  expect(counts.org.settings?.invoicing?.legalName).toBe("Sample Productions Ltd");
 });
 
 test("seedDemo is idempotent", async () => {

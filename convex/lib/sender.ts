@@ -1,4 +1,5 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { clerkOrgIdFromIdentity } from "./auth";
 import { joinName } from "./personName";
 
 export type Sender = { senderName?: string; senderEmail?: string };
@@ -18,12 +19,16 @@ export type Sender = { senderName?: string; senderEmail?: string };
 export async function senderOf(ctx: QueryCtx | MutationCtx): Promise<Sender> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return {};
-  const org = await ctx.db
-    .query("organisations")
-    .withIndex("by_clerk_org", (q) =>
-      q.eq("clerkOrgId", String((identity as unknown as Record<string, unknown>).org_id ?? ""))
-    )
-    .unique();
+  // Either shape of Clerk's organisation claim, as requireOrg reads it: with
+  // only the older one checked, a login carrying the newer one sent every
+  // email without the sender's name on it.
+  const clerkOrgId = clerkOrgIdFromIdentity(identity as unknown as Record<string, unknown>);
+  const org = clerkOrgId
+    ? await ctx.db
+        .query("organisations")
+        .withIndex("by_clerk_org", (q) => q.eq("clerkOrgId", clerkOrgId))
+        .unique()
+    : null;
   const profile = org
     ? await ctx.db
         .query("memberProfiles")

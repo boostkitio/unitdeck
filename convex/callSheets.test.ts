@@ -399,6 +399,29 @@ test("a generated call sheet carries the whole production", async () => {
   expect(data.equipment?.[1].supplier).toBe("Hired in");
 });
 
+test("hired-in kit goes at the bottom of a generated sheet, whenever it was added", async () => {
+  const { t, ids, asA } = await setup();
+  await t.run(async (ctx) => {
+    const line = { orgId: ids.orgA, projectId: ids.projectA, status: "needed" as const };
+    await ctx.db.insert("projectEquipment", { ...line, item: "Techno crane", section: "additional" });
+    await ctx.db.insert("projectEquipment", { ...line, item: "FX9", dept: "Camera", section: "equipment" });
+    // Written before the list was split: it shows under Additional on the
+    // production, so it is a hire-in here too.
+    await ctx.db.insert("projectEquipment", { ...line, item: "Walkie set" });
+    await ctx.db.insert("projectEquipment", { ...line, item: "Boom", dept: "Sound", section: "equipment" });
+  });
+
+  await asA.mutation(api.callSheets.generateFromProject, { shootDayId: ids.dayA });
+  const sheet = await asA.query(api.callSheets.getCurrent, { shootDayId: ids.dayA });
+
+  expect(sheet!.data.equipment?.map((e) => [e.item, e.supplier])).toEqual([
+    ["FX9", "Camera"],
+    ["Boom", "Sound"],
+    ["Techno crane", "Hired in"],
+    ["Walkie set", "Hired in"],
+  ]);
+});
+
 test("a day with no location of its own falls back to the project's", async () => {
   const { t, ids, asA } = await setup();
   await t.run(async (ctx) => {

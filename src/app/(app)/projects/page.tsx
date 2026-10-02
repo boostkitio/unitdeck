@@ -41,6 +41,7 @@ import { formatShootDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { SortableHead, sortRows, useTableSort } from "@/components/sortable-head";
 import { BriefDialog } from "@/components/agents/brief-dialog";
+import { projectHref } from "@/lib/routes";
 
 type SortKey = "job" | "name" | "client" | "location" | "date" | "status";
 
@@ -56,15 +57,6 @@ type SortableProject = {
 };
 
 const STATUS_ORDER = new Map(PROJECT_STATUSES.map((s, i) => [s.value as string, i]));
-
-/**
- * Where a project lives. The job number reads far better in an address bar
- * than a document id, and the page accepts either, so a project without one
- * yet still opens.
- */
-function projectHref(p: { _id: string; jobNumber: string | null }): string {
-  return `/projects/${encodeURIComponent(p.jobNumber ?? p._id)}`;
-}
 
 /**
  * The date shown for a project: its next shoot day, falling back to the last

@@ -18,6 +18,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatPence } from "@/lib/money";
 import { statusLabel } from "@/lib/quote-labels";
+import { quoteHref } from "@/lib/routes";
 
 /**
  * What this job has been quoted at.
@@ -80,7 +81,7 @@ export function QuotesSection({ projectId }: { projectId: Id<"projects"> }) {
                 className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0"
               >
                 <div className="min-w-0">
-                  <Link href={`/quotes/${quote._id}`} className="font-medium hover:underline">
+                  <Link href={quoteHref(quote)} className="font-medium hover:underline">
                     {quote.number}
                   </Link>
                   <p className="text-xs text-muted-foreground">

@@ -37,6 +37,8 @@ import {
   statusLabel,
 } from "@/lib/project-status";
 import { saveStateLabel, useSyncedField } from "@/lib/use-debounced-save";
+import { kitListHref, projectHref, projectRef } from "@/lib/routes";
+import { useCanonicalPath, useHeld, usePinnedRef } from "@/lib/use-canonical-path";
 import { ProjectForecast } from "@/components/projects/project-forecast";
 import { ShootDatesEditor } from "@/components/projects/shoot-dates-editor";
 import { LocationSection } from "@/components/projects/location-section";
@@ -62,8 +64,17 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   // job numbers existed. The query reads either.
   const { id } = use(params);
   const { organization } = useOrganization();
-  const project = useQuery(api.projects.getByRef, organization ? { ref: id } : "skip");
+  const { ref, pin } = usePinnedRef(id);
+  const project = useHeld(
+    id,
+    useQuery(api.projects.getByRef, organization ? { ref } : "skip"),
+  );
+  pin(project?._id);
   const clients = useQuery(api.clients.list, organization ? {} : "skip");
+  // Opened by its id — a link made before it had a job number, or straight
+  // after it was created — the address moves to the job number, and follows
+  // the job number when that is changed.
+  useCanonicalPath(project ? projectHref(project) : null);
 
   if (project === undefined) {
     return (
@@ -135,9 +146,11 @@ function ProjectEditor({
       return;
     }
     try {
+      // The address follows on its own: the page holds the project by id, so
+      // renumbering it does not lose it, and the new number is put in the
+      // address bar as soon as it comes back.
       await updateProject({ id: project._id, jobNumber: next });
       toast.success(`Job number ${next}.`);
-      router.replace(`/projects/${encodeURIComponent(next)}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the job number.");
       setJobNumber(project.jobNumber ?? "");
@@ -286,12 +299,12 @@ function ProjectEditor({
         clientName={project.clientName}
       />
       <ScheduleSection projectId={project._id} />
-      <EquipmentSection projectId={project._id} />
+      <EquipmentSection projectId={project._id} kitListHref={kitListHref(project)} />
       <QuotesSection projectId={project._id} />
       <DocumentsSection projectId={project._id} />
       <CallSheetSection
         projectId={project._id}
-        projectRef={project.jobNumber ?? project._id}
+        projectRef={projectRef(project)}
       />
 
       {/* Destructive action, deliberately last */}

@@ -51,7 +51,7 @@ export function DocumentsSection({ projectId }: { projectId: Id<"projects"> }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${doc.title.replace(/[^\w\- ]/g, "").trim() || "talent-release"}.pdf`;
+      a.download = `${doc.title.replace(/[^\w\- ]/g, "").trim() || "signed-release"}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {

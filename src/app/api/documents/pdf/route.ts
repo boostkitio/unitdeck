@@ -9,11 +9,11 @@ export const maxDuration = 60;
 
 const PDF_HEADERS = {
   "Content-Type": "application/pdf",
-  "Content-Disposition": `attachment; filename="talent-release.pdf"`,
+  "Content-Disposition": `attachment; filename="signed-release.pdf"`,
 };
 
 /**
- * Public PDF endpoint for a signed talent release. The token is the
+ * Public PDF endpoint for a signed release. The token is the
  * document's signToken, so no auth is required here. Serves the stored
  * signed PDF when one exists; otherwise renders the print page to PDF,
  * stores the bytes on the document via Convex storage (first write wins),

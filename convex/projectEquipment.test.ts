@@ -424,6 +424,157 @@ test("a clash names every line on this production asking for the thing", async (
   expect(clashes[0].rowIds.sort()).toEqual([a, b].sort());
 });
 
+test("a job on several dates clashes with one sharing only its last day", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sony FX9", 1);
+  await shootOn(t, extra.orgId, ids.project, "2026-10-20");
+  await shootOn(t, extra.orgId, ids.project, "2026-10-21");
+  await shootOn(t, extra.orgId, extra.other, "2026-10-21");
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Sony FX9" });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "Sony FX9" });
+
+  // Seen from the two-day job, and named by the day it actually bites.
+  const here = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(here).toHaveLength(1);
+  expect(here[0].dates).toEqual(["2026-10-21"]);
+  expect(here[0].others[0]).toMatchObject({ projectName: "Music video", dates: ["2026-10-21"] });
+
+  // And from the one-day job looking the other way.
+  const there = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: extra.other,
+  });
+  expect(there).toHaveLength(1);
+  expect(there[0].others[0]).toMatchObject({ projectName: "Brand film", dates: ["2026-10-21"] });
+});
+
+test("two jobs overlapping on more than one day name every day they share", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Sony FX9", 1);
+  for (const date of ["2026-10-19", "2026-10-20", "2026-10-21"]) {
+    await shootOn(t, extra.orgId, ids.project, date);
+  }
+  for (const date of ["2026-10-20", "2026-10-21", "2026-10-22"]) {
+    await shootOn(t, extra.orgId, extra.other, date);
+  }
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, item: "Sony FX9" });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, item: "Sony FX9" });
+
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes[0].dates).toEqual(["2026-10-20", "2026-10-21"]);
+});
+
+test("a several-day job is counted a day at a time, not across its whole run", async () => {
+  // Two tripods. Monday's shoot takes the spare, Wednesday's shoot takes the
+  // spare, and the job running all week has the other one throughout. Nobody
+  // goes without on any day — adding up everyone who overlaps the week
+  // anywhere made three wanted of two.
+  const { t, ids, asA, extra } = await setupClash();
+  await own(t, extra.orgId, "Tripod", 2);
+  const third = await t.run(async (ctx) =>
+    ctx.db.insert("projects", { orgId: extra.orgId, name: "Doc", status: "confirmed" }),
+  );
+  for (const date of ["2026-10-19", "2026-10-20", "2026-10-21"]) {
+    await shootOn(t, extra.orgId, ids.project, date);
+  }
+  await shootOn(t, extra.orgId, extra.other, "2026-10-19");
+  await shootOn(t, extra.orgId, third, "2026-10-21");
+  for (const projectId of [ids.project, extra.other, third]) {
+    await asA.mutation(api.projectEquipment.add, { projectId, item: "Tripod" });
+  }
+
+  expect(
+    await asA.query(api.projectEquipment.clashesForProject, { projectId: ids.project }),
+  ).toEqual([]);
+
+  // Put the third shoot on the Monday as well and that day does not go round.
+  await shootOn(t, extra.orgId, third, "2026-10-19");
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes).toHaveLength(1);
+  expect(clashes[0].dates).toEqual(["2026-10-19"]);
+  expect(clashes[0].others).toHaveLength(2);
+});
+
+test("the same body on two overlapping jobs is a clash however many are owned", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  const [bodyA] = await t.run(async (ctx) => {
+    const a = await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Sony FX9", serialNumber: "A" });
+    await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Sony FX9", serialNumber: "B" });
+    return [a];
+  });
+  await shootOn(t, extra.orgId, ids.project, "2026-10-20");
+  await shootOn(t, extra.orgId, ids.project, "2026-10-21");
+  await shootOn(t, extra.orgId, extra.other, "2026-10-21");
+  await asA.mutation(api.projectEquipment.add, { projectId: ids.project, equipmentId: bodyA });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, equipmentId: bodyA });
+
+  const clashes = await asA.query(api.projectEquipment.clashesForProject, {
+    projectId: ids.project,
+  });
+  expect(clashes).toHaveLength(1);
+  expect(clashes[0]).toMatchObject({ sameUnit: true, stock: 2, dates: ["2026-10-21"] });
+});
+
+test("the picker is told what is already out on these dates before anything is added", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  const [bodyA, bodyB, gimbal] = await t.run(async (ctx) => [
+    await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Sony FX9", serialNumber: "A" }),
+    await ctx.db.insert("equipment", { orgId: extra.orgId, item: "Sony FX9", serialNumber: "B" }),
+    await ctx.db.insert("equipment", { orgId: extra.orgId, item: "DJI Ronin RS2" }),
+  ]);
+  await shootOn(t, extra.orgId, ids.project, "2026-10-20");
+  await shootOn(t, extra.orgId, ids.project, "2026-10-21");
+  await shootOn(t, extra.orgId, extra.other, "2026-10-21");
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, equipmentId: bodyA });
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, equipmentId: gimbal });
+
+  // Nothing is on this production yet, so nothing clashes — and it still
+  // knows which body the other shoot has, and that the one gimbal is gone.
+  expect(
+    await asA.query(api.projectEquipment.clashesForProject, { projectId: ids.project }),
+  ).toEqual([]);
+  const booked = await asA.query(api.projectEquipment.bookedElsewhereForProject, {
+    projectId: ids.project,
+  });
+  expect(booked).toContainEqual({
+    equipmentId: bodyA,
+    key: "sony fx9",
+    projectNames: ["Music video"],
+    dates: ["2026-10-21"],
+  });
+  expect(booked.find((b) => b.equipmentId === bodyB)).toBeUndefined();
+  // One FX9 is still spare, so the thing itself is not out; the gimbal is.
+  expect(booked.filter((b) => !b.equipmentId).map((b) => b.key)).toEqual(["dji ronin rs2"]);
+});
+
+test("nothing is reported as out for a production with no dates, or by an archived one", async () => {
+  const { t, ids, asA, extra } = await setupClash();
+  const body = await t.run(async (ctx) =>
+    ctx.db.insert("equipment", { orgId: extra.orgId, item: "Sony FX9" }),
+  );
+  await shootOn(t, extra.orgId, extra.other, "2026-10-21");
+  await asA.mutation(api.projectEquipment.add, { projectId: extra.other, equipmentId: body });
+
+  expect(
+    await asA.query(api.projectEquipment.bookedElsewhereForProject, { projectId: ids.project }),
+  ).toEqual([]);
+
+  await shootOn(t, extra.orgId, ids.project, "2026-10-21");
+  expect(
+    await asA.query(api.projectEquipment.bookedElsewhereForProject, { projectId: ids.project }),
+  ).toHaveLength(2);
+
+  await t.run(async (ctx) => await ctx.db.patch(extra.other, { archived: true }));
+  expect(
+    await asA.query(api.projectEquipment.bookedElsewhereForProject, { projectId: ids.project }),
+  ).toEqual([]);
+});
+
 test("removeMany clears several lines and ignores another org's", async () => {
   const { t, ids, asA } = await setup();
   const a = await asA.mutation(api.projectEquipment.add, {

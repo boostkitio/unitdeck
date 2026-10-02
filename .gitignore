@@ -43,5 +43,8 @@ next-env.d.ts
 
 # playwright mcp scratch artifacts
 .playwright-mcp/
-.vercel
+
+# agent tooling state, local to a checkout
 .superpowers/
+.agents/
+.claude/settings.local.json

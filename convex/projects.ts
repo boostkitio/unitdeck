@@ -158,13 +158,11 @@ export const getByRef = query({
     let project = byNumber;
     if (!project) {
       // Not a job number, so try it as a document id — which is what every
-      // link made before job numbers existed contains. A ref that is not an
-      // id at all makes this throw, and "not found" is the right answer.
-      try {
-        project = await ctx.db.get(args.ref as Id<"projects">);
-      } catch {
-        project = null;
-      }
+      // link made before job numbers existed contains. Anything that is not
+      // a project's id, another table's included, normalises to null, and
+      // "not found" is the right answer.
+      const id = ctx.db.normalizeId("projects", args.ref.trim());
+      project = id ? await ctx.db.get(id) : null;
     }
     if (!project || project.orgId !== org._id) return null;
     return await withRelations(ctx, project);
@@ -196,7 +194,13 @@ async function withRelations(ctx: QueryCtx, project: Doc<"projects">) {
   const bookedByIndex =
     byId >= 0
       ? byId
-      : project.bookedByContact !== undefined &&
+      : project.bookedByContactId !== undefined
+        ? // Named by id and no longer there: back to the first contact, not
+          // to whoever has since moved into the place they held in the list.
+          allContacts.length > 0
+          ? 0
+          : null
+        : project.bookedByContact !== undefined &&
           project.bookedByContact >= 0 &&
           project.bookedByContact < allContacts.length
         ? project.bookedByContact

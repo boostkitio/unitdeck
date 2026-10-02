@@ -1,4 +1,4 @@
-export default {
+const authConfig = {
   providers: [
     {
       // Clerk Frontend API URL (issuer). Set in the Convex dashboard env as CLERK_JWT_ISSUER_DOMAIN.
@@ -7,3 +7,5 @@ export default {
     },
   ],
 };
+
+export default authConfig;

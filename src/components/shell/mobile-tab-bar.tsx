@@ -13,8 +13,11 @@ export function MobileTabBar() {
     /* h-16 plus safe-area padding squashed the icons into whatever the home
        indicator left of 64px. Adding the inset to the height instead keeps the
        row a stable 64px on every handset. */
+    /* print:hidden because paper is narrower than the md breakpoint: print
+       gets this bar, and a fixed element is repeated at the foot of every
+       page, over whatever the last two rows of a kit list were. */
     <nav
-      className="fixed inset-x-0 bottom-0 z-30 flex items-stretch border-t border-border bg-background/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 flex items-stretch border-t border-border bg-background/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden print:hidden"
       style={{ height: "calc(4rem + env(safe-area-inset-bottom))" }}
     >
       {PRIMARY_TABS.map((item) => {

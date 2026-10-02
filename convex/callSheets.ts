@@ -10,6 +10,7 @@ import {
 } from "./lib/callSheetData";
 import { contactsOf } from "./clients";
 import { byCrewOrder } from "./lib/crewOrder";
+import { HIRED_IN, sectionOf } from "./lib/kitSection";
 import { locationEntryFields } from "./lib/sheetLocations";
 import {
   requireSheetKey,
@@ -149,10 +150,17 @@ async function buildFromProject(
     if (person) people.set(String(row.personId), person);
   }
 
-  const kit = await ctx.db
+  const kitRows = await ctx.db
     .query("projectEquipment")
     .withIndex("by_project", (q) => q.eq("projectId", day.projectId))
     .take(500);
+  // Own kit first, hire-ins last, each in the order it was entered: the list
+  // is read top to bottom by whoever is loading the van, and what has to be
+  // collected from somebody else is a separate job at the end of it.
+  const kit = [
+    ...kitRows.filter((row) => sectionOf(row) === "equipment"),
+    ...kitRows.filter((row) => sectionOf(row) === "additional"),
+  ];
 
   const logoUrl = org.settings?.logoStorageId
     ? ((await ctx.storage.getUrl(org.settings.logoStorageId)) ?? undefined)
@@ -271,7 +279,7 @@ async function buildFromProject(
       id: `kit-${i + 1}`,
       // The hire-ins are what a call sheet needs to name a supplier for; own
       // kit is filed under its department instead.
-      supplier: row.section === "additional" ? "Hired in" : row.dept,
+      supplier: sectionOf(row) === "additional" ? HIRED_IN : row.dept,
       item: row.quantity && row.quantity > 1 ? `${row.quantity} × ${row.item}` : row.item,
     })),
     notes: project.briefSummary,

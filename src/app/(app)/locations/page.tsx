@@ -108,6 +108,8 @@ export default function LocationsPage() {
               "Nearest A&E",
               "Nearest police station",
               "Nearest station",
+              "Nearest Tube",
+              "Nearest National Rail",
               "Plus Code",
               "Sat nav",
               "Notes",

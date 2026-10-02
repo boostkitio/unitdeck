@@ -6,9 +6,11 @@ import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Doc, Id } from "../../../convex/_generated/dataModel";
 import {
+  type EquipmentBooking,
   type EquipmentClash,
   type EquipmentSection as SectionKey,
 } from "../../../convex/projectEquipment";
+import { itemKey } from "../../../convex/lib/itemKey";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -67,9 +69,22 @@ function equipmentSortValue(row: EquipmentRow, key: EquipmentSortKey): string | 
  * is hired in on top. They are one table with one set of behaviours — only the
  * heading, the empty state and the buttons differ.
  */
-export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
+export function EquipmentSection({
+  projectId,
+  kitListHref,
+}: {
+  projectId: Id<"projects">;
+  /** Where this production's printable kit list lives. */
+  kitListHref: string;
+}) {
   const equipment = useQuery(api.projectEquipment.listForProject, { projectId });
   const clashes = useQuery(api.projectEquipment.clashesForProject, { projectId });
+  const booked = useQuery(api.projectEquipment.bookedElsewhereForProject, { projectId });
+  // The lines that are part of a clash, so each can say so where it sits.
+  const overbooked = useMemo(
+    () => new Set((clashes ?? []).flatMap((clash) => clash.rowIds)),
+    [clashes],
+  );
 
   const [adding, setAdding] = useState<SectionKey | null>(null);
   const [editing, setEditing] = useState<EquipmentRow | null>(null);
@@ -91,6 +106,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
       <EquipmentList
         title="Equipment"
         rows={standard}
+        overbooked={overbooked}
         loading={rows === undefined}
         empty="Nothing listed. Add equipment to pull in your own kit, a package, or the list off another job."
         onEdit={setEditing}
@@ -103,7 +119,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
               size="sm"
               variant="secondary"
               disabled={(rows ?? []).length === 0}
-              render={<Link href={`/projects/${projectId}/kit-list`} />}
+              render={<Link href={kitListHref} />}
             >
               Kit list
             </Button>
@@ -117,6 +133,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
       <EquipmentList
         title="Additional equipment"
         rows={additional}
+        overbooked={overbooked}
         loading={rows === undefined}
         empty="Nothing extra. Anything hired in, or off a normal job, goes here."
         onEdit={setEditing}
@@ -132,7 +149,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
           projectId={projectId}
           section={adding}
           taken={(rows ?? []).map((row) => row.equipmentId)}
-          clashes={clashes ?? []}
+          booked={booked ?? []}
           onClose={() => setAdding(null)}
         />
       )}
@@ -142,7 +159,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
           section={editing.section}
           row={editing}
           taken={(rows ?? []).map((row) => row.equipmentId)}
-          clashes={clashes ?? []}
+          booked={booked ?? []}
           onClose={() => setEditing(null)}
         />
       )}
@@ -153,6 +170,7 @@ export function EquipmentSection({ projectId }: { projectId: Id<"projects"> }) {
 function EquipmentList({
   title,
   rows,
+  overbooked,
   loading,
   empty,
   actions,
@@ -160,6 +178,8 @@ function EquipmentList({
 }: {
   title: string;
   rows: EquipmentRow[];
+  /** Lines that are part of a clash with another production. */
+  overbooked: Set<Id<"projectEquipment">>;
   loading: boolean;
   empty: string;
   actions: React.ReactNode;
@@ -292,7 +312,17 @@ function EquipmentList({
                     <TableCell className="truncate text-muted-foreground">
                       {row.dept ?? "·"}
                     </TableCell>
-                    <TableCell className="font-medium">{row.item}</TableCell>
+                    <TableCell className="font-medium">
+                      {row.item}
+                      {/* Said on the line as well as in the warning above the
+                          lists: thirty lines down, the warning is off screen
+                          and this is the one you are looking at. */}
+                      {overbooked.has(row._id) && (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                          Overbooked
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {row.quantity ?? "·"}
                     </TableCell>
@@ -387,8 +417,9 @@ function ClashWarning({ clashes }: { clashes: EquipmentClash[] }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-amber-900 dark:text-amber-200">
           <span className="font-medium">{clashes.length}</span>{" "}
-          {clashes.length === 1 ? "item is" : "items are"} overbooked — more is wanted on the
-          day than you own.
+          {clashes.length === 1 ? "item is" : "items are"} overbooked on{" "}
+          {readableDates([...new Set(clashes.flatMap((clash) => clash.dates))].sort())} — more is
+          wanted than you own.
         </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>
@@ -446,6 +477,13 @@ function ClashWarning({ clashes }: { clashes: EquipmentClash[] }) {
   );
 }
 
+/** "Tue 20 Oct and Wed 21 Oct" — the days as somebody would say them. */
+function readableDates(dates: string[]): string {
+  const said = dates.map(formatShootDate);
+  if (said.length <= 1) return said[0] ?? "";
+  return `${said.slice(0, -1).join(", ")} and ${said[said.length - 1]}`;
+}
+
 /** The booking status of the other production, in the words the app uses. */
 function statusLabel(status: string): string {
   return PROJECT_STATUSES.find((s) => s.value === status)?.label ?? status;
@@ -458,13 +496,13 @@ function statusLabel(status: string): string {
  */
 function EquipmentPicker({
   taken,
-  clashes,
+  booked,
   disabled,
   onPick,
 }: {
   taken: (Id<"equipment"> | undefined)[];
-  /** Kit another production wants on one of these shoot days. */
-  clashes: EquipmentClash[];
+  /** Kit another production already has on one of these shoot days. */
+  booked: EquipmentBooking[];
   disabled: boolean;
   onPick: (equipmentId: Id<"equipment">) => void;
 }) {
@@ -486,11 +524,24 @@ function EquipmentPicker({
   );
 
   // Said before the click rather than after: adding it is still allowed, but
-  // you should know it is spoken for.
-  const clashByItem = useMemo(
-    () => new Map(clashes.map((clash) => [clash.key, clash])),
-    [clashes],
+  // you should know it is spoken for. The exact piece of kit being on another
+  // production is the stronger statement, so it is looked for first; failing
+  // that, whether there is any of the thing left at all.
+  const bookedUnit = useMemo(
+    () => new Map(booked.filter((b) => b.equipmentId).map((b) => [b.equipmentId!, b])),
+    [booked],
   );
+  const noneLeft = useMemo(
+    () => new Map(booked.filter((b) => !b.equipmentId).map((b) => [b.key, b])),
+    [booked],
+  );
+  function spokenFor(row: { _id: Id<"equipment">; item: string }): string | null {
+    const unit = bookedUnit.get(row._id);
+    if (unit) return `On ${unit.projectNames.join(", ")} · ${readableDates(unit.dates)}`;
+    const none = noneLeft.get(itemKey(row.item));
+    if (none) return `None spare on ${readableDates(none.dates)} · ${none.projectNames.join(", ")}`;
+    return null;
+  }
 
   if (equipment === undefined) {
     return (
@@ -527,7 +578,9 @@ function EquipmentPicker({
         </p>
       ) : (
         <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
-          {matches.map((row) => (
+          {matches.map((row) => {
+            const note = spokenFor(row);
+            return (
             <li key={row._id}>
               <button
                 type="button"
@@ -544,14 +597,15 @@ function EquipmentPicker({
                 <span className="block w-full truncate text-xs text-muted-foreground">
                   {row.serialNumber ? `Serial ${row.serialNumber}` : "No serial number"}
                 </span>
-                {clashByItem.get(row.item.trim().toLowerCase().replace(/\s+/g, " ")) && (
+                {note && (
                   <span className="block w-full truncate text-xs text-amber-700 dark:text-amber-400">
-                    Already overbooked on this day
+                    {note}
                   </span>
                 )}
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>
@@ -566,7 +620,7 @@ function EquipmentDialog({
   section,
   row,
   taken,
-  clashes,
+  booked,
   onClose,
 }: {
   projectId: Id<"projects">;
@@ -574,7 +628,7 @@ function EquipmentDialog({
   row?: EquipmentRow;
   /** Inventory already on this project, so the picker does not offer it twice. */
   taken: (Id<"equipment"> | undefined)[];
-  clashes: EquipmentClash[];
+  booked: EquipmentBooking[];
   onClose: () => void;
 }) {
   const add = useMutation(api.projectEquipment.add);
@@ -696,7 +750,7 @@ function EquipmentDialog({
           <div className="py-2">
             <EquipmentPicker
               taken={taken}
-              clashes={clashes}
+              booked={booked}
               disabled={saving}
               onPick={(id) => void pick(id)}
             />

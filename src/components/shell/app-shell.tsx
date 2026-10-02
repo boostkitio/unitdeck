@@ -20,7 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
                 pb-24 on mobile clears the fixed bottom tab bar (plus the
                 home-indicator safe area). */}
-            <div className="mx-auto max-w-[1600px] px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-8 md:py-8 md:pb-8">
+            <div className="mx-auto max-w-[1600px] px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-8 md:py-8 md:pb-8 print:p-0">
               {children}
             </div>
           </main>

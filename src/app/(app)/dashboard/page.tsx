@@ -15,6 +15,7 @@ import { statusBadgeClass, statusLabel } from "@/lib/project-status";
 import { ShootCalendar } from "@/components/dashboard/shoot-calendar";
 import { NewQuoteDialog } from "@/components/quotes/new-quote-dialog";
 import { cn } from "@/lib/utils";
+import { projectHref } from "@/lib/routes";
 
 // ── Inline sub-components ────────────────────────────────────────────────────
 
@@ -218,7 +219,7 @@ export default function DashboardPage() {
                       </p>
                       <Link
                         className="shrink-0 text-xs text-primary underline underline-offset-2"
-                        href={`/projects/${group.projectId}`}
+                        href={projectHref({ _id: group.projectId, jobNumber: group.projectJobNumber })}
                       >
                         Open project
                       </Link>
@@ -301,7 +302,7 @@ export default function DashboardPage() {
               {active.map((p) => (
                 <li key={p._id}>
                   <Link
-                    href={`/projects/${encodeURIComponent(p.jobNumber ?? p._id)}`}
+                    href={projectHref(p)}
                     className="flex items-center justify-between gap-3 py-2.5 hover:text-foreground"
                   >
                     <span className="truncate font-medium text-foreground">{p.name}</span>

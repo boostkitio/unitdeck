@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { projectHref } from "@/lib/routes";
 
 export function BriefDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
@@ -95,7 +96,7 @@ export function BriefDialog({ onClose }: { onClose: () => void }) {
                 const projectId = await approve({ runId: runId!, ...final });
                 toast.success("Project created from the brief.");
                 onClose();
-                router.push(`/projects/${projectId}`);
+                router.push(projectHref(projectId));
               } catch (err) {
                 toast.error(err instanceof Error ? err.message : "Could not create the project.");
                 setBusy(false);

@@ -8,6 +8,8 @@ import { api } from "../../../../../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CallSheetComposer } from "@/components/call-sheet/call-sheet-composer";
+import { combinedCallSheetHref, projectHref } from "@/lib/routes";
+import { useCanonicalPath, useHeld, usePinnedRef } from "@/lib/use-canonical-path";
 
 /**
  * The production's combined call sheet: several dates on one document, kept
@@ -18,7 +20,13 @@ export default function CombinedCallSheetPage({ params }: { params: Promise<{ id
   const { id } = use(params);
   const { organization } = useOrganization();
   // The URL holds a job number, or a document id on older links.
-  const project = useQuery(api.projects.getByRef, organization ? { ref: id } : "skip");
+  const { ref, pin } = usePinnedRef(id);
+  const project = useHeld(
+    id,
+    useQuery(api.projects.getByRef, organization ? { ref } : "skip"),
+  );
+  pin(project?._id);
+  useCanonicalPath(project ? combinedCallSheetHref(project) : null);
   const draft = useQuery(
     api.callSheets.getCurrentCombined,
     project ? { projectId: project._id } : "skip",
@@ -42,7 +50,12 @@ export default function CombinedCallSheetPage({ params }: { params: Promise<{ id
           This production has no combined call sheet yet. Generate one from the Call sheet section
           on the project.
         </p>
-        <Button variant="secondary" size="sm" className="mt-4" render={<Link href={`/projects/${id}`} />}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="mt-4"
+          render={<Link href={projectHref(project)} />}
+        >
           Back to project
         </Button>
       </div>
@@ -55,7 +68,7 @@ export default function CombinedCallSheetPage({ params }: { params: Promise<{ id
       key={draft._id}
       draft={draft}
       target={{ kind: "combined", projectId: project._id }}
-      backHref={`/projects/${id}`}
+      backHref={projectHref(project)}
     />
   );
 }

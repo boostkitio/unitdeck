@@ -84,7 +84,7 @@ export function SendReleaseButton({
           <DialogTitle>Send for signing?</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          This emails a signing link to the talent and locks the release from further edits until
+          This emails a signing link to the signer and locks the release from further edits until
           it&apos;s signed or declined.
         </p>
         <DialogFooter>

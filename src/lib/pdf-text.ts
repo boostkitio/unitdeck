@@ -66,12 +66,13 @@ export async function pdfToText(file: Uint8Array): Promise<string> {
   // Imported here rather than at the top: it is a large library, wanted only
   // when somebody actually hands over a PDF.
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const doc = await pdfjs.getDocument({
+  const loading = pdfjs.getDocument({
     data: file,
     // Nothing here is drawn, so there is no reason to go looking for fonts on
     // the machine to draw it with.
     useSystemFonts: false,
-  }).promise;
+  });
+  const doc = await loading.promise;
 
   const pages: string[] = [];
   try {
@@ -92,7 +93,9 @@ export async function pdfToText(file: Uint8Array): Promise<string> {
       page.cleanup();
     }
   } finally {
-    await doc.destroy();
+    // The loading task owns the worker; the document itself no longer has a
+    // destroy of its own.
+    await loading.destroy();
   }
 
   return pages.filter((page) => page.trim().length > 0).join("\n");

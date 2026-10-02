@@ -89,7 +89,7 @@ test("send rejects an empty recipient list and bad emails", async () => {
 });
 
 test("cross-org send is rejected", async () => {
-  const { t, asA, ids } = await setup();
+  const { t, ids } = await setup();
   await t.run(async (ctx) => {
     await ctx.db.insert("organisations", { name: "Org B", clerkOrgId: "org_b" });
   });

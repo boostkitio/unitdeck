@@ -5,7 +5,7 @@
 // file (AGENTS.md / CLAUDE.md / CODEBUDDY.md) and reviews generically.
 //
 // Env: OPENROUTER_API_KEY (required), PR_NUMBER (required), GH_TOKEN (required).
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -34,7 +34,14 @@ function readConventions() {
 }
 const conventions = readConventions()
 
-const diff = execSync('gh pr diff ' + prNumber, { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 })
+// Arguments are passed as a list, never through a shell: the PR number comes
+// from the environment and the review text further down comes from a model
+// that has just read a diff anybody can write, and a shell would run whatever
+// either of them put inside $(...) with the workflow's tokens to hand.
+const diff = execFileSync('gh', ['pr', 'diff', String(prNumber)], {
+  encoding: 'utf8',
+  maxBuffer: 20 * 1024 * 1024
+})
 
 if (!diff.trim()) {
   console.log('No diff to review')
@@ -88,5 +95,8 @@ if (!review) {
   process.exit(1)
 }
 
-execSync('gh pr comment ' + prNumber + ' --body ' + JSON.stringify(review), { stdio: 'inherit' })
+execFileSync('gh', ['pr', 'comment', String(prNumber), '--body-file', '-'], {
+  input: review,
+  stdio: ['pipe', 'inherit', 'inherit']
+})
 console.log('DeepSeek review posted to PR ' + prNumber)

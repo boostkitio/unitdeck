@@ -25,6 +25,8 @@ import { AddLineDialog } from "@/components/quotes/add-line-dialog";
 import { QuoteStatusChip } from "../page";
 import { formatPence, bpInput, parsePercent, parsePounds, poundsInput } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { projectHref, quoteHref, quoteViewHref } from "@/lib/routes";
+import { useCanonicalPath, useHeld, usePinnedRef } from "@/lib/use-canonical-path";
 import { NEW_CLIENT, NewClientDialog } from "@/components/clients/new-client-dialog";
 import { useOrganization } from "@clerk/nextjs";
 import { displayName } from "../../../../../convex/lib/personName";
@@ -37,9 +39,14 @@ import {
 } from "@/lib/quote-labels";
 
 export default function QuotePage({ params }: { params: Promise<{ id: string }> }) {
+  // The URL holds the quote's reference, or a document id on older links.
   const { id } = use(params);
-  const quoteId = id as Id<"quotes">;
-  const data = useQuery(api.quotes.get, { id: quoteId });
+  // Held by id once found, so retyping the reference in the box below does
+  // not lose the quote; the address follows the new reference.
+  const { ref, pin } = usePinnedRef(id);
+  const data = useHeld(id, useQuery(api.quotes.getByRef, { ref }));
+  pin(data?.quote._id);
+  useCanonicalPath(data ? quoteHref(data.quote) : null);
 
   if (data === undefined) return <Skeleton className="h-96 w-full" />;
   if (data === null) {
@@ -52,10 +59,10 @@ export default function QuotePage({ params }: { params: Promise<{ id: string }> 
       </div>
     );
   }
-  return <QuoteEditor quoteId={quoteId} data={data} />;
+  return <QuoteEditor key={data.quote._id} quoteId={data.quote._id} data={data} />;
 }
 
-type QuoteData = NonNullable<typeof api.quotes.get._returnType>;
+type QuoteData = NonNullable<typeof api.quotes.getByRef._returnType>;
 
 function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData }) {
   const router = useRouter();
@@ -133,7 +140,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             <span className="font-mono text-xs">{quote.number}</span>
             {" · "}
             {data.project ? (
-              <Link href={`/projects/${data.project._id}`} className="hover:underline">
+              <Link href={projectHref(data.project)} className="hover:underline">
                 {data.project.name}
               </Link>
             ) : quote.archived ? (
@@ -210,7 +217,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
           >
             Rebuild lines
           </Button>
-          <Button variant="secondary" size="sm" render={<Link href={`/quotes/${quoteId}/view`} />}>
+          <Button variant="secondary" size="sm" render={<Link href={quoteViewHref(quote)} />}>
             Client copy
           </Button>
           <Button
@@ -220,7 +227,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             title="Copies this quote as the next version, leaving what was sent exactly as it went out."
             onClick={() =>
               void run(
-                newVersion({ id: quoteId }).then((id) => router.push(`/quotes/${id}`)),
+                newVersion({ id: quoteId }).then((id) => router.push(quoteHref(id))),
                 "Could not start a new version."
               )
             }
@@ -234,7 +241,7 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
             title="Starts a new quote from this one — same lines, figures and terms, with a reference of its own and not on any production."
             onClick={() =>
               void run(
-                duplicate({ id: quoteId }).then((id) => router.push(`/quotes/${id}`)),
+                duplicate({ id: quoteId }).then((id) => router.push(quoteHref(id))),
                 "Could not duplicate it.",
                 "Duplicated — this is the copy."
               )

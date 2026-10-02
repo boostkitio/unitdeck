@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { requireOrg } from "./lib/auth";
 import { normaliseStatus } from "./lib/projectStatus";
 import { itemKey } from "./lib/itemKey";
+import { clashesFor, kitDemand, kitStock } from "./lib/kitClashes";
 import { Doc, Id } from "./_generated/dataModel";
 
 export type AttentionItem = {
@@ -23,6 +24,8 @@ export type AttentionItem = {
     | "weather_risk";
   projectId: Id<"projects">;
   projectName: string;
+  /** The production's job number, which is what its address is built from. */
+  projectJobNumber: string | null;
   // A production with no dates in the diary still has work to chase, so both
   // of these are absent for one that has not been scheduled yet.
   shootDayId?: Id<"shootDays">;
@@ -160,77 +163,30 @@ export const attention = query({
     }
 
     // ---- Kit booked on two productions at once -------------------------------
-    // Counted the same way the project page counts it, so the dashboard and
-    // the project never disagree — and raised once per production as a count,
-    // because twenty lines all saying the same thing about the same shoot is
-    // not twenty problems.
-    const stock = new Map<string, number>();
-    for (const kit of inventory) {
-      if (kit.archived) continue;
-      const key = itemKey(kit.item);
-      stock.set(key, (stock.get(key) ?? 0) + 1);
-    }
+    // Counted by the same code the project page counts it with, so the
+    // dashboard and the project never disagree — and raised once per
+    // production as a count, because twenty lines all saying the same thing
+    // about the same shoot is not twenty problems.
+    const stock = kitStock(inventory);
+    const demand = kitDemand(kitRows, stock);
 
     // Which days each production holds. Only productions with dates can clash.
     const datesByProject = new Map<Id<"projects">, Set<string>>();
-    for (const day of days) {
-      if (!live.has(day.projectId)) continue;
+    for (const day of upcoming) {
       const set = datesByProject.get(day.projectId);
       if (set) set.add(day.date);
       else datesByProject.set(day.projectId, new Set([day.date]));
     }
 
-    // What each production wants of each thing, and which exact pieces of kit
-    // it has claimed.
-    const demand = new Map<
-      string,
-      Map<Id<"projects">, { count: number; units: Set<string> }>
-    >();
-    for (const row of kitRows) {
-      if (!datesByProject.has(row.projectId)) continue;
-      const key = itemKey(row.item);
-      if (!stock.has(key)) continue; // Hired in: nothing fixed to run out of.
-      const byItem =
-        demand.get(key) ?? new Map<Id<"projects">, { count: number; units: Set<string> }>();
-      const entry = byItem.get(row.projectId) ?? { count: 0, units: new Set<string>() };
-      entry.count += row.quantity ?? 1;
-      if (row.equipmentId) entry.units.add(String(row.equipmentId));
-      byItem.set(row.projectId, entry);
-      demand.set(key, byItem);
-    }
-
     // How many items each production is overbooked on, and the day it bites.
     const clashCount = new Map<Id<"projects">, { count: number; date: string }>();
-    for (const [key, byProject] of demand) {
-      if (byProject.size < 2) continue;
-      const held = stock.get(key)!;
-
-      for (const [projectId, mine] of byProject) {
-        const myDates = datesByProject.get(projectId)!;
-        let clashingOn: string | null = null;
-        let total = mine.count;
-        let sameUnit = false;
-
-        for (const [otherId, other] of byProject) {
-          if (otherId === projectId) continue;
-          const otherDates = datesByProject.get(otherId)!;
-          const shared = [...myDates].filter((d) => otherDates.has(d)).sort();
-          if (shared.length === 0) continue;
-          total += other.count;
-          if ([...other.units].some((unit) => mine.units.has(unit))) sameUnit = true;
-          if (!clashingOn || shared[0] < clashingOn) clashingOn = shared[0];
-        }
-        if (clashingOn === null) continue;
-        if (!sameUnit && total <= held) continue;
-
-        const running = clashCount.get(projectId);
-        if (running) {
-          running.count++;
-          if (clashingOn < running.date) running.date = clashingOn;
-        } else {
-          clashCount.set(projectId, { count: 1, date: clashingOn });
-        }
-      }
+    for (const projectId of datesByProject.keys()) {
+      const clashes = clashesFor(projectId, demand, stock, datesByProject);
+      if (clashes.length === 0) continue;
+      clashCount.set(projectId, {
+        count: clashes.length,
+        date: clashes.map((clash) => clash.dates[0]).sort()[0],
+      });
     }
 
     // ---- Which productions are behind us ------------------------------------
@@ -261,6 +217,7 @@ export const attention = query({
       const base = {
         projectId: project._id,
         projectName: project.name,
+        projectJobNumber: project.jobNumber ?? null,
         shootDayId: day?._id,
         date: day?.date,
       };
@@ -403,6 +360,7 @@ export const attention = query({
       items.push({
         projectId: project._id,
         projectName: project.name,
+        projectJobNumber: project.jobNumber ?? null,
         shootDayId: day._id,
         date: day.date,
         kind: "weather_risk",
@@ -431,6 +389,7 @@ export type UpcomingShootDay = {
   shootDayId: Id<"shootDays">;
   projectId: Id<"projects">;
   projectName: string;
+  projectJobNumber: string | null;
   date: string;
   label?: string;
   locationName: string | null;
@@ -487,6 +446,7 @@ async function shootDaysBetween(
       shootDayId: day._id,
       projectId: project._id,
       projectName: project.name,
+      projectJobNumber: project.jobNumber ?? null,
       date: day.date,
       label: day.label,
       locationName: firstLocation?.name ?? null,

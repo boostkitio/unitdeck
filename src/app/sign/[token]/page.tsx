@@ -45,6 +45,7 @@ export default function SignDocumentPage({ params }: { params: Promise<{ token: 
   }
 
   const productionTitle = result.data.productionTitle;
+  const releaseName = result.data.kind === 'location' ? 'Location release' : 'Talent release';
 
   function pointerPos(e: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
@@ -132,7 +133,7 @@ export default function SignDocumentPage({ params }: { params: Promise<{ token: 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${productionTitle.replace(/[^\w\- ]/g, "") || "talent release"} signed release.pdf`;
+      a.download = `${productionTitle.replace(/[^\w\- ]/g, "") || releaseName.toLowerCase()} signed release.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -143,7 +144,7 @@ export default function SignDocumentPage({ params }: { params: Promise<{ token: 
   return (
     <Shell>
       <p className="text-[11px] tracking-widest text-muted-foreground">{result.data.productionCompany}</p>
-      <h1 className="mt-1 font-heading text-xl font-semibold text-foreground">Talent release</h1>
+      <h1 className="mt-1 font-heading text-xl font-semibold text-foreground">{releaseName}</h1>
       <p className="mt-0.5 text-sm text-muted-foreground">{result.data.productionTitle}</p>
 
       <div className="mt-4 max-h-[65vh] overflow-auto rounded-xl border border-border bg-neutral-800/40 p-3">

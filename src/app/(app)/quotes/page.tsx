@@ -24,6 +24,7 @@ import { matchesSearch } from "@/lib/search";
 import { formatPence } from "@/lib/money";
 import { statusLabel } from "@/lib/quote-labels";
 import { cn } from "@/lib/utils";
+import { projectHref, quoteHref } from "@/lib/routes";
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -64,7 +65,7 @@ export default function QuotesPage() {
     try {
       const copyId = await duplicate({ id });
       toast.success("Duplicated — this is the copy.");
-      router.push(`/quotes/${copyId}`);
+      router.push(quoteHref(copyId));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not duplicate it.");
     } finally {
@@ -149,7 +150,7 @@ export default function QuotesPage() {
                     <TableRow
                       key={quote._id}
                       className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => router.push(`/quotes/${quote._id}`)}
+                      onClick={() => router.push(quoteHref(quote))}
                     >
                       <TableCell>
                         <span className="font-medium">{quote.number}</span>
@@ -162,7 +163,10 @@ export default function QuotesPage() {
                       <TableCell>
                         {quote.projectId ? (
                           <Link
-                            href={`/projects/${quote.projectId}`}
+                            href={projectHref({
+                              _id: quote.projectId,
+                              jobNumber: quote.projectJobNumber,
+                            })}
                             className="hover:underline"
                             onClick={(e) => e.stopPropagation()}
                           >

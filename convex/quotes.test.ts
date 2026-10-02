@@ -1463,3 +1463,36 @@ test("another org cannot duplicate your quote", async () => {
   const id = await asA.mutation(api.quotes.create, { title: "Private" });
   await expect(asB.mutation(api.quotes.duplicate, { id })).rejects.toThrow();
 });
+
+test("a quote is found by its reference, and by its id on an older link", async () => {
+  const { ids, asA, asB } = await setup();
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const number = (await asA.query(api.quotes.get, { id }))!.quote.number;
+
+  expect((await asA.query(api.quotes.getByRef, { ref: number }))!.quote._id).toBe(id);
+  expect((await asA.query(api.quotes.getByRef, { ref: id }))!.quote._id).toBe(id);
+  // Neither a reference nor an id: not found, rather than an error.
+  expect(await asA.query(api.quotes.getByRef, { ref: "no-such-quote" })).toBeNull();
+  // An id from another table is not a quote either.
+  expect(await asA.query(api.quotes.getByRef, { ref: ids.project })).toBeNull();
+
+  // The reference is only a name inside the account that gave it.
+  expect(await asB.query(api.quotes.getByRef, { ref: number })).toBeNull();
+  expect(await asB.query(api.quotes.getByRef, { ref: id })).toBeNull();
+});
+
+test("a quote cannot take a reference another quote already has", async () => {
+  const { ids, asA } = await setup();
+  const first = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const second = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const taken = (await asA.query(api.quotes.get, { id: first }))!.quote.number;
+
+  await expect(asA.mutation(api.quotes.update, { id: second, number: taken })).rejects.toThrow(
+    /already in use/,
+  );
+  await expect(
+    asA.mutation(api.quotes.create, { projectId: ids.project, number: taken }),
+  ).rejects.toThrow(/already in use/);
+  // Saving a quote's own reference back onto it is not a collision.
+  await asA.mutation(api.quotes.update, { id: first, number: taken });
+});

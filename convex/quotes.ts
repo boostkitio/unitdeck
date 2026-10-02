@@ -165,6 +165,7 @@ export const list = query({
         archived: quote.archived === true,
         projectId: quote.projectId ?? null,
         projectName: project?.name ?? null,
+        projectJobNumber: project?.jobNumber ?? null,
         totals: totalsFor(quote, lines, overrides),
       });
     }
@@ -182,6 +183,46 @@ export const get = query({
     return await readQuote(ctx, args.id);
   },
 });
+
+/**
+ * Finds a quote by whatever the URL holds — its reference, or the document id
+ * links used before quotes were addressed by reference. Keeping both readable
+ * means a bookmark or a link already shared still opens.
+ */
+export const getByRef = query({
+  args: { ref: v.string() },
+  handler: async (ctx, args): Promise<QuoteView | null> => {
+    const { org } = await requireOrg(ctx);
+    const ref = args.ref.trim();
+    const byNumber = await ctx.db
+      .query("quotes")
+      .withIndex("by_org_and_number", (q) => q.eq("orgId", org._id).eq("number", ref))
+      .first();
+    // Not a reference, so try it as a document id. Anything that is not one
+    // normalises to null, and "not found" is the right answer.
+    const id = byNumber?._id ?? ctx.db.normalizeId("quotes", ref);
+    if (!id) return null;
+    const quote = byNumber ?? (await ctx.db.get(id));
+    if (!quote || quote.orgId !== org._id) return null;
+    return await readQuote(ctx, id);
+  },
+});
+
+/** Rejects a reference already in use, which the URL depends on. */
+async function assertQuoteNumberFree(
+  ctx: MutationCtx,
+  orgId: Id<"organisations">,
+  number: string,
+  ignore?: Id<"quotes">
+) {
+  const taken = await ctx.db
+    .query("quotes")
+    .withIndex("by_org_and_number", (q) => q.eq("orgId", orgId).eq("number", number))
+    .take(2);
+  if (taken.some((q) => q._id !== ignore)) {
+    throw new Error(`Quote number ${number} is already in use`);
+  }
+}
 
 export type QuoteView = NonNullable<Awaited<ReturnType<typeof readQuote>>>;
 
@@ -330,6 +371,7 @@ export const create = mutation({
     const number =
       args.number?.trim() ||
       (await nextNumber(ctx, org._id, client?.name ?? project?.name ?? title ?? null));
+    if (args.number?.trim()) await assertQuoteNumberFree(ctx, org._id, number);
 
     // The name they set in UnitDeck first: Clerk's is blank unless the
     // instance has Name enabled, which is why memberProfiles exists.
@@ -561,6 +603,7 @@ export const update = mutation({
     const patch: Record<string, unknown> = {};
     if (args.number !== undefined) {
       if (args.number.trim().length === 0) throw new Error("A quote needs a number");
+      await assertQuoteNumberFree(ctx, org._id, args.number.trim(), args.id);
       patch.number = args.number.trim();
     }
     if (args.status !== undefined) {

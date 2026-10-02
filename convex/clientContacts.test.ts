@@ -431,3 +431,24 @@ describe("a note about somebody on one production", () => {
     expect(onJob.find((c) => c.name === "Ada Vaughn")?.notes).toBeNull();
   });
 });
+
+test("editing a contact keeps the id its bookings point at", async () => {
+  const { t, asA } = await setup();
+  const clientId = await asA.mutation(api.clients.create, { name: "Acme Films" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Sam Reed" });
+  await asA.mutation(api.clients.saveContact, { id: clientId, name: "Jo Patel" });
+  const before = contactsOf((await t.run(async (ctx) => ctx.db.get(clientId)))!);
+  expect(before.every((c) => typeof c.id === "string")).toBe(true);
+
+  // A corrected phone number is the same person. A new id here would take
+  // them off every production that had booked them by the old one.
+  await asA.mutation(api.clients.saveContact, {
+    id: clientId,
+    index: 1,
+    name: "Jo Patel",
+    phone: "07700 900111",
+  });
+  const after = contactsOf((await t.run(async (ctx) => ctx.db.get(clientId)))!);
+  expect(after.map((c) => c.id)).toEqual(before.map((c) => c.id));
+  expect(after[1].phone).toBe("07700 900111");
+});

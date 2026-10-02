@@ -503,6 +503,7 @@ export const deliverSignedCopy = internalAction({
       productionTitle: doc.data.productionTitle,
       productionCompany: doc.data.productionCompany,
       viewUrl: `${siteUrl}/sign/${doc.signToken}`,
+      kind: doc.data.kind === "location" ? "location" : "talent",
     });
     const to = [doc.signer.email].filter(Boolean) as string[];
     const result = await sendEmail({ apiKey, to, subject, html });

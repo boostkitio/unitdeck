@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { quoteHref } from "@/lib/routes";
 
 const NOBODY = "nobody";
 
@@ -52,7 +53,7 @@ export function NewQuoteDialog({ onClose }: { onClose: () => void }) {
         title: title.trim() || undefined,
         quoteType,
       });
-      router.push(`/quotes/${id}`);
+      router.push(quoteHref(id));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not start the quote.");
       setSaving(false);

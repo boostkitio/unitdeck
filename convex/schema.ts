@@ -171,6 +171,7 @@ export default defineSchema({
     declinedAt: v.optional(v.number()),
   })
     .index("by_org", ["orgId"])
+    .index("by_org_and_number", ["orgId", "number"])
     .index("by_project", ["projectId"]),
 
   /**

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { cn } from "@/lib/utils";
+import { projectHref } from "@/lib/routes";
 
 // ---------------------------------------------------------------------------
 // Context
@@ -185,7 +186,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
       label: p.name,
       hint: p.clientName ?? undefined,
       icon: FolderIcon,
-      run: () => { router.push(`/projects/${p._id}`); closePalette(); },
+      run: () => { router.push(projectHref(p)); closePalette(); },
     }));
 
   const peopleEntries: Entry[] = (people ?? [])

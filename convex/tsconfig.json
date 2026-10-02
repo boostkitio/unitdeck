@@ -11,6 +11,9 @@
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
+    /* TypeScript 6 no longer loads every @types package it finds, so the
+     * Node types that `process.env` comes from have to be asked for. */
+    "types": ["node"],
 
     /* These compiler options are required by Convex */
     "target": "ESNext",

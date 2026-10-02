@@ -244,7 +244,9 @@ export const saveContact = mutation({
       contacts.push(next);
     } else {
       at = args.index;
-      contacts[args.index] = next;
+      // The id is what a production's booking of this person points at, so an
+      // edit keeps it: a new one would take them off every job they are on.
+      contacts[args.index] = { ...next, id: contacts[args.index].id };
     }
     const written = await writeContacts(ctx, args.id, contacts);
     // Where they ended up, so a caller adding somebody can put them straight
@@ -388,7 +390,13 @@ export const importRows = mutation({
           // Replaces the main contact rather than the whole book: everybody
           // else at the company was added here, not in the spreadsheet.
           const contacts = contactsOf(match);
-          await writeContacts(ctx, match._id, [contact, ...contacts.slice(1)]);
+          // The same person re-imported keeps their id, and with it their
+          // place on every production that booked them. A different name is
+          // a different person and gets an id of their own.
+          const samePerson =
+            contacts[0]?.name.trim().toLowerCase() === contact.name.toLowerCase();
+          const main = samePerson ? { ...contact, id: contacts[0].id } : contact;
+          await writeContacts(ctx, match._id, [main, ...contacts.slice(1)]);
         }
         updated++;
       } else {

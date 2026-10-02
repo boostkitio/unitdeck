@@ -14,6 +14,17 @@ test("groups equipment by supplier in first-seen order", () => {
   expect(groups[2].items[0].item).toBe("Sandbags");
 });
 
+test("hired-in kit is always the last group, wherever it was entered", () => {
+  const groups = groupEquipmentBySupplier([
+    { id: "1", supplier: "Hired in", item: "Techno crane" },
+    { id: "2", supplier: "Camera", item: "FX9" },
+    { id: "3", item: "Sandbags" },
+    { id: "4", supplier: "hired in ", item: "1.2k HMI" },
+    { id: "5", supplier: "Sound", item: "Boom" },
+  ]);
+  expect(groups.map((g) => g.supplier)).toEqual(["Camera", "Sound", null, "Hired in", "hired in "]);
+});
+
 test("callStrip falls back to the general call time when no tiered times", () => {
   expect(
     callStrip({ callTimes: undefined, generalCallTime: "08:00", schedule: [] }),

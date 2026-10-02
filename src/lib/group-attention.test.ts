@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { groupAttentionByProject } from "./group-attention";
 
 const item = (projectId: string, projectName: string, label: string) =>
-  ({ projectId, projectName, label }) as never;
+  ({ projectId, projectName, projectJobNumber: null, label }) as never;
 
 describe("groupAttentionByProject", () => {
   it("puts everything for one production under one heading", () => {

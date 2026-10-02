@@ -19,3 +19,14 @@ test("whoever creates a production owns it", async () => {
   const project = await t.run((ctx) => ctx.db.get(id));
   expect(project!.ownerId).toBe("user_a");
 });
+
+test("a ref that is another table's id is not a project", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("organisations", { name: "Org A", clerkOrgId: "org_a" });
+  });
+  const asA = t.withIdentity({ subject: "user_a", org_id: "org_a" });
+  const clientId = await asA.mutation(api.clients.create, { name: "Acme Films" });
+  expect(await asA.query(api.projects.getByRef, { ref: clientId })).toBeNull();
+  expect(await asA.query(api.projects.getByRef, { ref: "not-an-id" })).toBeNull();
+});

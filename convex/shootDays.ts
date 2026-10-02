@@ -66,6 +66,35 @@ export const get = query({
   },
 });
 
+/**
+ * Finds one of a production's shoot days by whatever the URL holds: its date,
+ * or the document id that links made before days were addressed by date
+ * contain. `ref` comes back as what the address should say, so a page opened
+ * the old way can move itself to the readable one.
+ */
+export const getByRef = query({
+  args: { projectId: v.id("projects"), ref: v.string() },
+  handler: async (ctx, args) => {
+    const { org } = await requireOrg(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== org._id) return null;
+    const days = (
+      await ctx.db
+        .query("shootDays")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .take(500)
+    ).filter((d) => d.orgId === org._id);
+
+    const wanted = args.ref.trim();
+    const onDate = days.filter((d) => d.date === wanted);
+    const day = onDate[0] ?? days.find((d) => d._id === wanted) ?? null;
+    if (!day) return null;
+    // A date names a day only while it is the only one on it.
+    const sharesDate = days.some((d) => d._id !== day._id && d.date === day.date);
+    return { ...day, ref: sharesDate ? String(day._id) : day.date };
+  },
+});
+
 export const create = mutation({
   args: {
     projectId: v.id("projects"),
@@ -166,6 +195,7 @@ export const remove = mutation({
       .withIndex("by_shoot_day_and_version", (q) => q.eq("shootDayId", args.id))
       .take(1);
     if (sheets.length > 0) throw new Error("This shoot day has call sheets and cannot be deleted");
+    await releaseSchedule(ctx, args.id);
     await ctx.db.delete(args.id);
     // The day is gone, so its entries come off the diaries that had it.
     await syncCalendar(ctx, day.projectId);
@@ -190,6 +220,21 @@ function datesBetween(from: string, to: string): string[] {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return out;
+}
+
+/**
+ * Hands a day's running order back to the production before the day goes.
+ *
+ * Schedule items name the day they belong to. Left pointing at a day that no
+ * longer exists they would print on no call sheet at all; without a day they
+ * apply to the whole job, which is where a line belongs once its day is gone.
+ */
+async function releaseSchedule(ctx: MutationCtx, dayId: Id<"shootDays">) {
+  const items = await ctx.db
+    .query("scheduleItems")
+    .withIndex("by_shoot_day", (q) => q.eq("shootDayId", dayId))
+    .take(500);
+  for (const item of items) await ctx.db.patch(item._id, { shootDayId: undefined });
 }
 
 /** True when something hangs off this day that deleting it would destroy. */
@@ -263,6 +308,7 @@ export const setRange = mutation({
         kept.push(day.date);
         continue;
       }
+      await releaseSchedule(ctx, day._id);
       await ctx.db.delete(day._id);
       removed++;
     }
@@ -272,81 +318,6 @@ export const setRange = mutation({
     await syncCalendar(ctx, args.projectId);
 
     return { created, removed, kept };
-  },
-});
-
-export const getForWeather = internalQuery({
-  args: { id: v.id("shootDays") },
-  handler: async (ctx, args) => {
-    const day = await ctx.db.get(args.id);
-    if (!day) return null;
-    const locations = (
-      await Promise.all(day.locationIds.map((id) => ctx.db.get(id)))
-    ).filter((l): l is Doc<"locations"> => l !== null);
-    const withCoords = locations.find((l) => l.lat !== undefined && l.lng !== undefined);
-    return { day, location: withCoords ?? null };
-  },
-});
-
-export const saveWeather = internalMutation({
-  args: {
-    id: v.id("shootDays"),
-    weather: v.object({
-      fetchedAt: v.number(),
-      summary: v.string(),
-      tempMinC: v.number(),
-      tempMaxC: v.number(),
-      precipitationProbability: v.optional(v.number()),
-      windMaxKph: v.optional(v.number()),
-    }),
-    sun: v.object({ sunrise: v.string(), sunset: v.string() }),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, { weather: args.weather, sun: args.sun });
-    return null;
-  },
-});
-
-/**
- * Pull the Open-Meteo daily forecast for the shoot day's first geocoded
- * location. Forecast range is ~16 days; outside that the API returns no
- * rows and we report "too far out" without failing.
- */
-export const refreshWeather = action({
-  args: { id: v.id("shootDays") },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
-    const result = await ctx.runQuery(internal.shootDays.getForWeather, { id: args.id });
-    if (!result) throw new Error("Shoot day not found");
-    if (!result.location) {
-      return { ok: false as const, reason: "No location with coordinates on this shoot day" };
-    }
-    const { day, location } = result;
-    const forecast = await fetchDailyForecast(location.lat!, location.lng!, day.date);
-    if (!forecast) {
-      return { ok: false as const, reason: "Shoot day is outside the 16-day forecast range" };
-    }
-    const weather = {
-      fetchedAt: Date.now(),
-      summary: forecast.summary,
-      tempMinC: forecast.tempMinC,
-      tempMaxC: forecast.tempMaxC,
-      precipitationProbability: forecast.precipitationProbability,
-      windMaxKph: forecast.windMaxKph,
-    };
-    await ctx.runMutation(internal.shootDays.saveWeather, {
-      id: args.id,
-      weather,
-      sun: { sunrise: forecast.sunrise, sunset: forecast.sunset },
-    });
-    // Returned directly so callers can update documents without re-querying
-    return {
-      ok: true as const,
-      weatherSummary: `${weather.summary}, ${Math.round(weather.tempMinC)}–${Math.round(weather.tempMaxC)}°C`,
-      sunrise: forecast.sunrise,
-      sunset: forecast.sunset,
-    };
   },
 });
 
