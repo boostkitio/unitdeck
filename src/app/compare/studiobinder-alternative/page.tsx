@@ -1,17 +1,21 @@
-import type { Metadata } from "next";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
-import { BRAND, SITE_URL } from "@/lib/brand";
+import { JsonLd, breadcrumbList } from "@/components/marketing/json-ld";
+import { BRAND } from "@/lib/brand";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+const PATH = "/compare/studiobinder-alternative";
+
+export const metadata = pageMetadata({
   title: "StudioBinder alternative for video production companies",
   description:
-    "Why corporate and branded video production companies are choosing Unit over StudioBinder: AI call sheets from the client brief, live crew confirmations, unlimited guests and pixel-perfect PDFs.",
-  alternates: { canonical: `${SITE_URL}/compare/studiobinder-alternative` },
-};
+    "A StudioBinder alternative for corporate and branded video: AI call sheets from the client brief, live crew confirmations and PDFs that match the preview.",
+  path: PATH,
+});
 
 export default function StudioBinderAlternativePage() {
   return (
     <MarketingShell source="compare-studiobinder">
+      <JsonLd data={breadcrumbList([{ name: "StudioBinder alternative", path: PATH }])} />
       <h1 className="mt-4 text-3xl font-bold tracking-tight">
         A StudioBinder alternative built for video production companies
       </h1>

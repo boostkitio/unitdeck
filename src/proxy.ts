@@ -1,7 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// Every page under src/app/(app)/ must be listed here: the route group does
-// not appear in the URL, so new app pages need a manual entry.
+// Every page under src/app/(app)/ must be listed here and in the matcher
+// below: the route group does not appear in the URL, so new app pages need a
+// manual entry in both.
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/projects(.*)",
@@ -21,11 +22,23 @@ export default clerkMiddleware(async (auth, req) => {
   }
 });
 
+// Clerk runs only where something reads the session: the signed-in app and the
+// API routes. The public pages (home, templates, compare, and the token pages
+// under /s, /sign and /print) are deliberately left out. On them Clerk answers
+// a first visit with a redirect through its own domain, which carries
+// "x-robots-tag: noindex" and kept the whole site out of Google.
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    // Always run for API routes
+    "/dashboard/:path*",
+    "/projects/:path*",
+    "/quotes/:path*",
+    "/people/:path*",
+    "/talent/:path*",
+    "/clients/:path*",
+    "/locations/:path*",
+    "/equipment/:path*",
+    "/settings/:path*",
+    "/feedback/:path*",
     "/(api|trpc)(.*)",
   ],
 };

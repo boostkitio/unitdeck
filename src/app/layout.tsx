@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Unbounded } from "next/font/google";
-import { BRAND } from "@/lib/brand";
+import { BRAND, SITE_URL } from "@/lib/brand";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { ThemeProvider } from "./theme-provider";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
@@ -33,6 +33,13 @@ export const metadata: Metadata = {
     template: `%s · ${BRAND.name}`,
   },
   description: BRAND.description,
+  metadataBase: new URL(SITE_URL),
+  openGraph: {
+    type: "website",
+    siteName: BRAND.name,
+    locale: "en_GB",
+  },
+  twitter: { card: "summary_large_image" },
   appleWebApp: {
     capable: true,
     title: "UnitDeck",
