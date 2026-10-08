@@ -22,7 +22,7 @@ export function WaitlistForm({
   if (state === "done") {
     return (
       <p className="text-sm font-medium text-green-600">
-        You&apos;re on the list. Expect an email when Unit opens up.
+        You&apos;re on the list. Expect an email when UnitDeck opens up.
       </p>
     );
   }

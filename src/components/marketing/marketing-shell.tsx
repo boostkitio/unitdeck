@@ -3,6 +3,7 @@ import { BRAND } from "@/lib/brand";
 import { Logo } from "@/components/logo";
 import { WaitlistForm } from "./waitlist-form";
 import { ShaderBand } from "./shader-band";
+import { MarketingLinks } from "./marketing-links";
 
 export function MarketingShell({
   children,
@@ -39,8 +40,11 @@ export function MarketingShell({
           </div>
         </div>
       </section>
-      <footer className="mx-auto max-w-3xl px-6 py-6 text-sm text-neutral-400">
-        {BRAND.name} · {BRAND.domain}
+      <footer className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6 text-sm text-neutral-400 sm:flex-row sm:items-center sm:justify-between">
+        <span>
+          {BRAND.name} · {BRAND.domain}
+        </span>
+        <MarketingLinks className="text-neutral-500 hover:text-neutral-900" />
       </footer>
     </main>
   );
