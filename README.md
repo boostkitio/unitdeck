@@ -33,9 +33,9 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every push and
 
 ## Release
 
-A push to `main` is a production release. `.github/workflows/deploy-production.yml` deploys `main` to Vercel through the CLI, and the Vercel build command (`vercel.json`) is `npx convex deploy --cmd 'npm run build'`, so the same step pushes the Convex functions and schema to the production deployment. There is no staging step in between: treat a push to `main` as a change to the live app and its live data model.
+A push to `main` is a production release. `.github/workflows/deploy-production.yml` deploys `main` to Vercel through the CLI, and the Vercel build command (`vercel.json`) is `npm run build:vercel`, which in the production environment runs `npx convex deploy --cmd 'npm run build'`, so the same step pushes the Convex functions and schema to the production deployment. There is no staging step in between: treat a push to `main` as a change to the live app and its live data model.
 
-Preview deployments of other branches currently fail at the build step, because no Convex deploy key is configured for the Vercel preview environment.
+Preview deployments of other branches do not run `convex deploy` unless the Vercel preview environment holds a preview deploy key (`CONVEX_DEPLOY_KEY` starting `preview:`). Without one, `build:vercel` builds Next.js only, against whatever `NEXT_PUBLIC_CONVEX_URL` the preview environment provides; with none set, the preview builds but has no Convex backend.
 
 ## Addresses
 

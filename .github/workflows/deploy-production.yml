@@ -68,6 +68,7 @@ jobs:
           node-version: 24
 
       # The build runs on Vercel and still runs the project's buildCommand,
+      # "npm run build:vercel", which in production runs
       # "npx convex deploy --cmd 'npm run build'", so Convex functions are
       # deployed by the same step they always were.
       - name: Deploy to Vercel

@@ -52,11 +52,13 @@ working backlog.
 ### Release
 
 - A push to `main` deploys production: `.github/workflows/deploy-production.yml` runs the
-  Vercel CLI, and the Vercel build command is
-  `npx convex deploy --cmd 'npm run build'`, which also pushes Convex functions
-  and schema to the production deployment. There is no staging step.
-- Branch previews on Vercel fail at build: no Convex deploy key is configured
-  for the preview environment.
+  Vercel CLI, and the Vercel build command is `npm run build:vercel`, which in
+  production runs `npx convex deploy --cmd 'npm run build'` and so also pushes
+  Convex functions and schema to the production deployment. There is no staging
+  step.
+- Branch previews on Vercel skip `convex deploy` unless the preview environment
+  has a `CONVEX_DEPLOY_KEY` starting `preview:`. Without one they build Next.js
+  only, against the preview environment's `NEXT_PUBLIC_CONVEX_URL` if one is set.
 
 ### Constraints worth knowing
 

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:vercel": "case \"$VERCEL_ENV\" in production) npx convex deploy --cmd 'npm run build' ;; preview) if [ -n \"$CONVEX_DEPLOY_KEY\" ] && expr \"$CONVEX_DEPLOY_KEY\" : 'preview:' >/dev/null 2>&1; then npx convex deploy --cmd 'npm run build'; else echo '[build] No preview-scoped CONVEX_DEPLOY_KEY (one starting preview:) in this Vercel environment, so convex deploy is skipped and Next.js builds against the statically set NEXT_PUBLIC_CONVEX_URL (none is set for Preview on this project yet, so add one or the app has no Convex backend). For isolated previews, generate a preview deploy key in the Convex dashboard and set it as CONVEX_DEPLOY_KEY for the Vercel Preview environment only.' && npm run build; fi ;; *) npm run build ;; esac",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit && tsc --noEmit -p convex/tsconfig.json",
