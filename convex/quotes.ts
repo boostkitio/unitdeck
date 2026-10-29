@@ -121,6 +121,7 @@ export const listForProject = query({
         quoteType: quote.quoteType ?? null,
         clientName: quote.clientName ?? null,
         lineCount: lines.length,
+        vatOutOfScope: quote.vatOutOfScope ?? false,
         totals: totalsFor(quote, lines, overrides),
       });
     }
@@ -318,7 +319,7 @@ function totalsFor(
 ) {
   return quoteTotals(
     CATEGORIES.map((c) => categoryTotalsFor(quote, lines, overrides, c)),
-    { discountPence: quote.discountPence ?? 0, vatBp: quote.vatBp }
+    { discountPence: quote.discountPence ?? 0, vatBp: quote.vatOutOfScope ? 0 : quote.vatBp }
   );
 }
 
@@ -592,6 +593,7 @@ export const update = mutation({
     profitBp: v.optional(v.number()),
     insuranceBp: v.optional(v.number()),
     vatBp: v.optional(v.number()),
+    vatOutOfScope: v.optional(v.boolean()),
     roundToPence: v.optional(v.number()),
     discountPence: v.optional(v.number()),
   },
@@ -635,6 +637,7 @@ export const update = mutation({
       patch.producerEmail = undefined;
     }
     if (args.caveats !== undefined) patch.caveats = args.caveats;
+    if (args.vatOutOfScope !== undefined) patch.vatOutOfScope = args.vatOutOfScope || undefined;
     for (const key of ["contingencyBp", "profitBp", "insuranceBp", "vatBp", "roundToPence", "discountPence"] as const) {
       const value = args[key];
       if (value === undefined) continue;
@@ -1078,6 +1081,7 @@ async function copyQuote(
     profitBp: quote.profitBp,
     insuranceBp: quote.insuranceBp,
     vatBp: quote.vatBp,
+    vatOutOfScope: quote.vatOutOfScope,
     roundToPence: quote.roundToPence,
     discountPence: quote.discountPence,
   });

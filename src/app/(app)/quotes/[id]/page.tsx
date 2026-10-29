@@ -398,11 +398,20 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
                   <span className="tabular-nums">{formatPence(totals.netTotal)}</span>
                 </div>
                 <div className="flex justify-between gap-2 text-muted-foreground">
-                  <span>VAT at {bpInput(quote.vatBp)}%</span>
-                  <span className="tabular-nums">{formatPence(totals.vat)}</span>
+                  {quote.vatOutOfScope ? (
+                    <>
+                      <span>VAT</span>
+                      <span>Out of scope</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>VAT at {bpInput(quote.vatBp)}%</span>
+                      <span className="tabular-nums">{formatPence(totals.vat)}</span>
+                    </>
+                  )}
                 </div>
                 <div className="flex justify-between gap-2 text-base font-semibold">
-                  <span>Total (inc VAT)</span>
+                  <span>{quote.vatOutOfScope ? "Total" : "Total (inc VAT)"}</span>
                   <span className="tabular-nums">{formatPence(totals.grossTotal)}</span>
                 </div>
               </div>
@@ -457,6 +466,28 @@ function QuoteEditor({ quoteId, data }: { quoteId: Id<"quotes">; data: QuoteData
                   </span>
                 </div>
               ))}
+              {/* For a client abroad, where no UK VAT is charged. The rate is
+                  kept, so switching back restores it. */}
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 accent-primary"
+                  checked={quote.vatOutOfScope ?? false}
+                  onChange={(e) =>
+                    void run(
+                      update({ id: quoteId, vatOutOfScope: e.target.checked }),
+                      "Could not change the VAT."
+                    )
+                  }
+                />
+                <span>
+                  VAT out of scope
+                  <span className="block text-xs text-muted-foreground">
+                    No VAT is charged, e.g. a client outside the UK. The client copy says
+                    &ldquo;Outside the scope of UK VAT&rdquo;.
+                  </span>
+                </span>
+              </label>
               <p className="text-xs text-muted-foreground">
                 Rates are the cost ×{multiplier.toFixed(3)}, rounded up to the nearest £5.
               </p>

@@ -96,7 +96,9 @@ export function QuotesSection({ projectId }: { projectId: Id<"projects"> }) {
                       {formatPence(quote.totals.netTotal)}
                     </p>
                     <p className="text-xs tabular-nums text-muted-foreground">
-                      {formatPence(quote.totals.grossTotal)} inc VAT
+                      {quote.vatOutOfScope
+                        ? "No VAT, out of scope"
+                        : `${formatPence(quote.totals.grossTotal)} inc VAT`}
                     </p>
                   </div>
                   <Button

@@ -795,6 +795,39 @@ test("the house caveats win over the standing ones where there are any", async (
 // Versions
 // ---------------------------------------------------------------------------
 
+test("VAT can be switched off for a job outside its scope, and back on", async () => {
+  const { ids, asA } = await setup();
+  const quoteId = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  await asA.mutation(api.quotes.addLine, {
+    quoteId,
+    category: "production",
+    name: "Director",
+    unit: "day",
+    pax: 1,
+    unitAmount: 1,
+    costPence: p(100),
+    ratePence: p(1000),
+  });
+
+  await asA.mutation(api.quotes.update, { id: quoteId, vatOutOfScope: true });
+  const off = (await asA.query(api.quotes.get, { id: quoteId }))!;
+  expect(off.quote.vatOutOfScope).toBe(true);
+  expect(off.totals.vat).toBe(0);
+  expect(off.totals.grossTotal).toBe(off.totals.netTotal);
+  // The rate is kept for when it goes back on.
+  expect(off.quote.vatBp).toBe(2000);
+
+  // A new version of a US job is still a US job.
+  const next = await asA.mutation(api.quotes.newVersion, { id: quoteId });
+  const copied = (await asA.query(api.quotes.get, { id: next }))!;
+  expect(copied.quote.vatOutOfScope).toBe(true);
+
+  await asA.mutation(api.quotes.update, { id: quoteId, vatOutOfScope: false });
+  const on = (await asA.query(api.quotes.get, { id: quoteId }))!;
+  expect(on.quote.vatOutOfScope).toBeUndefined();
+  expect(on.totals.vat).toBe(Math.round(on.totals.netTotal * 0.2));
+});
+
 test("a new version is a copy, numbered on, with the old one left as sent", async () => {
   const { ids, asA } = await setup();
   const first = await asA.mutation(api.quotes.create, {

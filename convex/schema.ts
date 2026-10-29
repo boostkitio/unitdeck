@@ -163,6 +163,12 @@ export default defineSchema({
     profitBp: v.number(),
     insuranceBp: v.number(),
     vatBp: v.number(),
+    /**
+     * The job is outside the scope of UK VAT, e.g. a client abroad. No VAT is
+     * charged and the client copy says so. The rate is kept, so switching it
+     * back on puts the quote back on the rate it had.
+     */
+    vatOutOfScope: v.optional(v.boolean()),
     /** What a derived rate is rounded up to. £5 in the sheet. */
     roundToPence: v.number(),
     discountPence: v.optional(v.number()),

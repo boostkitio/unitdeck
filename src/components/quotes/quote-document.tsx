@@ -162,19 +162,28 @@ export function QuoteDocument({
               </tr>
             )}
             <tr className="border-b border-neutral-300">
-              <td className="py-1.5 font-semibold">Total (exc VAT)</td>
+              <td className="py-1.5 font-semibold">
+                {quote.vatOutOfScope ? "Total" : "Total (exc VAT)"}
+              </td>
               <td className="py-1.5 text-right font-semibold tabular-nums">
                 {formatPence(totals.netTotal)}
               </td>
             </tr>
-            <tr>
-              <td className="py-1.5 font-semibold">
-                Total (inc VAT at {bpInput(quote.vatBp)}%)
-              </td>
-              <td className="py-1.5 text-right font-semibold tabular-nums">
-                {formatPence(totals.grossTotal)}
-              </td>
-            </tr>
+            {quote.vatOutOfScope ? (
+              <tr>
+                <td className="py-1.5">VAT</td>
+                <td className="py-1.5 text-right">Outside the scope of UK VAT</td>
+              </tr>
+            ) : (
+              <tr>
+                <td className="py-1.5 font-semibold">
+                  Total (inc VAT at {bpInput(quote.vatBp)}%)
+                </td>
+                <td className="py-1.5 text-right font-semibold tabular-nums">
+                  {formatPence(totals.grossTotal)}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </section>

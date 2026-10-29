@@ -17,3 +17,11 @@ Do not store credentials or private client/commercial notes.
 - Consequences: lines only move within their section, never across. Copies and
   new versions carry the arrangement. A line moved to another category loses
   its position and lands at the end of its new block.
+
+## 2026-10-29: VAT can be marked out of scope per quote
+
+- Decision: a quote has an optional `vatOutOfScope` flag (e.g. a client
+  outside the UK). When set, no VAT is charged and the client copy reads
+  "Outside the scope of UK VAT"; the stored VAT rate is kept so switching it
+  off restores the rate. New versions and copies carry the flag.
+- Evidence: Klaxon feedback (US clients). Tests in `convex/quotes.test.ts`.
