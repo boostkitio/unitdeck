@@ -14,7 +14,7 @@ import { joinName } from "./lib/personName";
 import { fromLine, quoteEmail, sendEmail } from "./lib/email";
 import { senderOf } from "./lib/sender";
 import { quoteCategoryValidator, quoteUnitValidator } from "./schema";
-import { inCardOrder, SECTION_CATEGORY } from "./lib/rateCardOrder";
+import { arrangeGroup, inCardOrder, SECTION_CATEGORY } from "./lib/rateCardOrder";
 import {
   categoryTotals,
   costFromRate,
@@ -831,9 +831,18 @@ export const updateLine = mutation({
       if (args.section === undefined && belongs !== args.category) patch.section = undefined;
     }
     if (args.section !== undefined) patch.section = args.section?.trim() || undefined;
+    // A line that changes block lands at the end of the one it moved to:
+    // without a position it sorts after everything arranged there.
+    if ("category" in patch || "section" in patch) patch.position = undefined;
     if (args.name !== undefined) {
       if (args.name.trim().length === 0) throw new Error("Name the line");
       patch.name = args.name.trim();
+      // The card's order is worked out from the name, so a renamed line would
+      // stop matching it and drop to the bottom of its section. Writing the
+      // section's order down first keeps it exactly where it was.
+      if (patch.name !== line.name && !("position" in patch)) {
+        await pinSection(ctx, line);
+      }
     }
     if (args.notes !== undefined) patch.notes = args.notes?.trim() || undefined;
     if (args.clientNotes !== undefined) patch.clientNotes = args.clientNotes?.trim() || undefined;
@@ -878,6 +887,63 @@ export const updateLine = mutation({
     }
 
     await ctx.db.patch(args.id, patch);
+    return null;
+  },
+});
+
+/**
+ * Writes down the current order of a line's section, unless it already is.
+ *
+ * After this every line in the section has a position, so nothing about it
+ * depends on matching the rate card any more.
+ */
+async function pinSection(ctx: MutationCtx, line: Doc<"quoteLines">) {
+  const lines = await ctx.db
+    .query("quoteLines")
+    .withIndex("by_quote", (q) => q.eq("quoteId", line.quoteId))
+    .collect();
+  const group = inCardOrder(lines).filter((l) => arrangeGroup(l) === arrangeGroup(line));
+  if (group.every((l) => l.position !== undefined)) return;
+  for (const [index, l] of group.entries()) {
+    if (l.position !== index) await ctx.db.patch(l._id, { position: index });
+  }
+}
+
+/**
+ * Puts the lines of one section in the order given, after a drag.
+ *
+ * Every line has to be from the same section of the same quote: lines move
+ * within their section, never across. Any line of the section the list left
+ * out (one added in another tab mid-drag) keeps its place after them.
+ */
+export const reorderLines = mutation({
+  args: { quoteId: v.id("quotes"), orderedIds: v.array(v.id("quoteLines")) },
+  handler: async (ctx, args) => {
+    await loadQuote(ctx, args.quoteId);
+    if (args.orderedIds.length === 0) return null;
+    const lines = await ctx.db
+      .query("quoteLines")
+      .withIndex("by_quote", (q) => q.eq("quoteId", args.quoteId))
+      .collect();
+    const byId = new Map(lines.map((l) => [l._id, l]));
+    const first = byId.get(args.orderedIds[0]);
+    if (!first) throw new Error("Line not found");
+    const group = arrangeGroup(first);
+    for (const id of args.orderedIds) {
+      const line = byId.get(id);
+      if (!line) throw new Error("Line not found");
+      if (arrangeGroup(line) !== group) throw new Error("Lines can only move within their section");
+    }
+    if (new Set(args.orderedIds).size !== args.orderedIds.length) {
+      throw new Error("A line is listed twice");
+    }
+
+    const listed = new Set<Id<"quoteLines">>(args.orderedIds);
+    const rest = inCardOrder(lines).filter((l) => arrangeGroup(l) === group && !listed.has(l._id));
+    const order = [...args.orderedIds, ...rest.map((l) => l._id)];
+    for (const [index, id] of order.entries()) {
+      if (byId.get(id)!.position !== index) await ctx.db.patch(id, { position: index });
+    }
     return null;
   },
 });
@@ -1035,6 +1101,7 @@ async function copyQuote(
       ratePence: line.ratePence,
       rateOverridden: line.rateOverridden,
       sortOrder: line.sortOrder,
+      position: line.position,
     });
   }
   for (const o of await ctx.db

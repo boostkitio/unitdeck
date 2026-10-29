@@ -1,10 +1,11 @@
 "use client";
 
-import { use, useCallback, useState } from "react";
+import { use, useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
+import { GripVerticalIcon } from "lucide-react";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import { AddLineDialog } from "@/components/quotes/add-line-dialog";
 import { QuoteStatusChip } from "../page";
 import { formatPence, bpInput, parsePercent, parsePounds, poundsInput } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { dropIndex, moveToSlot } from "@/lib/reorder";
 import { projectHref, quoteHref, quoteViewHref } from "@/lib/routes";
 import { useCanonicalPath, useHeld, usePinnedRef } from "@/lib/use-canonical-path";
 import { NEW_CLIENT, NewClientDialog } from "@/components/clients/new-client-dialog";
@@ -523,6 +525,7 @@ function CategoryCard({
   onAdd: () => void;
 }) {
   const updateLine = useMutation(api.quotes.updateLine);
+  const reorderLines = useMutation(api.quotes.reorderLines);
   const removeLine = useMutation(api.quotes.removeLine);
   const setCategoryTotal = useMutation(api.quotes.setCategoryTotal);
   const [confirming, setConfirming] = useState<Id<"quoteLines"> | null>(null);
@@ -551,6 +554,80 @@ function CategoryCard({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : failure);
     }
+  }
+
+  // Dragging a line within its section, the same way crew are arranged: by
+  // pointer events, so it works on a touch screen, with the section's order
+  // held as it stood when the drag began. Lines only move inside their own
+  // section, so the drag is measured against that section's rows alone.
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const dragRef = useRef<{ pointerId: number; from: number; ids: string[] } | null>(null);
+  const [drag, setDrag] = useState<{ ids: string[]; from: number; slot: number } | null>(null);
+
+  function sectionOf(line: QuoteData["lines"][number]): string[] {
+    const group = arrangeGroup(line);
+    return shown.filter((l) => arrangeGroup(l) === group).map((l) => String(l._id));
+  }
+
+  /** The gap under the pointer, or null when a row cannot be measured. */
+  function slotUnder(clientY: number, ids: string[]): number | null {
+    const midpoints: number[] = [];
+    for (const id of ids) {
+      const rect = rowRefs.current.get(id)?.getBoundingClientRect();
+      if (!rect || rect.height === 0) return null;
+      midpoints.push(rect.top + rect.height / 2);
+    }
+    return dropIndex(midpoints, clientY);
+  }
+
+  function startDrag(
+    line: QuoteData["lines"][number],
+    event: React.PointerEvent<HTMLButtonElement>
+  ) {
+    // Left button or a touch only, and never a second drag on top of one.
+    if (event.button !== 0 || dragRef.current !== null) return;
+    // Without this the browser starts selecting text and takes the pointer.
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const ids = sectionOf(line);
+    const from = ids.indexOf(String(line._id));
+    dragRef.current = { pointerId: event.pointerId, from, ids };
+    setDrag({ ids, from, slot: from });
+  }
+
+  function onDragMove(event: React.PointerEvent<HTMLButtonElement>) {
+    const current = dragRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const slot = slotUnder(event.clientY, current.ids);
+    if (slot !== null) setDrag((d) => (d && d.slot !== slot ? { ...d, slot } : d));
+  }
+
+  async function endDrag(
+    line: QuoteData["lines"][number],
+    event?: React.PointerEvent<HTMLButtonElement>
+  ) {
+    const current = dragRef.current;
+    if (!current) return;
+    if (event && current.pointerId !== event.pointerId) return;
+    if (event?.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const slot = drag?.slot ?? null;
+    dragRef.current = null;
+    setDrag(null);
+    if (slot === null) return;
+
+    // The section changed under the drag (a line added or removed in another
+    // tab), so what was dropped where is no longer known.
+    const now = sectionOf(line);
+    if (now.length !== current.ids.length || now.some((id, i) => id !== current.ids[i])) return;
+
+    const next = moveToSlot(current.ids, current.from, slot);
+    if (next === current.ids) return; // Dropped back where it started.
+    await save(
+      reorderLines({ quoteId, orderedIds: next as Id<"quoteLines">[] }),
+      "Could not move the line."
+    );
   }
 
   return (
@@ -589,6 +666,7 @@ function CategoryCard({
           <table className="w-full min-w-[54rem] text-sm">
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
+                <th className="w-px" />
                 <th className="px-3 py-1.5 text-left font-medium">Line</th>
                 <th className="px-1 py-1.5 text-left font-medium">Notes</th>
                 <th className="px-1 py-1.5 text-right font-medium">Pax</th>
@@ -605,7 +683,7 @@ function CategoryCard({
                 if (row.kind === "dryHire") {
                   return (
                     <tr key="dry-hire" className="border-b border-border bg-muted/40">
-                      <td colSpan={9} className="p-0">
+                      <td colSpan={10} className="p-0">
                         <button
                           type="button"
                           onClick={() => setShowDryHire((open) => !open)}
@@ -630,7 +708,7 @@ function CategoryCard({
                 if (row.kind === "section") {
                   return (
                     <tr key={`section-${row.name}`} className="border-b border-border bg-muted/40">
-                      <td colSpan={9} className="px-3 py-1.5">
+                      <td colSpan={10} className="px-3 py-1.5">
                         <span className="text-xs font-semibold tracking-wide text-foreground">
                           {row.name}
                         </span>
@@ -648,14 +726,50 @@ function CategoryCard({
                 // as an empty row on the sheet this replaces. It stays visible
                 // so it can be priced, but it reads as what it is.
                 const priced = line.pax > 0 && line.unitAmount > 0;
+                const dragAt = drag ? drag.ids.indexOf(String(line._id)) : -1;
+                const movable = drag ? dragAt !== -1 : sectionOf(line).length > 1;
                 return (
                 <tr
                   key={line._id}
+                  ref={(row) => {
+                    if (row) rowRefs.current.set(String(line._id), row);
+                    else rowRefs.current.delete(String(line._id));
+                  }}
                   className={cn(
                     "border-b border-border last:border-0",
-                    !priced && "text-muted-foreground"
+                    !priced && "text-muted-foreground",
+                    drag && dragAt === drag.from && "opacity-40",
+                    // The line the row will land on, on whichever side of
+                    // the gap it belongs to.
+                    drag &&
+                      dragAt !== -1 &&
+                      drag.slot === dragAt &&
+                      "shadow-[inset_0_2px_0_0_var(--color-primary)]",
+                    drag &&
+                      dragAt === drag.ids.length - 1 &&
+                      drag.slot === drag.ids.length &&
+                      "shadow-[inset_0_-2px_0_0_var(--color-primary)]"
                   )}
                 >
+                  <td className="w-px py-0.5 pl-2 pr-0 align-middle">
+                    {movable && (
+                      <button
+                        type="button"
+                        aria-label={`Drag ${line.name} to move it within its section`}
+                        title="Drag to move it within its section"
+                        // touch-none stops the browser scrolling the page
+                        // instead of handing us the drag.
+                        className="flex cursor-grab touch-none items-center text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+                        onPointerDown={(e) => startDrag(line, e)}
+                        onPointerMove={onDragMove}
+                        onPointerUp={(e) => void endDrag(line, e)}
+                        onPointerCancel={(e) => void endDrag(line, e)}
+                        onLostPointerCapture={() => void endDrag(line)}
+                      >
+                        <GripVerticalIcon className="size-4" />
+                      </button>
+                    )}
+                  </td>
                   <td className="min-w-40 px-2 py-0.5">
                     <CellInput
                       value={line.name}
@@ -1125,6 +1239,15 @@ const DRY_HIRE_SECTIONS = [
   "LIVESTREAM",
   "LIGHTING",
 ];
+
+/**
+ * The block a line can be moved within: its section, inside its category.
+ * Mirrors arrangeGroup on the server, kept here so the page does not pull the
+ * whole standard rate card into the browser just to compare two strings.
+ */
+function arrangeGroup(line: { category: string; section?: string }): string {
+  return `${line.category}|${(line.section ?? "").trim().toLowerCase()}`;
+}
 
 function isDryHire(section: string | undefined): boolean {
   return section !== undefined && DRY_HIRE_SECTIONS.includes(section.trim().toUpperCase());

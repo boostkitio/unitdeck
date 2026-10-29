@@ -1122,6 +1122,88 @@ test("moving a line to another category takes it out of its old section", async 
   expect(moved.section).toBeUndefined();
 });
 
+/** The ids of one section's lines, in the order the quote reads them. */
+function sectionIds(data: { lines: { _id: string; section?: string }[] }, section: string) {
+  return data.lines.filter((l) => l.section === section).map((l) => l._id);
+}
+
+test("renaming a line keeps it where it was in its section", async () => {
+  const { asA, ids } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const before = (await asA.query(api.quotes.get, { id }))!;
+  const order = sectionIds(before, "CAMERAS");
+  expect(order.length).toBeGreaterThan(2);
+
+  // The second camera, renamed to something the card has never heard of —
+  // which used to send it to the bottom of the section.
+  await asA.mutation(api.quotes.updateLine, { id: order[1] as never, name: "B camera (client's own)" });
+
+  const after = (await asA.query(api.quotes.get, { id }))!;
+  expect(sectionIds(after, "CAMERAS")).toEqual(order);
+  expect(after.lines.find((l) => l._id === order[1])!.name).toBe("B camera (client's own)");
+});
+
+test("lines can be arranged by hand within their section", async () => {
+  const { asA, ids } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const before = (await asA.query(api.quotes.get, { id }))!;
+  const order = sectionIds(before, "CAMERAS");
+  const sections = before.lines.map((l) => l.section);
+
+  const wanted = [order[2], order[0], ...order.filter((_, i) => i !== 0 && i !== 2)];
+  await asA.mutation(api.quotes.reorderLines, { quoteId: id, orderedIds: wanted as never });
+
+  const after = (await asA.query(api.quotes.get, { id }))!;
+  expect(sectionIds(after, "CAMERAS")).toEqual(wanted);
+  // The sections themselves stay where the card puts them.
+  expect(after.lines.map((l) => l.section)).toEqual(sections);
+
+  // A line added since lands at the end of the arranged section.
+  const added = await asA.mutation(api.quotes.addLine, {
+    quoteId: id,
+    category: "equipment",
+    section: "CAMERAS",
+    name: "Sony FX9 Camera",
+    unit: "day",
+    costPence: 10000,
+  });
+  const later = (await asA.query(api.quotes.get, { id }))!;
+  expect(sectionIds(later, "CAMERAS")).toEqual([...wanted, added]);
+
+  // And the arrangement survives a copy.
+  const copy = await asA.mutation(api.quotes.duplicate, { id });
+  const copied = (await asA.query(api.quotes.get, { id: copy }))!;
+  const names = (d: typeof later) =>
+    d.lines.filter((l) => l.section === "CAMERAS").map((l) => l.name);
+  expect(names(copied)).toEqual(names(later));
+});
+
+test("a line cannot be dragged into another section", async () => {
+  const { asA, ids } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const data = (await asA.query(api.quotes.get, { id }))!;
+  const mixed = [sectionIds(data, "CAMERAS")[0], sectionIds(data, "LENSES")[0]];
+  await expect(
+    asA.mutation(api.quotes.reorderLines, { quoteId: id, orderedIds: mixed as never })
+  ).rejects.toThrow(/within their section/);
+});
+
+test("another account cannot rearrange your quote", async () => {
+  const { asA, asB, ids } = await setup();
+  await asA.mutation(api.rateCard.seed, {});
+  const id = await asA.mutation(api.quotes.create, { projectId: ids.project });
+  const data = (await asA.query(api.quotes.get, { id }))!;
+  await expect(
+    asB.mutation(api.quotes.reorderLines, {
+      quoteId: id,
+      orderedIds: sectionIds(data, "CAMERAS").reverse() as never,
+    })
+  ).rejects.toThrow();
+});
+
 test("a render token reads the quote, and only until it expires", async () => {
   const { asA, ids, t } = await setup();
   await asA.mutation(api.rateCard.seed, {});

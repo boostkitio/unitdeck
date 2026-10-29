@@ -202,6 +202,12 @@ export default defineSchema({
     /** Whether the rate was typed rather than derived, e.g. a pass-through. */
     rateOverridden: v.optional(v.boolean()),
     sortOrder: v.optional(v.number()),
+    /**
+     * Where the line was put by hand within its section. Absent until somebody
+     * arranges the section (or renames a line in it), and from then on it
+     * beats the rate card's order inside that section.
+     */
+    position: v.optional(v.number()),
   })
     .index("by_org", ["orgId"])
     .index("by_quote", ["quoteId"]),
