@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { Geist, Geist_Mono, Unbounded } from "next/font/google";
 import { BRAND } from "@/lib/brand";
 import { ConvexClientProvider } from "./ConvexClientProvider";
@@ -56,6 +57,7 @@ export default function RootLayout({
         <ThemeProvider>
           <ConvexClientProvider>{children}</ConvexClientProvider>
         </ThemeProvider>
+        <Analytics />
       </body>
     </html>
   );
