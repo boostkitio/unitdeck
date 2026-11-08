@@ -48,7 +48,11 @@ export default async function Home() {
             </Link>
           ) : (
             <SignInButton mode="modal">
-              <button className="text-sm font-medium text-neutral-300 transition-colors hover:text-white">
+              <button
+                data-track="sign_up_click"
+                data-track-location="header"
+                className="text-sm font-medium text-neutral-300 transition-colors hover:text-white"
+              >
                 Sign in
               </button>
             </SignInButton>
@@ -73,7 +77,12 @@ export default async function Home() {
               </Link>
             ) : (
               <SignInButton mode="modal">
-                <Button size="lg" className="bg-white text-neutral-950 hover:bg-neutral-200">
+                <Button
+                  size="lg"
+                  data-track="sign_up_click"
+                  data-track-location="hero"
+                  className="bg-white text-neutral-950 hover:bg-neutral-200"
+                >
                   Get started
                 </Button>
               </SignInButton>
@@ -84,12 +93,31 @@ export default async function Home() {
           <span className="text-sm text-neutral-400">
             {BRAND.name} · {BRAND.domain}
           </span>
-          <Link
-            className="text-sm text-neutral-300 hover:text-white"
-            href="/templates/call-sheet-template"
-          >
-            Free call sheet maker
-          </Link>
+          <nav aria-label="Compare and free tools">
+            <ul className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+              <li>
+                <Link
+                  className="text-neutral-300 hover:text-white"
+                  href="/compare/studiobinder-alternative"
+                >
+                  StudioBinder alternative
+                </Link>
+              </li>
+              <li>
+                <Link className="text-neutral-300 hover:text-white" href="/compare/yamdu-alternative">
+                  Yamdu alternative
+                </Link>
+              </li>
+              <li>
+                <Link
+                  className="text-neutral-300 hover:text-white"
+                  href="/templates/call-sheet-template"
+                >
+                  Free call sheet maker
+                </Link>
+              </li>
+            </ul>
+          </nav>
         </footer>
       </div>
     </main>

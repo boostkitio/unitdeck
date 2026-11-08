@@ -72,3 +72,17 @@ working backlog.
 - PDFs render through headless Chromium (`@sparticuz/chromium` on Vercel, the
   local Chrome in development), so PDF output on the deployed binary cannot be
   checked locally.
+
+### Marketing pages and tracking (8 Nov 2026)
+
+- Public marketing pages are the homepage, `/compare/*` and
+  `/templates/call-sheet-template`; keep `src/app/sitemap.ts` in step when
+  adding one. The homepage footer links to every one of them with plain
+  server-rendered links, so Google can find them from the homepage.
+- Vercel Web Analytics only, no GA4. Custom events go through one delegated
+  listener (`src/components/analytics/click-tracking.tsx`, mounted in the root
+  layout): add `data-track="<event>"` and optionally `data-track-location` to
+  any element. The signed-out homepage Sign in and Get started buttons send
+  `sign_up_click` with `location` `header` or `hero`.
+- IndexNow: `node scripts/indexnow.mjs` (homepage) or `--all` (sitemap). Run it
+  by hand after content changes, never from the build.

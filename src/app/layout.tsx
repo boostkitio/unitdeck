@@ -5,6 +5,7 @@ import { BRAND } from "@/lib/brand";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { ThemeProvider } from "./theme-provider";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import { ClickTracking } from "@/components/analytics/click-tracking";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -58,6 +59,7 @@ export default function RootLayout({
           <ConvexClientProvider>{children}</ConvexClientProvider>
         </ThemeProvider>
         <Analytics />
+        <ClickTracking />
       </body>
     </html>
   );
