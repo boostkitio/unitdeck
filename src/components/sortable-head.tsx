@@ -5,7 +5,7 @@ import { TableHead } from "@/components/ui/table";
 import type { Sort } from "@/lib/sort-rows";
 import { cn } from "@/lib/utils";
 
-export type { Sort, SortDir } from "@/lib/sort-rows";
+export type { Sort } from "@/lib/sort-rows";
 export { sortRows } from "@/lib/sort-rows";
 
 /** Column sort state: clicking the active column flips it, a new one starts ascending. */

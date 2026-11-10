@@ -2,7 +2,6 @@ export {
   ARCHIVED_OPTION,
   PROJECT_STATUSES,
   LEGACY_STATUSES,
-  NEEDS_ATTENTION_STATUSES,
   needsAttention,
   normaliseStatus,
   type ProjectStatus,
@@ -23,10 +22,6 @@ const STATUS_BADGE_CLASSES: Record<ProjectStatus, string> = {
   pencilled: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-300",
   confirmed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
 };
-
-/** Archived is a flag rather than a status, and reads as neutral. */
-export const ARCHIVED_BADGE =
-  "bg-neutral-100 text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400";
 
 const FALLBACK_BADGE =
   "bg-neutral-100 text-neutral-500 dark:bg-neutral-900 dark:text-neutral-500";
