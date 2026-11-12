@@ -16,6 +16,7 @@
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.8.0",
     "@base-ui/react": "^1.8.0",
     "@clerk/nextjs": "^7.9.11",
     "@napi-rs/canvas": "^1.0.10",

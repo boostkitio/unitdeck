@@ -1,4 +1,5 @@
-import { AI_MODEL, OPENROUTER_BASE_URL, openRouterHeaders } from "./ai";
+import Anthropic from "@anthropic-ai/sdk";
+import { AI_MODEL, anthropic, type AiEffort } from "./ai";
 
 /**
  * Pull the first JSON object out of a model response: handles bare JSON,
@@ -14,45 +15,51 @@ export function extractJson(text: string): unknown {
 }
 
 /**
- * One JSON-producing chat completion. Reasoning models spend tokens thinking
- * before they answer, so maxTokens is a hard floor of 4000. One automatic
- * retry on unparseable output, with the parse error fed back to the model.
+ * One JSON-producing completion. Thinking counts towards max_tokens, so the
+ * agents keep a floor of 4000 and quick lookups a floor of 2000. One
+ * automatic retry on unparseable output, with the parse error fed back to the
+ * model.
  */
 export async function chatJson(args: {
   system: string;
   user: string;
   maxTokens?: number;
-  model?: string;
+  /** Quick lookup: low effort and a smaller budget. */
+  fast?: boolean;
 }): Promise<unknown> {
-  // The default model is a reasoning model and needs generous headroom for its
-  // hidden reasoning tokens; a fast non-reasoning override does not.
-  const maxTokens = args.model
-    ? (args.maxTokens ?? 1500)
+  const maxTokens = args.fast
+    ? Math.max(args.maxTokens ?? 2000, 2000)
     : Math.max(args.maxTokens ?? 4000, 4000);
-  const model = args.model ?? AI_MODEL;
+  const effort: AiEffort = args.fast ? "low" : "medium";
 
-  async function once(messages: Array<{ role: string; content: string }>) {
-    const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: openRouterHeaders(),
-      body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`OpenRouter ${res.status}: ${text.slice(0, 300)}`);
+  async function once(messages: Anthropic.MessageParam[]) {
+    let message: Anthropic.Message;
+    try {
+      message = await anthropic().messages.create({
+        model: AI_MODEL,
+        max_tokens: maxTokens,
+        output_config: { effort },
+        system: args.system,
+        messages,
+      });
+    } catch (err) {
+      if (err instanceof Anthropic.APIError) {
+        throw new Error(`Anthropic ${err.status ?? "error"}: ${err.message.slice(0, 300)}`);
+      }
+      throw err;
     }
-    const json = (await res.json()) as {
-      choices: Array<{ message: { content: string } }>;
-    };
-    const content = json.choices[0]?.message?.content ?? "";
+    if (message.stop_reason === "refusal") {
+      throw new Error("The model declined to answer this request");
+    }
+    const content = message.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("");
     if (content.trim() === "") throw new Error("Model returned an empty response");
     return content;
   }
 
-  const messages = [
-    { role: "system", content: args.system },
-    { role: "user", content: args.user },
-  ];
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: args.user }];
   const first = await once(messages);
   try {
     return extractJson(first);

@@ -1,35 +1,32 @@
+import Anthropic from "@anthropic-ai/sdk";
+
 /**
  * Single configuration point for all AI features (Brief Parser, Call Sheet
- * Checker, Message Drafter, and anything later). Decision 2026-06-12: all AI
- * runs through OpenRouter on deepseek/deepseek-v4-flash. Change provider or
- * model here, nowhere else.
+ * Checker, Message Drafter, location lookup, and anything later). Decision
+ * 2026-11-12: all AI runs on Claude Haiku 5.5 through the Anthropic API.
+ * Change provider or model here, nowhere else.
  *
- * The key lives in the Convex deployment env (OPENROUTER_API_KEY) and in
- * .env.local for any Next.js-side use. Never hardcode it.
+ * The key lives in the Convex deployment env (ANTHROPIC_API_KEY). Never
+ * hardcode it.
  *
- * Note: deepseek-v4-flash is a reasoning model. Completions spend reasoning
- * tokens before output, so set max_tokens with generous headroom and never
- * assume the first tokens are the answer.
+ * Note: Haiku 5.5 thinks before answering and thinking counts towards
+ * max_tokens, so leave generous headroom and read only the text blocks.
  */
-export const AI_MODEL = "deepseek/deepseek-v4-flash";
+export const AI_MODEL = "claude-haiku-5-5";
 
 /**
- * Fast, non-reasoning model for lightweight lookups (e.g. location address
- * autofill) where the reasoning model's latency isn't worth it. Same provider,
- * same OPENROUTER_API_KEY. Pass it to chatJson via the `model` option.
+ * Effort per kind of call: "medium" for the agents that read a whole brief or
+ * call sheet, "low" for quick lookups (e.g. location address autofill) where
+ * latency matters more.
  */
-export const AI_MODEL_FAST = "deepseek/deepseek-chat";
+export type AiEffort = "low" | "medium";
 
-export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+let client: Anthropic | null = null;
 
-export function openRouterHeaders(): Record<string, string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set in the Convex environment");
-  return {
-    Authorization: `Bearer ${apiKey}`,
-    "Content-Type": "application/json",
-    // OpenRouter attribution headers (optional but recommended)
-    "HTTP-Referer": "https://unitdeck.app",
-    "X-Title": "UnitDeck",
-  };
+export function anthropic(): Anthropic {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY is not set in the Convex environment");
+  }
+  client ??= new Anthropic();
+  return client;
 }

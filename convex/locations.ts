@@ -3,7 +3,6 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireOrg } from "./lib/auth";
 import { chatJson } from "./lib/llm";
-import { AI_MODEL_FAST } from "./lib/ai";
 import { geocodeAddress } from "./lib/geocode";
 import { plusCodeFor } from "./lib/plusCode";
 import { findNearby, type Nearby } from "./lib/nearby";
@@ -359,7 +358,7 @@ Rules:
 - "postcode" is the full UK postcode (e.g. "SL0 0NH"). Null if unavailable.
 - Return fewer than 4 results if you are unsure of the others. Never invent addresses.`;
 
-    const raw = await chatJson({ system, user: args.query, model: AI_MODEL_FAST });
+    const raw = await chatJson({ system, user: args.query, fast: true });
 
     // Defensively shape the unknown result
     const obj = raw as Record<string, unknown>;
