@@ -15,7 +15,6 @@ sensitivity: repository-safe
 - Business: boostkit
 - Client ID: none recorded
 - Lifecycle status: uncertain
-- Production changes require explicit approval.
 - Add verified architecture, integrations, commands, and constraints here. Never add secret values or private commercial notes.
 <!-- agent-context:end -->
 
