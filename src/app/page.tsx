@@ -1,9 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { auth } from "@clerk/nextjs/server";
-import { SignInButton } from "@clerk/nextjs";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { HeaderAuthLink, HeroAuthAction } from "./home-auth";
 import { Logo } from "@/components/logo";
 import { BRAND, SITE_URL } from "@/lib/brand";
 
@@ -11,10 +8,7 @@ export const metadata: Metadata = {
   alternates: { canonical: SITE_URL },
 };
 
-export default async function Home() {
-  const { userId } = await auth();
-  const signedIn = userId !== null;
-
+export default function Home() {
   return (
     <main className="relative flex min-h-screen flex-col overflow-hidden bg-neutral-950 text-neutral-50">
       {/* Background video. Decorative only: muted, looped, hidden from AT. */}
@@ -39,24 +33,7 @@ export default async function Home() {
 
       <div className="relative z-10 flex min-h-screen flex-col">
         <header className="flex items-center justify-end px-8 py-6">
-          {signedIn ? (
-            <Link
-              href="/dashboard"
-              className="text-sm font-medium text-neutral-300 transition-colors hover:text-white"
-            >
-              Open app
-            </Link>
-          ) : (
-            <SignInButton mode="modal">
-              <button
-                data-track="sign_up_click"
-                data-track-location="header"
-                className="text-sm font-medium text-neutral-300 transition-colors hover:text-white"
-              >
-                Sign in
-              </button>
-            </SignInButton>
-          )}
+          <HeaderAuthLink />
         </header>
         <section className="flex flex-1 flex-col items-center justify-center px-8 text-center">
           <Logo size={32} className="mb-8" />
@@ -65,28 +42,7 @@ export default async function Home() {
           </h1>
           <p className="mt-5 max-w-xl text-balance text-neutral-300">{BRAND.description}</p>
           <div className="mt-8">
-            {signedIn ? (
-              <Link
-                href="/dashboard"
-                className={cn(
-                  buttonVariants({ size: "lg" }),
-                  "bg-white text-neutral-950 hover:bg-neutral-200"
-                )}
-              >
-                Go to your dashboard
-              </Link>
-            ) : (
-              <SignInButton mode="modal">
-                <Button
-                  size="lg"
-                  data-track="sign_up_click"
-                  data-track-location="hero"
-                  className="bg-white text-neutral-950 hover:bg-neutral-200"
-                >
-                  Get started
-                </Button>
-              </SignInButton>
-            )}
+            <HeroAuthAction />
           </div>
         </section>
         <footer className="flex flex-col gap-4 px-8 py-6 sm:flex-row sm:items-center sm:justify-between">
