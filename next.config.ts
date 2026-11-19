@@ -1,6 +1,17 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+    ];
+  },
   // Addresses that have moved. A shoot day used to be reached through
   // /shoot-days/<document id>/…; it is now addressed by its date, under the
   // page it belongs to. The new pages read an id as well as a date, so an old

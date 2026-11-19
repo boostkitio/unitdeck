@@ -33,10 +33,19 @@ function useStoredUnlock(): boolean {
   );
 }
 
+// Today's date, read on the client only. The page is prerendered at build
+// time, so a date taken during render would differ between the static HTML
+// and the browser and break hydration (React error #418). The server snapshot
+// is empty and React fills in today straight after hydration.
+const todayIso = () => new Date().toISOString().slice(0, 10);
+function useToday(): string {
+  return useSyncExternalStore(emptySubscribe, todayIso, () => "");
+}
+
 function emptyData(): CallSheetData {
   return {
     title: "",
-    date: new Date().toISOString().slice(0, 10),
+    date: "",
     generalCallTime: "08:00",
     productionCompany: "",
     locations: [{ id: "loc-1", name: "", address: "" }],
@@ -55,7 +64,11 @@ const removeButtonClass = "text-xs font-medium text-red-600 hover:underline";
 
 export function CallSheetMaker() {
   const createRender = useMutation(api.tools.createRender);
-  const [data, setData] = useState<CallSheetData>(emptyData);
+  const [draft, setData] = useState<CallSheetData>(emptyData);
+  // Until someone picks a shoot date, the sheet is for today.
+  const [dateChosen, setDateChosen] = useState(false);
+  const today = useToday();
+  const data: CallSheetData = dateChosen ? draft : { ...draft, date: today };
   const storedUnlock = useStoredUnlock();
   const [justUnlocked, setJustUnlocked] = useState(false);
   const unlocked = storedUnlock || justUnlocked;
@@ -141,7 +154,10 @@ export function CallSheetMaker() {
                 type="date"
                 className={inputClass}
                 value={data.date}
-                onChange={(e) => set({ date: e.target.value })}
+                onChange={(e) => {
+                  setDateChosen(true);
+                  set({ date: e.target.value });
+                }}
               />
             </div>
             <div>

@@ -56,6 +56,8 @@ export function WaitlistForm({
       <input
         type="email"
         required
+        aria-label="Email address"
+        autoComplete="email"
         placeholder="you@productioncompany.co.uk"
         className="h-11 flex-1 rounded-md border border-neutral-300 bg-white px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900"
         value={email}
