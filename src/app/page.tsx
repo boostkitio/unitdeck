@@ -3,14 +3,39 @@ import Link from "next/link";
 import { HeaderAuthLink, HeroAuthAction } from "./home-auth";
 import { Logo } from "@/components/logo";
 import { BRAND, SITE_URL } from "@/lib/brand";
+import { JsonLd, marketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
-  alternates: { canonical: SITE_URL },
-};
+export const metadata: Metadata = marketingMetadata({
+  description: BRAND.description,
+  path: "",
+});
 
 export default function Home() {
   return (
     <main className="relative flex min-h-screen flex-col overflow-hidden bg-neutral-950 text-neutral-50">
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "Organization",
+              "@id": `${SITE_URL}/#organization`,
+              name: BRAND.name,
+              url: SITE_URL,
+              logo: `${SITE_URL}/icon.svg`,
+            },
+            {
+              "@type": "WebSite",
+              "@id": `${SITE_URL}/#website`,
+              name: BRAND.name,
+              url: SITE_URL,
+              description: BRAND.description,
+              inLanguage: "en-GB",
+              publisher: { "@id": `${SITE_URL}/#organization` },
+            },
+          ],
+        }}
+      />
       {/* Background video. Decorative only: muted, looped, hidden from AT. */}
       <video
         autoPlay

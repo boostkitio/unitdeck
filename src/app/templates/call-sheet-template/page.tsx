@@ -1,18 +1,41 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { CallSheetMaker } from "@/components/marketing/call-sheet-maker";
 import { BRAND, SITE_URL } from "@/lib/brand";
+import { JsonLd, breadcrumbs, marketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
+const PATH = "/templates/call-sheet-template";
+
+export const metadata: Metadata = marketingMetadata({
   title: "Free call sheet maker (UK) for video production",
   description:
-    "Build a professional call sheet in your browser and download it as a PDF, free: call times, schedule, location with parking and nearest A&E, crew list, key contacts and safety notes.",
-  alternates: { canonical: `${SITE_URL}/templates/call-sheet-template` },
-};
+    "Build a call sheet in your browser and download it as a free PDF: call times, schedule, location with parking and nearest A&E, crew list, contacts and safety notes.",
+  path: PATH,
+});
 
 export default function CallSheetTemplatePage() {
   return (
     <MarketingShell source="template-call-sheet">
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "WebApplication",
+              name: "Free call sheet maker",
+              url: `${SITE_URL}${PATH}`,
+              description:
+                "Build a call sheet in your browser and download it as a PDF: call times, schedule, location with parking and nearest A&E, crew list, key contacts and safety notes.",
+              applicationCategory: "BusinessApplication",
+              operatingSystem: "Web browser",
+              isAccessibleForFree: true,
+              offers: { "@type": "Offer", price: "0", priceCurrency: "GBP" },
+              provider: { "@type": "Organization", name: BRAND.name, url: SITE_URL },
+            },
+            breadcrumbs([{ name: "Free call sheet maker", path: PATH }]),
+          ],
+        }}
+      />
       <h1 className="mt-4 text-3xl font-bold tracking-tight">Free call sheet maker</h1>
       <p className="mt-4 text-neutral-600">
         A call sheet is the one document every crew member actually reads. Fill in the details

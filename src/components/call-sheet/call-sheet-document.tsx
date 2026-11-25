@@ -57,9 +57,12 @@ function placeKey(loc: LocationEntry): string {
 export function CallSheetDocument({
   data,
   versionLabel,
+  titleTag: TitleTag = "h1",
 }: {
   data: CallSheetData;
   versionLabel?: string;
+  /** The sheet title is the page's h1 when printed; an embedded preview passes h2. */
+  titleTag?: "h1" | "h2";
 }) {
   const days = sheetDays(data);
   const combined = days.length > 1;
@@ -102,7 +105,7 @@ export function CallSheetDocument({
               {data.productionCompany}
               {data.clientName ? ` for ${data.clientName}` : ""}
             </p>
-            <h1 className="mt-1 text-[20pt] font-bold leading-tight">{data.title}</h1>
+            <TitleTag className="mt-1 text-[20pt] font-bold leading-tight">{data.title}</TitleTag>
             {/* Where it is, right under what it is. Anyone glancing at the top
                 of a call sheet is looking for one of those two things. */}
             {locations[0] && (

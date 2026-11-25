@@ -1,17 +1,26 @@
 import type { Metadata } from "next";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
-import { BRAND, SITE_URL } from "@/lib/brand";
+import { BRAND } from "@/lib/brand";
+import { JsonLd, breadcrumbs, marketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
+const PATH = "/compare/yamdu-alternative";
+
+export const metadata: Metadata = marketingMetadata({
   title: "Yamdu alternative for corporate and branded video",
   description:
-    "Yamdu manages scripted film and TV productions. Unit runs video production companies: AI call sheets straight from the client brief, live crew confirmations and per-seat pricing built for weekly shoots.",
-  alternates: { canonical: `${SITE_URL}/compare/yamdu-alternative` },
-};
+    "Yamdu is built for scripted film and TV. UnitDeck runs video production companies: AI call sheets from the client brief, live crew confirmations and per-seat pricing.",
+  path: PATH,
+});
 
 export default function YamduAlternativePage() {
   return (
     <MarketingShell source="compare-yamdu">
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          ...breadcrumbs([{ name: "Yamdu alternative", path: PATH }]),
+        }}
+      />
       <h1 className="mt-4 text-3xl font-bold tracking-tight">
         A Yamdu alternative for companies that shoot every week
       </h1>

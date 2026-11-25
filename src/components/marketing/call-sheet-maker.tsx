@@ -489,6 +489,7 @@ export function CallSheetMaker() {
         <FitToWidth>
           <PagedPreview>
             <CallSheetDocument
+              titleTag="h2"
               data={{
                 ...data,
                 title: data.title || "Your production title",
